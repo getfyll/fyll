@@ -593,17 +593,23 @@ const useFyllStore = create<FyllStore>()(
 
       // Products
       addProduct: async (product, businessId) => {
+        console.log('➕ Adding product:', product.name, 'ID:', product.id);
+        console.log('💼 BusinessId for product:', businessId);
+
         // Update local state immediately
         set({ products: [...get().products, product] });
 
         // Save to Firebase if businessId is provided
         if (businessId) {
           try {
+            console.log('📤 Saving product to Firebase path: businesses/' + businessId + '/products');
             await productService.createProduct(businessId, product);
             console.log('✅ Product saved to Firebase:', product.id);
           } catch (error) {
             console.error('❌ Failed to save product to Firebase:', error);
           }
+        } else {
+          console.warn('⚠️ No businessId provided - product NOT saved to Firebase');
         }
       },
       updateProduct: async (id, updates, businessId) => {

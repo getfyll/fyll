@@ -34,6 +34,9 @@ export function useFirebaseSync() {
         // Subscribe to products
         const unsubProducts = syncService.subscribeToProducts(businessId, async (firebaseProducts: Product[]) => {
             console.log('📦 Products synced from Firebase:', firebaseProducts.length);
+            if (firebaseProducts.length > 0) {
+                console.log('📋 Product names:', firebaseProducts.map(p => p.name).join(', '));
+            }
 
             if (firebaseProducts.length === 0) {
                 const localProducts = useFyllStore.getState().products;

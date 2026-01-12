@@ -186,27 +186,47 @@ const useAuthStore = create<AuthStore>()(
           let businessName: string | null = null;
           let isOfflineError = false;
 
-          try {
-            const userRef = doc(db, 'users', credential.user.uid);
-            const userSnap = await getDoc(userRef);
+          // Retry logic for Firestore connection race condition on web
+          const maxRetries = 3;
+          let retryCount = 0;
 
-            if (userSnap.exists()) {
-              const data = userSnap.data() as AuthUser;
-              userData = data;
-              businessId = data.businessId;
+          while (retryCount < maxRetries && !userData) {
+            try {
+              // Add small delay for retry attempts to let Firestore connect
+              if (retryCount > 0) {
+                await new Promise(resolve => setTimeout(resolve, 300 * retryCount));
+              }
 
-              if (businessId) {
-                setDoc(
-                  doc(db, `businesses/${businessId}/team`, credential.user.uid),
-                  { lastLogin: new Date().toISOString() },
-                  { merge: true }
-                ).catch(() => {});
+              const userRef = doc(db, 'users', credential.user.uid);
+              const userSnap = await getDoc(userRef);
+
+              if (userSnap.exists()) {
+                const data = userSnap.data() as AuthUser;
+                userData = data;
+                businessId = data.businessId;
+
+                if (businessId) {
+                  setDoc(
+                    doc(db, `businesses/${businessId}/team`, credential.user.uid),
+                    { lastLogin: new Date().toISOString() },
+                    { merge: true }
+                  ).catch(() => {});
+                }
+                break; // Success - exit retry loop
+              }
+            } catch (firestoreError) {
+              const code = (firestoreError as { code?: string })?.code;
+              isOfflineError = code === 'failed-precondition' || code === 'unavailable';
+              console.error(`Firestore error (attempt ${retryCount + 1}/${maxRetries}):`, firestoreError);
+
+              // Only retry on connection errors
+              if (isOfflineError && retryCount < maxRetries - 1) {
+                retryCount++;
+                continue;
+              } else {
+                break; // Non-retryable error or max retries reached
               }
             }
-          } catch (firestoreError) {
-            const code = (firestoreError as { code?: string })?.code;
-            isOfflineError = code === 'failed-precondition' || code === 'unavailable';
-            console.error('Firestore error:', firestoreError);
           }
 
           if (!userData) {

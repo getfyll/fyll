@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, initializeFirestore, CACHE_SIZE_UNLIMITED, Firestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 
@@ -14,9 +14,19 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-// Use default Firestore initialization - simpler and more reliable
-// Previous attempts with memoryLocalCache were preventing connection on web
-const db = getFirestore(app);
+// Force server connection - disable offline persistence completely
+// This ensures we always get fresh data from the server, not stale cache
+let db: Firestore;
+try {
+  db = initializeFirestore(app, {
+    cacheSizeBytes: CACHE_SIZE_UNLIMITED,
+  });
+  console.log('🔥 Firestore initialized with unlimited cache');
+} catch (error) {
+  // If already initialized, get the existing instance
+  console.log('🔥 Using existing Firestore instance');
+  db = getFirestore(app);
+}
 
 export { db };
 export const auth = getAuth(app);

@@ -2,35 +2,67 @@
 
 import { Platform } from 'react-native';
 import { db } from './firebaseConfig';
-import { collection, onSnapshot, query } from 'firebase/firestore';
+import { collection, onSnapshot, query, getDocs } from 'firebase/firestore';
 
 // Real-time subscription using onSnapshot
 const subscribeWithRealtime = (path: string, callback: (items: any[]) => void) => {
     console.log('🎧 Setting up listener for path:', path);
     console.log('🔍 Firebase Project ID:', db.app.options.projectId);
 
+    // First, try to fetch from server to verify connectivity
+    getDocs(query(collection(db, path)))
+        .then(serverSnapshot => {
+            console.log('🌐 Server connectivity test:', {
+                path,
+                docs: serverSnapshot.docs.length,
+                fromCache: serverSnapshot.metadata.fromCache,
+                hasPendingWrites: serverSnapshot.metadata.hasPendingWrites
+            });
+        })
+        .catch(error => {
+            console.error('❌ Server connectivity test failed:', error);
+        });
+
     const unsubscribe = onSnapshot(
         query(collection(db, path)),
+        {
+            // Force include snapshot metadata to detect cache vs server
+            includeMetadataChanges: true,
+        },
         (snapshot) => {
+            const docCount = snapshot.docs.length;
+            const fromCache = snapshot.metadata.fromCache;
+            const hasPendingWrites = snapshot.metadata.hasPendingWrites;
+
             console.log('🔔 Snapshot received for', path);
-            console.log('   📊 Docs:', snapshot.docs.length);
-            console.log('   💾 From cache:', snapshot.metadata.fromCache);
-            console.log('   🔄 Has pending writes:', snapshot.metadata.hasPendingWrites);
+            console.log('   📊 Docs:', docCount);
+            console.log('   💾 From cache:', fromCache);
+            console.log('   🔄 Has pending writes:', hasPendingWrites);
 
-            if (snapshot.docs.length > 0) {
-                console.log('   📄 First doc ID:', snapshot.docs[0].id);
-                console.log('   📄 First doc data:', snapshot.docs[0].data());
+            // Only process if data is from server (not cache) OR if it's the initial snapshot
+            if (!fromCache || docCount > 0) {
+                if (docCount > 0) {
+                    console.log('   📄 First doc ID:', snapshot.docs[0].id);
+                    console.log('   📄 First doc data:', snapshot.docs[0].data());
+                } else {
+                    console.log('   ⚠️ Collection is EMPTY (from server)');
+                }
+
+                const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                callback(items);
             } else {
-                console.log('   ⚠️ Collection is EMPTY');
+                console.log('   ⏭️  Skipping cache-only snapshot, waiting for server data...');
             }
-
-            const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            callback(items);
         },
         (error) => {
             console.error('❌ Firestore sync error for', path, ':', error);
             console.error('   Error code:', error.code);
             console.error('   Error message:', error.message);
+
+            // Check if it's a permission error
+            if (error.code === 'permission-denied') {
+                console.error('   🚨 PERMISSION DENIED - Check Firestore security rules!');
+            }
         }
     );
 

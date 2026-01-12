@@ -250,52 +250,78 @@ export default function NewProductScreen() {
 
     setIsSubmitting(true);
 
-    // Simulate a small delay for better UX feedback
-    await new Promise(resolve => setTimeout(resolve, 300));
+    try {
+      // Simulate a small delay for better UX feedback
+      await new Promise(resolve => setTimeout(resolve, 300));
 
-    if (Platform.OS !== 'web') {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (Platform.OS !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+
+      const productId = generateProductId();
+      const productVariants: ProductVariant[] = variants.map((v, index) => {
+        const sku = `${name.substring(0, 3).toUpperCase()}-${Object.values(v.variableValues).join('-').substring(0, 4).toUpperCase()}`;
+        // Use global price if enabled, otherwise use individual variant price
+        const finalPrice = useGlobalPrice ? (parseFloat(globalPrice) || 0) : (parseFloat(v.sellingPrice) || 0);
+        return {
+          id: `${productId}-${index + 1}`,
+          sku,
+          barcode: generateVariantBarcode(),
+          variableValues: v.variableValues,
+          stock: parseInt(v.stock, 10) || 0,
+          sellingPrice: finalPrice,
+          imageUrl: v.imageUrl,
+        };
+      });
+
+      console.log('🚀 Submitting product:', name);
+      console.log('📦 Product ID:', productId);
+      console.log('🏢 BusinessId:', businessId);
+
+      // Add timeout to prevent infinite spinner
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Product creation timed out after 15 seconds')), 15000)
+      );
+
+      await Promise.race([
+        addProduct({
+          id: productId,
+          name: name.trim(),
+          description: description.trim(),
+          categories: categories,
+          variants: productVariants,
+          lowStockThreshold: parseInt(lowStockThreshold, 10) || 5,
+          createdAt: new Date().toISOString(),
+          imageUrl: productImageUrl || undefined,
+          createdBy: currentUser?.name,
+          // New Design fields
+          isNewDesign: isNewDesign,
+          designYear: isNewDesign ? parseInt(designYear, 10) || new Date().getFullYear() : undefined,
+          designLaunchedAt: isNewDesign ? new Date().toISOString() : undefined,
+        }, businessId),
+        timeoutPromise
+      ]);
+
+      console.log('✅ Product submitted successfully');
+
+      // Show success toast
+      setShowSuccessToast(true);
+
+      // Navigate back after brief delay to show toast
+      setTimeout(() => {
+        router.back();
+      }, 800);
+    } catch (error) {
+      console.error('❌ Failed to create product:', error);
+      setIsSubmitting(false);
+
+      // Show error feedback
+      if (Platform.OS !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      }
+
+      alert('Failed to create product. Please check your internet connection and try again.');
     }
-
-    const productId = generateProductId();
-    const productVariants: ProductVariant[] = variants.map((v, index) => {
-      const sku = `${name.substring(0, 3).toUpperCase()}-${Object.values(v.variableValues).join('-').substring(0, 4).toUpperCase()}`;
-      // Use global price if enabled, otherwise use individual variant price
-      const finalPrice = useGlobalPrice ? (parseFloat(globalPrice) || 0) : (parseFloat(v.sellingPrice) || 0);
-      return {
-        id: `${productId}-${index + 1}`,
-        sku,
-        barcode: generateVariantBarcode(),
-        variableValues: v.variableValues,
-        stock: parseInt(v.stock, 10) || 0,
-        sellingPrice: finalPrice,
-        imageUrl: v.imageUrl,
-      };
-    });
-
-    await addProduct({
-      id: productId,
-      name: name.trim(),
-      description: description.trim(),
-      categories: categories,
-      variants: productVariants,
-      lowStockThreshold: parseInt(lowStockThreshold, 10) || 5,
-      createdAt: new Date().toISOString(),
-      imageUrl: productImageUrl || undefined,
-      createdBy: currentUser?.name,
-      // New Design fields
-      isNewDesign: isNewDesign,
-      designYear: isNewDesign ? parseInt(designYear, 10) || new Date().getFullYear() : undefined,
-      designLaunchedAt: isNewDesign ? new Date().toISOString() : undefined,
-    }, businessId);
-
-    // Show success toast
-    setShowSuccessToast(true);
-
-    // Navigate back after brief delay to show toast
-    setTimeout(() => {
-      router.back();
-    }, 800);
   };
 
   // Check if all variants have images

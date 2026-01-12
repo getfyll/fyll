@@ -23,6 +23,8 @@ export function useFirebaseSync() {
         }
 
         console.log('🔥 Initializing Firebase sync...');
+        console.log('📊 BusinessId:', businessId);
+        console.log('👤 User:', useAuthStore.getState().currentUser?.email);
 
         // Force enable network to prevent "offline mode" cache issues
         enableNetwork(db)

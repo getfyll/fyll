@@ -245,34 +245,23 @@ export default function SettingsScreen() {
 
   const colorOptions = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899', '#6B7280', '#059669'];
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+      if (Platform.OS !== 'web') {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      }
     } catch (e) {
       // Haptics might fail, continue anyway
     }
 
-    Alert.alert(
-      'Log Out',
-      'Are you sure you want to log out?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Log Out',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await logout();
-              router.replace('/login');
-            } catch (error) {
-              console.error('Logout error:', error);
-              // Force navigate even if logout fails
-              router.replace('/login');
-            }
-          },
-        },
-      ]
-    );
+    try {
+      await logout();
+      router.replace('/login');
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Force navigate even if logout fails
+      router.replace('/login');
+    }
   };
 
   const handleAddItem = () => {

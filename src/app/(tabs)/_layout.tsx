@@ -1,0 +1,159 @@
+import React from 'react';
+import { Tabs } from 'expo-router';
+import { View, Platform } from 'react-native';
+import { LayoutDashboard, Package, ShoppingCart, Settings, BarChart3 } from 'lucide-react-native';
+import useFyllStore from '@/lib/state/fyll-store';
+import { useThemeColors } from '@/lib/theme';
+import { useBreakpoint } from '@/lib/useBreakpoint';
+import { DesktopSidebar } from '@/components/DesktopSidebar';
+import useAuthStore, { ROLE_PERMISSIONS } from '@/lib/state/auth-store';
+
+function TabBarIcon({
+  Icon,
+  color,
+  focused,
+  offsetY = 0,
+}: {
+  Icon: React.ComponentType<{ size: number; color: string; strokeWidth: number }>;
+  color: string;
+  focused: boolean;
+  offsetY?: number;
+}) {
+  const colors = useThemeColors();
+  return (
+    <View
+      className="items-center justify-center"
+      style={{
+        width: 50,
+        height: 32,
+        marginTop: 2,
+        borderRadius: 16,
+        backgroundColor: focused ? (colors.bg.primary === '#FFFFFF' ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.1)') : 'transparent',
+      }}
+    >
+      <View style={{ transform: [{ translateY: offsetY }] }}>
+        <Icon size={22} color={color} strokeWidth={focused ? 2.5 : 2} />
+      </View>
+    </View>
+  );
+}
+
+export default function TabLayout() {
+  const colors = useThemeColors();
+  const { isDesktop } = useBreakpoint();
+  const currentUser = useAuthStore((s) => s.currentUser);
+  const userRole = currentUser?.role ?? 'staff';
+  const canViewInsights = ROLE_PERMISSIONS[userRole]?.canViewInsights ?? false;
+
+  const isWeb = Platform.OS === 'web';
+  const tabBarHeight = isWeb ? 80 : (Platform.OS === 'ios' ? 88 : 70);
+
+  // On desktop, show sidebar instead of bottom tabs
+  const tabBarStyle = isDesktop
+    ? { display: 'none' as const }
+    : {
+        backgroundColor: colors.tabBar.bg,
+        borderTopWidth: 1,
+        borderTopColor: colors.tabBar.border,
+        height: tabBarHeight,
+        paddingTop: isWeb ? 6 : 8,
+        paddingBottom: isWeb ? 10 : (Platform.OS === 'ios' ? 28 : 12),
+      };
+
+  return (
+    <View style={{ flex: 1, flexDirection: 'row' }}>
+      {/* Desktop Sidebar */}
+      {isDesktop && <DesktopSidebar />}
+
+      {/* Main Content with Tabs */}
+      <View style={{ flex: 1 }}>
+        <Tabs
+          screenOptions={{
+            tabBarActiveTintColor: colors.tabBar.active,
+            tabBarInactiveTintColor: colors.tabBar.inactive,
+            tabBarStyle,
+            sceneContainerStyle: {
+              paddingBottom: isDesktop ? 0 : tabBarHeight,
+            },
+            tabBarLabelStyle: {
+              fontSize: isWeb ? 10 : 11,
+              fontWeight: '600',
+              marginTop: isWeb ? 2 : 2,
+              lineHeight: isWeb ? 12 : 13,
+              paddingBottom: isWeb ? 0 : 0,
+            },
+            tabBarItemStyle: {
+              paddingVertical: isWeb ? 4 : 0,
+            },
+            tabBarIconStyle: {
+              marginTop: 0,
+            },
+            headerStyle: {
+              backgroundColor: colors.bg.primary,
+            },
+            headerTitleStyle: {
+              color: colors.text.primary,
+              fontSize: 18,
+              fontWeight: '700',
+            },
+            headerShadowVisible: false,
+          }}
+        >
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: 'Home',
+          tabBarIcon: ({ color, focused }) => <TabBarIcon Icon={LayoutDashboard} color={color} focused={focused} />,
+          headerShown: false,
+        }}
+      />
+      <Tabs.Screen
+        name="inventory"
+        options={{
+          title: 'Inventory',
+          tabBarIcon: ({ color, focused }) => <TabBarIcon Icon={Package} color={color} focused={focused} />,
+          headerShown: false,
+        }}
+      />
+      <Tabs.Screen
+        name="orders"
+        options={{
+          title: 'Orders',
+          tabBarIcon: ({ color, focused }) => <TabBarIcon Icon={ShoppingCart} color={color} focused={focused} />,
+          headerShown: false,
+        }}
+      />
+      <Tabs.Screen
+        name="insights"
+        options={{
+          title: 'Insights',
+          tabBarIcon: ({ color, focused }) => <TabBarIcon Icon={BarChart3} color={color} focused={focused} offsetY={2} />,
+          headerShown: false,
+          href: canViewInsights ? '/insights' : null,
+        }}
+      />
+      <Tabs.Screen
+        name="settings"
+        options={{
+          title: 'Settings',
+          tabBarIcon: ({ color, focused }) => <TabBarIcon Icon={Settings} color={color} focused={focused} />,
+          headerShown: false,
+        }}
+      />
+      <Tabs.Screen
+        name="finance"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="two"
+        options={{
+          href: null,
+        }}
+      />
+        </Tabs>
+      </View>
+    </View>
+  );
+}

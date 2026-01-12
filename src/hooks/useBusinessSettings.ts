@@ -103,13 +103,36 @@ export function useBusinessSettings(): BusinessSettingsResult {
 
       // Try loading from Supabase businesses table (for online mode)
       if (businessId && !isOfflineMode) {
+        // Try to select data column, but don't fail if it doesn't exist
         const { data: business, error } = await supabase
           .from('businesses')
           .select('name, data')
           .eq('id', businessId)
           .maybeSingle();
 
-        if (!error && business) {
+        // If error is about missing column, just get the name
+        if (error && error.message?.includes('column')) {
+          const { data: businessBasic } = await supabase
+            .from('businesses')
+            .select('name')
+            .eq('id', businessId)
+            .maybeSingle();
+
+          if (businessBasic) {
+            const remoteSettings: BusinessSettings = {
+              businessName: (businessBasic.name as string) ?? '',
+              businessLogo: null,
+              businessPhone: '',
+              businessWebsite: '',
+              returnAddress: '',
+            };
+            setSettings(remoteSettings);
+            const key = getSettingsKey(businessId);
+            await AsyncStorage.setItem(key, JSON.stringify(remoteSettings));
+            setIsLoading(false);
+            return;
+          }
+        } else if (!error && business) {
           const data = business.data as Record<string, unknown> | null;
           const remoteSettings: BusinessSettings = {
             businessName: (business.name as string) ?? '',
@@ -165,7 +188,8 @@ export function useBusinessSettings(): BusinessSettingsResult {
 
       // Save to Supabase businesses table (for online mode)
       if (businessId && !isOfflineMode) {
-        const { error: businessError } = await supabase
+        // Try to update with data column first
+        let { error: businessError } = await supabase
           .from('businesses')
           .update({
             name: newSettings.businessName,
@@ -178,7 +202,18 @@ export function useBusinessSettings(): BusinessSettingsResult {
           })
           .eq('id', businessId);
 
-        if (businessError) {
+        // If data column doesn't exist, just update the name
+        if (businessError && businessError.message?.includes('column')) {
+          const { error: nameOnlyError } = await supabase
+            .from('businesses')
+            .update({ name: newSettings.businessName })
+            .eq('id', businessId);
+
+          if (nameOnlyError) {
+            console.warn('Failed to save to Supabase:', nameOnlyError);
+            return { success: false, error: 'Failed to sync with server' };
+          }
+        } else if (businessError) {
           console.warn('Failed to save to Supabase:', businessError);
           return { success: false, error: 'Failed to sync with server' };
         }

@@ -121,7 +121,10 @@ const slugify = (value: string) => value
 
 const createBusinessId = (businessName: string) => {
   const base = slugify(businessName) || 'business';
-  return `${base}-${Math.random().toString(36).substring(2, 8)}`;
+  // Use timestamp + random to ensure uniqueness across multiple signups
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).substring(2, 8);
+  return `${base}-${timestamp}${random}`;
 };
 
 const getAuthErrorMessage = (error: unknown, fallback: string) => {
@@ -319,16 +322,14 @@ const useAuthStore = create<AuthStore>()(
             uid: createdUserId,
           });
 
-          // Use upsert to handle cases where user was created but insert failed
+          // Insert business (use insert, not upsert, to ensure unique businesses)
           const { error: businessError } = await supabase
             .from('businesses')
-            .upsert({
+            .insert({
               id: businessId,
               name: businessName.trim(),
               owner_id: createdUserId,
               created_at: createdAt,
-            }, {
-              onConflict: 'id'
             });
 
           if (businessError) {

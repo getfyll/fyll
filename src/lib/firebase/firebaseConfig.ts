@@ -18,7 +18,7 @@ const app = initializeApp(firebaseConfig);
 // This disables IndexedDB persistence which was causing problems
 const db = initializeFirestore(app, {
   localCache: memoryLocalCache(),
-  experimentalForceLongPolling: true,
+  // Removed experimentalForceLongPolling - it was causing slow reads/timeouts
 });
 
 export { db };

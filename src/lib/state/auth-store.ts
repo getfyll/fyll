@@ -200,7 +200,7 @@ const useAuthStore = create<AuthStore>()(
           try {
             console.log('🔍 Attempting to fetch user data from Firestore...');
             const userRef = doc(db, 'users', credential.user.uid);
-            const userSnap = await withTimeout(getDoc(userRef), 5000); // Reduced to 5s for faster failure
+            const userSnap = await withTimeout(getDoc(userRef), 10000); // Increased to 10s to prevent premature timeout
 
             if (userSnap.exists()) {
               console.log('✅ User data found in Firestore');

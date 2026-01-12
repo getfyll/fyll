@@ -16,11 +16,13 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Use long polling for both web AND mobile to avoid connection issues
-const db = initializeFirestore(app, {
-    localCache: Platform.OS === 'web' ? { kind: 'memory' } : undefined,
-    experimentalForceLongPolling: true,
-  });
+// Web needs long polling + memory cache, mobile works better with defaults
+const db = Platform.OS === 'web'
+  ? initializeFirestore(app, {
+      localCache: { kind: 'memory' },
+      experimentalForceLongPolling: true,
+    })
+  : initializeFirestore(app, {});
 
 export { db };
 export const auth = getAuth(app);

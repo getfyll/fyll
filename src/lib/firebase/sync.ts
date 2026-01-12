@@ -18,9 +18,25 @@ const subscribeWithRealtime = (path: string, callback: (items: any[]) => void) =
                 fromCache: serverSnapshot.metadata.fromCache,
                 hasPendingWrites: serverSnapshot.metadata.hasPendingWrites
             });
+
+            if (serverSnapshot.metadata.fromCache) {
+                console.warn('⚠️ WARNING: Data is from cache, not server!');
+                console.warn('   Possible causes:');
+                console.warn('   1. Firestore security rules are blocking access');
+                console.warn('   2. Network is offline');
+                console.warn('   3. Firestore is in persistent offline mode');
+            }
         })
         .catch(error => {
             console.error('❌ Server connectivity test failed:', error);
+            console.error('   Error code:', error.code);
+            console.error('   Error message:', error.message);
+
+            if (error.code === 'permission-denied') {
+                console.error('   🚨 PERMISSION DENIED!');
+                console.error('   Your Firestore security rules are blocking access to:', path);
+                console.error('   Please check your rules in Firebase Console');
+            }
         });
 
     const unsubscribe = onSnapshot(

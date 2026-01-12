@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore, initializeFirestore, CACHE_SIZE_UNLIMITED, Firestore } from 'firebase/firestore';
+import { getFirestore, Firestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 
@@ -12,21 +12,34 @@ const firebaseConfig = {
   appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID ?? '',
 };
 
+console.log('🔥 Initializing Firebase app...');
+console.log('📋 Project ID:', firebaseConfig.projectId);
+console.log('🌐 Auth Domain:', firebaseConfig.authDomain);
+
 const app = initializeApp(firebaseConfig);
 
-// Force server connection - disable offline persistence completely
-// This ensures we always get fresh data from the server, not stale cache
-let db: Firestore;
-try {
-  db = initializeFirestore(app, {
-    cacheSizeBytes: CACHE_SIZE_UNLIMITED,
+// Use simple getFirestore - let Firebase SDK handle everything
+// The issue is likely Firestore security rules blocking access
+const db: Firestore = getFirestore(app);
+console.log('🔥 Firestore initialized with default settings');
+
+// Test Firestore API connectivity
+fetch(`https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents`, {
+  method: 'GET',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+})
+  .then(response => {
+    console.log('🌐 Firestore REST API reachable:', response.status);
+    if (response.status === 401 || response.status === 403) {
+      console.warn('⚠️ Firestore API returned auth error - this is normal without credentials');
+    }
+  })
+  .catch(err => {
+    console.error('❌ Firestore REST API test failed:', err);
+    console.error('   This may indicate network issues or CORS problems');
   });
-  console.log('🔥 Firestore initialized with unlimited cache');
-} catch (error) {
-  // If already initialized, get the existing instance
-  console.log('🔥 Using existing Firestore instance');
-  db = getFirestore(app);
-}
 
 export { db };
 export const auth = getAuth(app);

@@ -283,22 +283,23 @@ const useAuthStore = create<AuthStore>()(
             }
           }
 
-          if (!userData || (!businessId && !isOfflineError)) {
+          // CRITICAL: Require businessId - don't allow broken offline login
+          if (!userData || !businessId) {
             await signOut(auth);
             set({ isAuthLoading: false });
             return {
               success: false,
               error: isOfflineError
-                ? 'Cannot reach Firestore. Please check your connection and try again.'
-                : 'Account data not found. Please create a new account.',
+                ? 'Cannot reach Firebase. Please check your internet connection and try again.'
+                : 'Account data not found. Please create a new account or contact support.',
             };
           }
 
           set({
             isAuthenticated: true,
             currentUser: userData,
-            businessId: businessId ?? null,
-            isOfflineMode: isOfflineError,
+            businessId: businessId,
+            isOfflineMode: false, // If we got businessId, we're not offline
             isAuthLoading: false,
           });
 

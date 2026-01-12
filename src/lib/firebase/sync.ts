@@ -6,14 +6,17 @@ import { collection, onSnapshot, query } from 'firebase/firestore';
 
 // Real-time subscription using onSnapshot
 const subscribeWithRealtime = (path: string, callback: (items: any[]) => void) => {
+    console.log('🎧 Setting up listener for path:', path);
+
     const unsubscribe = onSnapshot(
         query(collection(db, path)),
         (snapshot) => {
+            console.log('🔔 Snapshot received for', path, '- Docs:', snapshot.docs.length, '- From cache:', snapshot.metadata.fromCache);
             const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             callback(items);
         },
         (error) => {
-            console.warn('Firestore sync error:', error);
+            console.error('❌ Firestore sync error for', path, ':', error);
         }
     );
 

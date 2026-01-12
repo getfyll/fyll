@@ -392,7 +392,10 @@ const useAuthStore = create<AuthStore>()(
           try {
             // Reset store to clear Mint Eyewear demo data
             useFyllStore.getState().resetStore();
-            console.log('Demo data cleared for new account');
+
+            // CRITICAL: Clear AsyncStorage to prevent old account data from persisting
+            await storage.removeItem('fyll-storage');
+            console.log('Demo data and AsyncStorage cleared for new account');
 
             const businessSettings = {
               businessName: businessName.trim(),
@@ -438,8 +441,19 @@ const useAuthStore = create<AuthStore>()(
 
         try {
           await storage.removeItem('fyll-auth-storage');
+          // CRITICAL: Clear all app data on logout to prevent data leakage between accounts
+          await storage.removeItem('fyll-storage');
+          await storage.removeItem('fyll_business_settings');
+          console.log('All local storage cleared on logout');
         } catch (storageError) {
           console.warn('Could not clear auth storage:', storageError);
+        }
+
+        // Reset the fyll store to clear all products, orders, customers
+        try {
+          useFyllStore.getState().resetStore();
+        } catch (resetError) {
+          console.warn('Could not reset fyll store:', resetError);
         }
 
         set({

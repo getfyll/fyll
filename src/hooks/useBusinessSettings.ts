@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import useAuthStore from '@/lib/state/auth-store';
+import { supabase } from '@/lib/supabase';
 
 export interface BusinessSettings {
   businessName: string;
@@ -36,26 +37,105 @@ const DEFAULT_SETTINGS: BusinessSettings = {
 
 /**
  * Hook for managing business settings
- * Persists settings using AsyncStorage
+ * Syncs business name with businesses table (like Instagram account)
+ * Other settings stored in JSONB data column
  */
 export function useBusinessSettings(): BusinessSettingsResult {
   const [settings, setSettings] = useState<BusinessSettings>(DEFAULT_SETTINGS);
   const [isLoading, setIsLoading] = useState(true);
   const businessId = useAuthStore((s) => s.businessId);
+  const isOfflineMode = useAuthStore((s) => s.isOfflineMode);
+  const isApplyingRemote = useRef(false);
 
   // Load settings on mount or when business changes
   useEffect(() => {
     loadSettings();
   }, [businessId]);
 
+  // Set up realtime subscription for cross-browser sync on businesses table
+  useEffect(() => {
+    if (!businessId || isOfflineMode) return;
+
+    const channel = supabase
+      .channel(`business-${businessId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'businesses',
+          filter: `id=eq.${businessId}`,
+        },
+        (payload) => {
+          if (isApplyingRemote.current) return;
+
+          console.log('Business updated via realtime:', payload);
+          const newData = payload.new as Record<string, unknown>;
+
+          if (newData) {
+            const data = newData.data as Record<string, unknown> | null;
+            const updatedSettings: BusinessSettings = {
+              businessName: (newData.name as string) ?? '',
+              businessLogo: (data?.businessLogo as string | null) ?? null,
+              businessPhone: (data?.businessPhone as string) ?? '',
+              businessWebsite: (data?.businessWebsite as string) ?? '',
+              returnAddress: (data?.returnAddress as string) ?? '',
+            };
+
+            setSettings(updatedSettings);
+
+            // Update local cache
+            const key = getSettingsKey(businessId);
+            AsyncStorage.setItem(key, JSON.stringify(updatedSettings)).catch(() => {});
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [businessId, isOfflineMode]);
+
   const loadSettings = async () => {
     try {
       setIsLoading(true);
+
+      // Try loading from Supabase businesses table (for online mode)
+      if (businessId && !isOfflineMode) {
+        const { data: business, error } = await supabase
+          .from('businesses')
+          .select('name, data')
+          .eq('id', businessId)
+          .maybeSingle();
+
+        if (!error && business) {
+          const data = business.data as Record<string, unknown> | null;
+          const remoteSettings: BusinessSettings = {
+            businessName: (business.name as string) ?? '',
+            businessLogo: (data?.businessLogo as string | null) ?? null,
+            businessPhone: (data?.businessPhone as string) ?? '',
+            businessWebsite: (data?.businessWebsite as string) ?? '',
+            returnAddress: (data?.returnAddress as string) ?? '',
+          };
+
+          setSettings(remoteSettings);
+
+          // Cache to AsyncStorage
+          const key = getSettingsKey(businessId);
+          await AsyncStorage.setItem(key, JSON.stringify(remoteSettings));
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      // Fallback to AsyncStorage (offline or if Supabase fails)
       const key = getSettingsKey(businessId);
       const stored = await AsyncStorage.getItem(key);
       if (stored) {
         const parsed = JSON.parse(stored) as Partial<BusinessSettings>;
         setSettings({ ...DEFAULT_SETTINGS, ...parsed });
+        setIsLoading(false);
         return;
       }
 
@@ -67,8 +147,8 @@ export function useBusinessSettings(): BusinessSettingsResult {
           setSettings({ ...DEFAULT_SETTINGS, ...parsed });
         }
       }
-    } catch {
-      console.log('Failed to load business settings');
+    } catch (err) {
+      console.log('Failed to load business settings:', err);
     } finally {
       setIsLoading(false);
     }
@@ -81,11 +161,39 @@ export function useBusinessSettings(): BusinessSettingsResult {
     }
 
     try {
+      isApplyingRemote.current = true;
+
+      // Save to Supabase businesses table (for online mode)
+      if (businessId && !isOfflineMode) {
+        const { error: businessError } = await supabase
+          .from('businesses')
+          .update({
+            name: newSettings.businessName,
+            data: {
+              businessLogo: newSettings.businessLogo,
+              businessPhone: newSettings.businessPhone,
+              businessWebsite: newSettings.businessWebsite,
+              returnAddress: newSettings.returnAddress,
+            },
+          })
+          .eq('id', businessId);
+
+        if (businessError) {
+          console.warn('Failed to save to Supabase:', businessError);
+          return { success: false, error: 'Failed to sync with server' };
+        }
+      }
+
+      // Save to AsyncStorage (cache)
       const key = getSettingsKey(businessId);
       await AsyncStorage.setItem(key, JSON.stringify(newSettings));
       setSettings(newSettings);
+
+      isApplyingRemote.current = false;
       return { success: true };
-    } catch {
+    } catch (err) {
+      isApplyingRemote.current = false;
+      console.error('Failed to save settings:', err);
       return { success: false, error: 'Failed to save settings' };
     }
   };
@@ -101,7 +209,7 @@ export function useBusinessSettings(): BusinessSettingsResult {
       businessName: trimmedName,
     };
     return saveSettingsToStorage(newSettings);
-  }, [settings]);
+  }, [settings, businessId, isOfflineMode]);
 
   const updateBusinessLogo = useCallback(async (logoUri: string | null): Promise<void> => {
     const newSettings: BusinessSettings = {
@@ -109,7 +217,7 @@ export function useBusinessSettings(): BusinessSettingsResult {
       businessLogo: logoUri,
     };
     await saveSettingsToStorage(newSettings);
-  }, [settings]);
+  }, [settings, businessId, isOfflineMode]);
 
   const saveSettings = useCallback(async (partialSettings: Partial<BusinessSettings>): Promise<{ success: boolean; error?: string }> => {
     const newSettings: BusinessSettings = {
@@ -123,7 +231,7 @@ export function useBusinessSettings(): BusinessSettingsResult {
     }
 
     return saveSettingsToStorage(newSettings);
-  }, [settings]);
+  }, [settings, businessId, isOfflineMode]);
 
   return {
     businessName: settings.businessName,

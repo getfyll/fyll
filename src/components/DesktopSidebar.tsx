@@ -1,11 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, Pressable, ScrollView, Platform } from 'react-native';
 import { usePathname, useRouter } from 'expo-router';
-import { LayoutDashboard, Package, ShoppingCart, Settings, BarChart3, Users, LogOut } from 'lucide-react-native';
+import { LayoutDashboard, Package, ShoppingCart, Settings, BarChart3, Users, LogOut, Activity } from 'lucide-react-native';
 import { useThemeColors } from '@/lib/theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import useAuthStore, { ROLE_PERMISSIONS } from '@/lib/state/auth-store';
 import * as Haptics from 'expo-haptics';
+import { firestoreDiagnostics } from '@/lib/firebase/diagnostics';
 
 type PermissionKey = keyof typeof ROLE_PERMISSIONS['admin'];
 
@@ -33,8 +34,11 @@ export function DesktopSidebar() {
   const isDark = colors.bg.primary === '#111111';
 
   const currentUser = useAuthStore((s) => s.currentUser);
+  const businessId = useAuthStore((s) => s.businessId);
   const logout = useAuthStore((s) => s.logout);
   const userRole = currentUser?.role ?? 'staff';
+
+  const [isRunningDiagnostics, setIsRunningDiagnostics] = useState(false);
 
   const handleNavigation = (href: string) => {
     if (Platform.OS !== 'web') {
@@ -60,6 +64,43 @@ export function DesktopSidebar() {
     }
     await logout();
     router.replace('/login');
+  };
+
+  const handleRunDiagnostics = async () => {
+    if (!businessId || isRunningDiagnostics) return;
+
+    setIsRunningDiagnostics(true);
+    console.log('');
+    console.log('═══════════════════════════════════════════════════════');
+    console.log('🔧 FIRESTORE DIAGNOSTICS STARTING');
+    console.log('═══════════════════════════════════════════════════════');
+    console.log('');
+
+    try {
+      const results = await firestoreDiagnostics.testConnectivity(businessId);
+
+      console.log('');
+      console.log('═══════════════════════════════════════════════════════');
+      console.log('📊 FINAL RESULTS:');
+      console.log('   ✓ Can Read:', results.canRead ? 'YES' : 'NO');
+      console.log('   ✓ Can Write:', results.canWrite ? 'YES');
+      console.log('   ✗ Error:', results.error?.code || 'None');
+      console.log('═══════════════════════════════════════════════════════');
+      console.log('');
+
+      if (results.error?.code === 'permission-denied') {
+        alert('⚠️ Firestore Security Rules Error\n\nYour Firestore security rules are blocking access. Check the console for instructions on how to fix this.');
+      } else if (!results.canRead || !results.canWrite) {
+        alert('⚠️ Firestore Connectivity Issue\n\nCannot reach Firestore server. Check the console for details.');
+      } else {
+        alert('✅ Firestore Working!\n\nFirestore is properly connected and working.');
+      }
+    } catch (error) {
+      console.error('❌ Diagnostics failed:', error);
+      alert('❌ Diagnostics Failed\n\nCheck the console for error details.');
+    } finally {
+      setIsRunningDiagnostics(false);
+    }
   };
 
   const isActive = (href: string) => {
@@ -242,6 +283,33 @@ export function DesktopSidebar() {
             </View>
           </View>
         )}
+
+        <Pressable
+          onPress={handleRunDiagnostics}
+          disabled={isRunningDiagnostics}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            paddingHorizontal: 16,
+            paddingVertical: 12,
+            borderRadius: 12,
+            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+            marginBottom: 8,
+            opacity: isRunningDiagnostics ? 0.5 : 1,
+          }}
+        >
+          <Activity size={18} color="#3B82F6" strokeWidth={2} />
+          <Text
+            style={{
+              fontSize: 14,
+              fontWeight: '600',
+              color: '#3B82F6',
+              marginLeft: 12,
+            }}
+          >
+            {isRunningDiagnostics ? 'Running...' : 'Test Firestore'}
+          </Text>
+        </Pressable>
 
         <Pressable
           onPress={handleLogout}

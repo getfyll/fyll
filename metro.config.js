@@ -1,12 +1,6 @@
 const { getDefaultConfig } = require("expo/metro-config");
 const { withNativeWind } = require("nativewind/metro");
 
-// Only use Vibecode in development, not production
-const isProduction = process.env.EXPO_PUBLIC_IS_PRODUCTION === 'true';
-const withVibecodeMetro = isProduction
-  ? (config) => config  // No-op in production
-  : require("@vibecodeapp/sdk/metro").withVibecodeMetro;
-
 /** @type {import('expo/metro-config').MetroConfig} */
 const config = getDefaultConfig(__dirname);
 
@@ -55,4 +49,4 @@ config.resolver = {
 };
 
 // Integrate NativeWind with the Metro configuration.
-module.exports = withNativeWind(withVibecodeMetro(config), { input: "./global.css" });
+module.exports = withNativeWind(config, { input: "./global.css" });

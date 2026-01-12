@@ -12,7 +12,7 @@ import {
     query,
     setDoc,
     getDoc
-} from 'firebase/firestore/lite';
+} from 'firebase/firestore';
 import type { Product, ProductVariant, RestockLog } from '../state/fyll-store';
 
 // Helper to remove undefined values from objects (Firebase doesn't accept undefined)

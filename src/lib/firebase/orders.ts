@@ -10,7 +10,7 @@ import {
     deleteDoc,
     getDocs,
     getDoc
-} from 'firebase/firestore/lite';
+} from 'firebase/firestore';
 import type { Order } from '../state/fyll-store';
 
 export const orderService = {

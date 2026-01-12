@@ -5,7 +5,7 @@ import {
     doc,
     setDoc,
     getDoc
-} from 'firebase/firestore/lite';
+} from 'firebase/firestore';
 import type {
     OrderStatus,
     SaleSource,

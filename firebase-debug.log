@@ -1,0 +1,12 @@
+[debug] [2026-01-12T13:30:59.170Z] ----------------------------------------------------------------------
+[debug] [2026-01-12T13:30:59.171Z] Command:       /Users/macbook/.nvm/versions/node/v24.12.0/bin/node /Users/macbook/.nvm/versions/node/v24.12.0/bin/firebase login
+[debug] [2026-01-12T13:30:59.171Z] CLI Version:   15.2.1
+[debug] [2026-01-12T13:30:59.171Z] Platform:      darwin
+[debug] [2026-01-12T13:30:59.171Z] Node Version:  v24.12.0
+[debug] [2026-01-12T13:30:59.171Z] Time:          Mon Jan 12 2026 13:30:59 GMT+0000 (Greenwich Mean Time)
+[debug] [2026-01-12T13:30:59.171Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-01-12T13:30:59.172Z] >>> [apiv2][query] GET https://firebase-public.firebaseio.com/cli.json [none]
+[info] i  The Firebase CLI’s MCP server feature can optionally make use of Gemini in Firebase. Learn more about Gemini in Firebase and how it uses your data: https://firebase.google.com/docs/gemini-in-firebase#how-gemini-in-firebase-uses-your-data 
+[debug] [2026-01-12T13:30:59.504Z] <<< [apiv2][status] GET https://firebase-public.firebaseio.com/cli.json 200
+[debug] [2026-01-12T13:30:59.505Z] <<< [apiv2][body] GET https://firebase-public.firebaseio.com/cli.json {"cloudBuildErrorAfter":1594252800000,"cloudBuildWarnAfter":1590019200000,"defaultNode10After":1594252800000,"minVersion":"3.0.5","node8DeploysDisabledAfter":1613390400000,"node8RuntimeDisabledAfter":1615809600000,"node8WarnAfter":1600128000000}

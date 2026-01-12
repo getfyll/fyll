@@ -177,6 +177,14 @@ const useAuthStore = create<AuthStore>()(
 
           const normalizedEmail = email.trim().toLowerCase();
           const profileKey = `fyll_user_profile:${normalizedEmail}`;
+          const isOfflineCode = (code?: string) =>
+            code === 'failed-precondition' || code === 'unavailable' || code === 'deadline-exceeded';
+          const withTimeout = async <T,>(promise: Promise<T>, ms: number) => {
+            const timeout = new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('timeout')), ms)
+            );
+            return Promise.race([promise, timeout]) as Promise<T>;
+          };
 
           // Authenticate with Firebase
           const credential = await signInWithEmailAndPassword(auth, normalizedEmail, password);
@@ -186,53 +194,40 @@ const useAuthStore = create<AuthStore>()(
           let businessName: string | null = null;
           let isOfflineError = false;
 
-          // Retry logic for Firestore connection race condition on web
-          const maxRetries = 3;
-          let retryCount = 0;
+          try {
+            console.log('🔍 Attempting to fetch user data from Firestore...');
+            const userRef = doc(db, 'users', credential.user.uid);
+            const userSnap = await withTimeout(getDoc(userRef), 10000); // Increased to 10s
 
-          while (retryCount < maxRetries && !userData) {
-            try {
-              // Add small delay for retry attempts to let Firestore connect
-              if (retryCount > 0) {
-                await new Promise(resolve => setTimeout(resolve, 300 * retryCount));
+            if (userSnap.exists()) {
+              console.log('✅ User data found in Firestore');
+              const data = userSnap.data() as AuthUser;
+              userData = data;
+              businessId = data.businessId;
+
+              if (businessId) {
+                setDoc(
+                  doc(db, `businesses/${businessId}/team`, credential.user.uid),
+                  { lastLogin: new Date().toISOString() },
+                  { merge: true }
+                ).catch(() => {});
               }
-
-              const userRef = doc(db, 'users', credential.user.uid);
-              const userSnap = await getDoc(userRef);
-
-              if (userSnap.exists()) {
-                const data = userSnap.data() as AuthUser;
-                userData = data;
-                businessId = data.businessId;
-
-                if (businessId) {
-                  setDoc(
-                    doc(db, `businesses/${businessId}/team`, credential.user.uid),
-                    { lastLogin: new Date().toISOString() },
-                    { merge: true }
-                  ).catch(() => {});
-                }
-                break; // Success - exit retry loop
-              }
-            } catch (firestoreError) {
-              const code = (firestoreError as { code?: string })?.code;
-              isOfflineError = code === 'failed-precondition' || code === 'unavailable';
-              console.error(`Firestore error (attempt ${retryCount + 1}/${maxRetries}):`, firestoreError);
-
-              // Only retry on connection errors
-              if (isOfflineError && retryCount < maxRetries - 1) {
-                retryCount++;
-                continue;
-              } else {
-                break; // Non-retryable error or max retries reached
-              }
+            } else {
+              console.log('⚠️ User document does not exist in Firestore');
             }
+          } catch (firestoreError) {
+            const code = (firestoreError as { code?: string })?.code;
+            isOfflineError = isOfflineCode(code) || (firestoreError as Error).message === 'timeout';
+            console.error('❌ Firestore connection error:', firestoreError);
+            console.error('Error code:', code);
+            console.error('Is timeout:', (firestoreError as Error).message === 'timeout');
           }
 
-          if (!userData) {
+          if (!userData && !isOfflineError) {
             try {
-              const emailQuery = await getDocs(
-                query(collection(db, 'users'), where('email', '==', normalizedEmail))
+              const emailQuery = await withTimeout(
+                getDocs(query(collection(db, 'users'), where('email', '==', normalizedEmail))),
+                10000
               );
               const emailDoc = emailQuery.docs[0];
               if (emailDoc) {
@@ -249,15 +244,17 @@ const useAuthStore = create<AuthStore>()(
               }
             } catch (lookupError) {
               const code = (lookupError as { code?: string })?.code;
-              isOfflineError = isOfflineError || code === 'failed-precondition' || code === 'unavailable';
+              isOfflineError =
+                isOfflineError || isOfflineCode(code) || (lookupError as Error).message === 'timeout';
               console.warn('Could not lookup user by email:', lookupError);
             }
           }
 
-          if (!userData) {
+          if (!userData && !isOfflineError) {
             try {
-              const businessSnap = await getDocs(
-                query(collection(db, 'businesses'), where('ownerUid', '==', credential.user.uid))
+              const businessSnap = await withTimeout(
+                getDocs(query(collection(db, 'businesses'), where('ownerUid', '==', credential.user.uid))),
+                10000
               );
               const businessDoc = businessSnap.docs[0];
               if (businessDoc) {
@@ -275,8 +272,47 @@ const useAuthStore = create<AuthStore>()(
               }
             } catch (fallbackError) {
               const code = (fallbackError as { code?: string })?.code;
-              isOfflineError = isOfflineError || code === 'failed-precondition' || code === 'unavailable';
+              isOfflineError =
+                isOfflineError || isOfflineCode(code) || (fallbackError as Error).message === 'timeout';
               console.warn('Could not recover business profile:', fallbackError);
+            }
+          }
+
+          if (!userData && !isOfflineError) {
+            try {
+              const createdAt = new Date().toISOString();
+              businessId = `business-${credential.user.uid.substring(0, 8)}`;
+              businessName = credential.user.displayName
+                ? `${credential.user.displayName}'s Business`
+                : `${normalizedEmail.split('@')[0]}'s Business`;
+              userData = {
+                id: credential.user.uid,
+                email: credential.user.email || normalizedEmail,
+                name: credential.user.displayName || normalizedEmail.split('@')[0],
+                role: 'admin',
+                businessId,
+              };
+
+              await setDoc(doc(db, 'businesses', businessId), {
+                id: businessId,
+                name: businessName,
+                ownerUid: credential.user.uid,
+                createdAt,
+              });
+              await setDoc(doc(db, 'users', credential.user.uid), {
+                ...userData,
+                createdAt,
+              });
+              await setDoc(doc(db, `businesses/${businessId}/team`, credential.user.uid), {
+                id: credential.user.uid,
+                email: userData.email,
+                name: userData.name,
+                role: userData.role,
+                createdAt,
+                lastLogin: createdAt,
+              });
+            } catch (provisionError) {
+              console.warn('Could not provision missing user profile:', provisionError);
             }
           }
 
@@ -501,7 +537,21 @@ const useAuthStore = create<AuthStore>()(
       },
 
       logout: async () => {
-        await signOut(auth);
+        try {
+          await Promise.race([
+            signOut(auth),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000)),
+          ]);
+        } catch (error) {
+          console.warn('Logout failed, clearing local session anyway:', error);
+        }
+
+        try {
+          await storage.removeItem('fyll-auth-storage');
+        } catch (storageError) {
+          console.warn('Could not clear auth storage:', storageError);
+        }
+
         set({
           isAuthenticated: false,
           isOfflineMode: false,

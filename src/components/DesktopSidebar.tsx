@@ -54,11 +54,11 @@ export function DesktopSidebar() {
     router.push(targetRoute as any);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
-    logout();
+    await logout();
     router.replace('/login');
   };
 

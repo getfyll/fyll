@@ -24,6 +24,7 @@ export default function LoginScreen() {
   const isOfflineMode = useAuthStore((s) => s.isOfflineMode);
   const businessId = useAuthStore((s) => s.businessId);
   const projectId = Constants.expoConfig?.extra?.firebaseProjectId ?? process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? '';
+  const databaseId = Constants.expoConfig?.extra?.firebaseDatabaseId ?? process.env.EXPO_PUBLIC_FIREBASE_DATABASE_ID ?? '';
 
   const [mode, setMode] = useState<AuthMode>('login');
 
@@ -721,6 +722,9 @@ export default function LoginScreen() {
             </Text>
             <Text style={{ color: colors.text.secondary }} className="text-xs">
               Project: {projectId || 'unknown'}
+            </Text>
+            <Text style={{ color: colors.text.secondary }} className="text-xs">
+              Database: {databaseId || '(default)'}
             </Text>
             <Text style={{ color: colors.text.secondary }} className="text-xs">
               Business: {businessId || 'none'}

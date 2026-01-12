@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { initializeFirestore } from 'firebase/firestore';
+import { getFirestore, initializeFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 
@@ -15,10 +15,14 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Use experimentalForceLongPolling for better web compatibility
-const db = initializeFirestore(app, {
-  experimentalForceLongPolling: true,
-});
+// For production (Vercel), use getFirestore to avoid initializeFirestore issues
+// For Vibecode dev, use initializeFirestore with long polling
+const isProduction = process.env.EXPO_PUBLIC_IS_PRODUCTION === 'true';
+const db = isProduction
+  ? getFirestore(app)
+  : initializeFirestore(app, {
+      experimentalForceLongPolling: true,
+    });
 
 export { db };
 export const auth = getAuth(app);

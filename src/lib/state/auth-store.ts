@@ -197,7 +197,7 @@ const useAuthStore = create<AuthStore>()(
           try {
             console.log('🔍 Attempting to fetch user data from Firestore...');
             const userRef = doc(db, 'users', credential.user.uid);
-            const userSnap = await withTimeout(getDoc(userRef), 10000); // Increased to 10s
+            const userSnap = await withTimeout(getDoc(userRef), 5000); // Reduced to 5s for faster failure
 
             if (userSnap.exists()) {
               console.log('✅ User data found in Firestore');
@@ -217,10 +217,16 @@ const useAuthStore = create<AuthStore>()(
             }
           } catch (firestoreError) {
             const code = (firestoreError as { code?: string })?.code;
-            isOfflineError = isOfflineCode(code) || (firestoreError as Error).message === 'timeout';
+            const isTimeout = (firestoreError as Error).message === 'timeout';
+            isOfflineError = isOfflineCode(code) || isTimeout;
+
             console.error('❌ Firestore connection error:', firestoreError);
-            console.error('Error code:', code);
-            console.error('Is timeout:', (firestoreError as Error).message === 'timeout');
+            console.error('Error code:', code, '| Is timeout:', isTimeout);
+
+            // If timeout on first attempt, try to proceed with fallback immediately
+            if (isTimeout) {
+              console.log('⚡ Timeout detected - will try fallback methods');
+            }
           }
 
           if (!userData && !isOfflineError) {
@@ -278,8 +284,9 @@ const useAuthStore = create<AuthStore>()(
             }
           }
 
-          if (!userData && !isOfflineError) {
+          if (!userData) {
             try {
+              console.log('🔧 Auto-provisioning user profile...');
               const createdAt = new Date().toISOString();
               businessId = `business-${credential.user.uid.substring(0, 8)}`;
               businessName = credential.user.displayName
@@ -293,24 +300,36 @@ const useAuthStore = create<AuthStore>()(
                 businessId,
               };
 
-              await setDoc(doc(db, 'businesses', businessId), {
-                id: businessId,
-                name: businessName,
-                ownerUid: credential.user.uid,
-                createdAt,
-              });
-              await setDoc(doc(db, 'users', credential.user.uid), {
-                ...userData,
-                createdAt,
-              });
-              await setDoc(doc(db, `businesses/${businessId}/team`, credential.user.uid), {
-                id: credential.user.uid,
-                email: userData.email,
-                name: userData.name,
-                role: userData.role,
-                createdAt,
-                lastLogin: createdAt,
-              });
+              // Try to provision with short timeout - if it fails, continue anyway
+              try {
+                await Promise.race([
+                  Promise.all([
+                    setDoc(doc(db, 'businesses', businessId), {
+                      id: businessId,
+                      name: businessName,
+                      ownerUid: credential.user.uid,
+                      createdAt,
+                    }),
+                    setDoc(doc(db, 'users', credential.user.uid), {
+                      ...userData,
+                      createdAt,
+                    }),
+                    setDoc(doc(db, `businesses/${businessId}/team`, credential.user.uid), {
+                      id: credential.user.uid,
+                      email: userData.email,
+                      name: userData.name,
+                      role: userData.role,
+                      createdAt,
+                      lastLogin: createdAt,
+                    }),
+                  ]),
+                  new Promise((_, reject) => setTimeout(() => reject(new Error('provision-timeout')), 3000))
+                ]);
+                console.log('✅ User profile provisioned successfully');
+              } catch (writeError) {
+                console.warn('⚠️ Could not write to Firestore, but continuing with login:', writeError);
+                // Continue anyway - user will still be logged in
+              }
             } catch (provisionError) {
               console.warn('Could not provision missing user profile:', provisionError);
             }

@@ -2,7 +2,6 @@ import { initializeApp } from 'firebase/app';
 import { initializeFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
-import { Platform } from 'react-native';
 
 const firebaseConfig = {
     apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY ?? '',
@@ -16,13 +15,10 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Web needs long polling + memory cache, mobile works better with defaults
-const db = Platform.OS === 'web'
-  ? initializeFirestore(app, {
-      localCache: { kind: 'memory' },
-      experimentalForceLongPolling: true,
-    })
-  : initializeFirestore(app, {});
+// Use experimentalForceLongPolling for better web compatibility
+const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+});
 
 export { db };
 export const auth = getAuth(app);

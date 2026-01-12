@@ -6,6 +6,7 @@ export const storage = Platform.OS === 'web'
   ? {
       getItem: async (key: string) => {
         try {
+          if (typeof window === 'undefined') return null;
           return localStorage.getItem(key);
         } catch (e) {
           console.error('localStorage getItem error:', e);
@@ -14,6 +15,7 @@ export const storage = Platform.OS === 'web'
       },
       setItem: async (key: string, value: string) => {
         try {
+          if (typeof window === 'undefined') return;
           localStorage.setItem(key, value);
         } catch (e) {
           console.error('localStorage setItem error:', e);
@@ -21,6 +23,7 @@ export const storage = Platform.OS === 'web'
       },
       removeItem: async (key: string) => {
         try {
+          if (typeof window === 'undefined') return;
           localStorage.removeItem(key);
         } catch (e) {
           console.error('localStorage removeItem error:', e);

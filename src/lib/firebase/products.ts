@@ -29,12 +29,29 @@ const cleanUndefined = <T extends Record<string, any>>(obj: T): T => {
 export const productService = {
     // Create product
     async createProduct(businessId: string, product: Product) {
+        console.log('📤 Creating product in Firebase:');
+        console.log('   🏢 BusinessId:', businessId);
+        console.log('   📦 Product ID:', product.id);
+        console.log('   📛 Product Name:', product.name);
+        console.log('   🔗 Full path: businesses/' + businessId + '/products/' + product.id);
+
         const productRef = doc(db, `businesses/${businessId}/products`, product.id);
-        await setDoc(productRef, cleanUndefined({
+        const productData = cleanUndefined({
             ...product,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
-        }));
+        });
+
+        console.log('   📄 Product data:', JSON.stringify(productData, null, 2));
+
+        try {
+            await setDoc(productRef, productData);
+            console.log('   ✅ Product saved successfully to Firebase');
+        } catch (error) {
+            console.error('   ❌ Failed to save product to Firebase:', error);
+            throw error;
+        }
+
         return product.id;
     },
 

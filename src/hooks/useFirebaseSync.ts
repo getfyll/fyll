@@ -2,6 +2,8 @@
 // Hook to sync Zustand store with Firebase in real-time
 
 import { useEffect, useRef, useState } from 'react';
+import { enableNetwork } from 'firebase/firestore';
+import { db } from '../lib/firebase/firebaseConfig';
 import useFyllStore from '../lib/state/fyll-store';
 import useAuthStore from '../lib/state/auth-store';
 import { syncService } from '../lib/firebase/sync';
@@ -21,6 +23,11 @@ export function useFirebaseSync() {
         }
 
         console.log('🔥 Initializing Firebase sync...');
+
+        // Force enable network to prevent "offline mode" cache issues
+        enableNetwork(db)
+            .then(() => console.log('📡 Network force-enabled - Firestore is now online'))
+            .catch((error) => console.warn('⚠️ Could not force enable network:', error));
 
         // Subscribe to products
         const unsubProducts = syncService.subscribeToProducts(businessId, async (firebaseProducts: Product[]) => {

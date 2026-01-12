@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { storage } from "@/lib/storage";
-import { productService, orderService, customerService } from "@/lib/firebase";
 
 // Nigeria States
 export const NIGERIA_STATES = [
@@ -592,55 +591,21 @@ const useFyllStore = create<FyllStore>()(
       deleteCustomer: (id) => set({ customers: get().customers.filter((c) => c.id !== id) }),
 
       // Products
-      addProduct: async (product, businessId) => {
+      addProduct: async (product, _businessId) => {
         console.log('➕ Adding product:', product.name, 'ID:', product.id);
-        console.log('💼 BusinessId for product:', businessId);
 
         // Update local state immediately
         set({ products: [...get().products, product] });
-
-        // Save to Firebase if businessId is provided
-        if (businessId) {
-          try {
-            console.log('📤 Saving product to Firebase path: businesses/' + businessId + '/products');
-            await productService.createProduct(businessId, product);
-            console.log('✅ Product saved to Firebase:', product.id);
-          } catch (error) {
-            console.error('❌ Failed to save product to Firebase:', error);
-          }
-        } else {
-          console.warn('⚠️ No businessId provided - product NOT saved to Firebase');
-        }
       },
-      updateProduct: async (id, updates, businessId) => {
+      updateProduct: async (id, updates, _businessId) => {
         // Update local state immediately
         set({
           products: get().products.map((p) => p.id === id ? { ...p, ...updates } : p),
         });
-
-        // Update in Firebase if businessId is provided
-        if (businessId) {
-          try {
-            await productService.updateProduct(businessId, id, updates);
-            console.log('✅ Product updated in Firebase:', id);
-          } catch (error) {
-            console.error('❌ Failed to update product in Firebase:', error);
-          }
-        }
       },
-      deleteProduct: async (id, businessId) => {
+      deleteProduct: async (id, _businessId) => {
         // Update local state immediately
         set({ products: get().products.filter((p) => p.id !== id) });
-
-        // Delete from Firebase if businessId is provided
-        if (businessId) {
-          try {
-            await productService.deleteProduct(businessId, id);
-            console.log('✅ Product deleted from Firebase:', id);
-          } catch (error) {
-            console.error('❌ Failed to delete product from Firebase:', error);
-          }
-        }
       },
       addProductVariable: (variable) => set({ productVariables: [...get().productVariables, variable] }),
       updateProductVariable: (id, updates) => set({

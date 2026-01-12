@@ -2,11 +2,13 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Cross-platform storage adapter for web and mobile
+const isServer = typeof window === 'undefined' || typeof localStorage === 'undefined';
+
 export const storage = Platform.OS === 'web'
   ? {
       getItem: async (key: string) => {
         try {
-          if (typeof window === 'undefined') return null;
+          if (isServer) return null;
           return localStorage.getItem(key);
         } catch (e) {
           console.error('localStorage getItem error:', e);
@@ -15,7 +17,7 @@ export const storage = Platform.OS === 'web'
       },
       setItem: async (key: string, value: string) => {
         try {
-          if (typeof window === 'undefined') return;
+          if (isServer) return;
           localStorage.setItem(key, value);
         } catch (e) {
           console.error('localStorage setItem error:', e);
@@ -23,7 +25,7 @@ export const storage = Platform.OS === 'web'
       },
       removeItem: async (key: string) => {
         try {
-          if (typeof window === 'undefined') return;
+          if (isServer) return;
           localStorage.removeItem(key);
         } catch (e) {
           console.error('localStorage removeItem error:', e);

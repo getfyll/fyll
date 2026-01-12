@@ -4,13 +4,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function DebugEnvScreen() {
   const envVars = {
-    'EXPO_PUBLIC_FIREBASE_API_KEY': process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
-    'EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN': process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
-    'EXPO_PUBLIC_FIREBASE_PROJECT_ID': process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
-    'EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET': process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
-    'EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID': process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-    'EXPO_PUBLIC_FIREBASE_APP_ID': process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
-    'EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID': process.env.EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID,
+    'EXPO_PUBLIC_SUPABASE_URL': process.env.EXPO_PUBLIC_SUPABASE_URL,
+    'EXPO_PUBLIC_SUPABASE_ANON_KEY': process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
   };
 
   return (
@@ -34,7 +29,7 @@ export default function DebugEnvScreen() {
 
           <View style={{ marginTop: 20, padding: 16, backgroundColor: '#FEF3C7', borderRadius: 8 }}>
             <Text style={{ fontSize: 14, color: '#92400E' }}>
-              ⚠️ If any values show as MISSING, you need to add them to your Vercel project's environment variables.
+              ⚠️ If any values show as MISSING, add them to your environment variables.
             </Text>
           </View>
         </ScrollView>

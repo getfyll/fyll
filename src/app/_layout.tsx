@@ -9,7 +9,7 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 import useAuthStore from '@/lib/state/auth-store';
 import useFyllStore from '@/lib/state/fyll-store';
 import { useEffect, useState } from 'react';
-import { useFirebaseSync } from '@/hooks/useFirebaseSync';
+import { useSupabaseSync } from '@/hooks/useSupabaseSync';
 import { Platform } from 'react-native';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 
@@ -137,6 +137,7 @@ function RootLayoutNav({ colorScheme }: { colorScheme: 'light' | 'dark' | null |
         <Stack.Screen name="account-settings" options={{ headerShown: false }} />
         <Stack.Screen name="pdf-viewer" options={{ headerShown: false, presentation: 'fullScreenModal' }} />
         <Stack.Screen name="debug-env" options={{ headerShown: false }} />
+        <Stack.Screen name="supabase-check" options={{ headerShown: false }} />
       </Stack>
     </ThemeProvider>
   );
@@ -147,7 +148,7 @@ function RootLayoutNav({ colorScheme }: { colorScheme: 'light' | 'dark' | null |
 export default function RootLayout() {
   const colorScheme = useColorScheme();
 
-  useFirebaseSync();
+  useSupabaseSync();
 
   return (
     <QueryClientProvider client={queryClient}>

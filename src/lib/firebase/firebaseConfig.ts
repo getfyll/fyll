@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore, Firestore } from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore/lite';
 import { getAuth } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 
@@ -12,34 +12,15 @@ const firebaseConfig = {
   appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID ?? '',
 };
 
-console.log('🔥 Initializing Firebase app...');
-console.log('📋 Project ID:', firebaseConfig.projectId);
-console.log('🌐 Auth Domain:', firebaseConfig.authDomain);
-
 const app = initializeApp(firebaseConfig);
 
-// Use simple getFirestore - let Firebase SDK handle everything
-// The issue is likely Firestore security rules blocking access
-const db: Firestore = getFirestore(app);
-console.log('🔥 Firestore initialized with default settings');
+const databaseId = process.env.EXPO_PUBLIC_FIREBASE_DATABASE_ID;
+const resolvedDatabaseId =
+  databaseId && databaseId !== '(default)' ? databaseId : undefined;
 
-// Test Firestore API connectivity
-fetch(`https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents`, {
-  method: 'GET',
-  headers: {
-    'Content-Type': 'application/json',
-  },
-})
-  .then(response => {
-    console.log('🌐 Firestore REST API reachable:', response.status);
-    if (response.status === 401 || response.status === 403) {
-      console.warn('⚠️ Firestore API returned auth error - this is normal without credentials');
-    }
-  })
-  .catch(err => {
-    console.error('❌ Firestore REST API test failed:', err);
-    console.error('   This may indicate network issues or CORS problems');
-  });
+const db = resolvedDatabaseId
+  ? getFirestore(app, resolvedDatabaseId)
+  : getFirestore(app);
 
 export { db };
 export const auth = getAuth(app);

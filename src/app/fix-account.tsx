@@ -3,9 +3,8 @@ import { View, Text, TextInput, Pressable, Alert, ActivityIndicator } from 'reac
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, CheckCircle } from 'lucide-react-native';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase/firebaseConfig';
 import useAuthStore from '@/lib/state/auth-store';
+import { supabase } from '@/lib/supabase';
 
 export default function FixAccountScreen() {
   const router = useRouter();
@@ -41,37 +40,42 @@ export default function FixAccountScreen() {
 
       const createdAt = new Date().toISOString();
 
-      // Create business document
-      await setDoc(doc(db, 'businesses', businessId), {
+      const { error: businessError } = await supabase.from('businesses').insert({
         id: businessId,
         name: businessName.trim(),
-        ownerUid: currentUser.id,
-        createdAt,
+        owner_id: currentUser.id,
+        created_at: createdAt,
       });
 
-      // Update user document with businessId
-      await setDoc(
-        doc(db, 'users', currentUser.id),
-        {
-          id: currentUser.id,
-          email: currentUser.email,
-          name: currentUser.name,
-          role: currentUser.role,
-          businessId,
-          createdAt,
-        },
-        { merge: true }
-      );
+      if (businessError) {
+        throw businessError;
+      }
 
-      // Create team member entry
-      await setDoc(doc(db, `businesses/${businessId}/team`, currentUser.id), {
-        id: currentUser.id,
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({
+          business_id: businessId,
+          role: currentUser.role ?? 'admin',
+        })
+        .eq('id', currentUser.id);
+
+      if (profileError) {
+        throw profileError;
+      }
+
+      const { error: teamError } = await supabase.from('team_members').upsert({
+        user_id: currentUser.id,
         email: currentUser.email,
         name: currentUser.name,
         role: 'admin',
-        createdAt,
-        lastLogin: createdAt,
+        business_id: businessId,
+        created_at: createdAt,
+        last_login: createdAt,
       });
+
+      if (teamError) {
+        throw teamError;
+      }
 
       // Update local state
       setBusinessId(businessId);
@@ -129,7 +133,7 @@ export default function FixAccountScreen() {
                   ⚠️ Account Issue Detected
                 </Text>
                 <Text style={{ fontSize: 13, color: '#92400E', lineHeight: 20 }}>
-                  Your account is missing a Business ID. This happened because Firestore timed out during signup.
+                  Your account is missing a Business ID in Supabase.
                   {'\n\n'}
                   We need to create a business for you so your products can sync properly.
                 </Text>

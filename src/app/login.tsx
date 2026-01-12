@@ -6,10 +6,9 @@ import { Eye, EyeOff, Mail, Lock, UserPlus, ChevronLeft, User, Key } from 'lucid
 import { useThemeColors } from '@/lib/theme';
 import useAuthStore from '@/lib/state/auth-store';
 import * as Haptics from 'expo-haptics';
-import { sendPasswordResetEmail } from 'firebase/auth';
-import { auth } from '@/lib/firebase/firebaseConfig';
 import { FyllLogo } from '@/components/FyllLogo';
 import Constants from 'expo-constants';
+import { supabase } from '@/lib/supabase';
 
 type AuthMode = 'login' | 'invite' | 'signup';
 
@@ -23,8 +22,8 @@ export default function LoginScreen() {
   const acceptInvite = useAuthStore((s) => s.acceptInvite);
   const isOfflineMode = useAuthStore((s) => s.isOfflineMode);
   const businessId = useAuthStore((s) => s.businessId);
-  const projectId = Constants.expoConfig?.extra?.firebaseProjectId ?? process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? '';
-  const databaseId = Constants.expoConfig?.extra?.firebaseDatabaseId ?? process.env.EXPO_PUBLIC_FIREBASE_DATABASE_ID ?? '';
+  const supabaseUrl = Constants.expoConfig?.extra?.supabaseUrl ?? process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
+  const supabaseProjectId = supabaseUrl ? supabaseUrl.replace(/^https?:\/\//, '').split('.')[0] : '';
 
   const [mode, setMode] = useState<AuthMode>('login');
 
@@ -65,16 +64,22 @@ export default function LoginScreen() {
     setError('');
     setResetMessage('');
 
-    const result = await login(email.trim(), password);
+    try {
+      const result = await login(email.trim(), password);
 
-    setIsLoading(false);
-
-    if (result.success) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace('/(tabs)');
-    } else {
-      setError(result.error || 'Login failed');
+      if (result.success) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        router.replace('/(tabs)');
+      } else {
+        setError(result.error || 'Login failed');
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      }
+    } catch (error) {
+      const message = (error as { message?: string })?.message ?? 'Login failed';
+      setError(message);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -90,7 +95,11 @@ export default function LoginScreen() {
     setResetMessage('');
 
     try {
-      await sendPasswordResetEmail(auth, email.trim());
+      const normalizedEmail = email.trim().toLowerCase();
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(normalizedEmail);
+      if (resetError) {
+        throw resetError;
+      }
       setResetMessage('Password reset email sent. Check your inbox.');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err) {
@@ -721,10 +730,10 @@ export default function LoginScreen() {
               Debug
             </Text>
             <Text style={{ color: colors.text.secondary }} className="text-xs">
-              Project: {projectId || 'unknown'}
+              Project: {supabaseProjectId || 'unknown'}
             </Text>
             <Text style={{ color: colors.text.secondary }} className="text-xs">
-              Database: {databaseId || '(default)'}
+              URL: {supabaseUrl || 'not set'}
             </Text>
             <Text style={{ color: colors.text.secondary }} className="text-xs">
               Business: {businessId || 'none'}

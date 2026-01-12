@@ -1,19 +1,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { storage } from "@/lib/storage";
-import { createUserWithEmailAndPassword, deleteUser, signInWithEmailAndPassword, signOut } from "firebase/auth";
-import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  query,
-  setDoc,
-  updateDoc,
-  where,
-} from "firebase/firestore";
-import { auth, db } from "../firebase/firebaseConfig";
+import { supabase } from "@/lib/supabase";
 import useFyllStore from "./fyll-store";
 
 export type TeamRole = 'admin' | 'manager' | 'staff';
@@ -103,6 +91,8 @@ interface AuthStore {
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   signup: (input: { businessName: string; name: string; email: string; password: string }) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
+  updateProfile: (name: string, email: string) => Promise<void>;
+  updatePassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
   enableOfflineMode: (input?: { businessName?: string; name?: string; email?: string }) => void;
 
   // Team actions (admin only)
@@ -135,6 +125,22 @@ const createBusinessId = (businessName: string) => {
 };
 
 const getAuthErrorMessage = (error: unknown, fallback: string) => {
+  const message = (error as { message?: string })?.message;
+  if (message) {
+    if (message.toLowerCase().includes('invalid login credentials')) {
+      return 'Invalid email or password. Please check and try again.';
+    }
+    if (message.toLowerCase().includes('email not confirmed')) {
+      return 'Please verify your email before signing in.';
+    }
+    if (message.toLowerCase().includes('user already registered')) {
+      return 'This email is already registered. Please sign in instead.';
+    }
+    if (message.toLowerCase().includes('password') && message.toLowerCase().includes('weak')) {
+      return 'Password must be at least 6 characters.';
+    }
+  }
+
   const code = (error as { code?: string })?.code;
   if (!code) return fallback;
 
@@ -160,6 +166,13 @@ const getAuthErrorMessage = (error: unknown, fallback: string) => {
   }
 };
 
+const normalizeRole = (value?: string | null): TeamRole => {
+  if (value === 'admin' || value === 'manager' || value === 'staff') {
+    return value;
+  }
+  return 'admin';
+};
+
 const useAuthStore = create<AuthStore>()(
   persist(
     (set, get) => ({
@@ -177,245 +190,84 @@ const useAuthStore = create<AuthStore>()(
 
           const normalizedEmail = email.trim().toLowerCase();
           const profileKey = `fyll_user_profile:${normalizedEmail}`;
-          const isOfflineCode = (code?: string) =>
-            code === 'failed-precondition' || code === 'unavailable' || code === 'deadline-exceeded';
-          const withTimeout = async <T,>(promise: Promise<T>, ms: number) => {
-            const timeout = new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error('timeout')), ms)
-            );
-            return Promise.race([promise, timeout]) as Promise<T>;
-          };
+          const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+            email: normalizedEmail,
+            password,
+          });
 
-          // Authenticate with Firebase
-          const credential = await signInWithEmailAndPassword(auth, normalizedEmail, password);
-
-          console.log('🔐 User authenticated with UID:', credential.user.uid);
-          console.log('📧 Email:', normalizedEmail);
-
-          let userData: AuthUser | null = null;
-          let businessId: string | null = null;
-          let businessName: string | null = null;
-          let isOfflineError = false;
-
-          try {
-            console.log('🔍 Attempting to fetch user data from Firestore...');
-            const userRef = doc(db, 'users', credential.user.uid);
-            const userSnap = await withTimeout(getDoc(userRef), 10000); // Increased to 10s to prevent premature timeout
-
-            if (userSnap.exists()) {
-              console.log('✅ User data found in Firestore');
-              const data = userSnap.data() as AuthUser;
-              userData = data;
-              businessId = data.businessId;
-              console.log('🏢 BusinessId from Firestore:', businessId);
-
-              if (businessId) {
-                setDoc(
-                  doc(db, `businesses/${businessId}/team`, credential.user.uid),
-                  { lastLogin: new Date().toISOString() },
-                  { merge: true }
-                ).catch(() => {});
-              }
-            } else {
-              console.log('⚠️ User document does not exist in Firestore');
-            }
-          } catch (firestoreError) {
-            const code = (firestoreError as { code?: string })?.code;
-            const isTimeout = (firestoreError as Error).message === 'timeout';
-            isOfflineError = isOfflineCode(code) || isTimeout;
-
-            console.error('❌ Firestore connection error:', firestoreError);
-            console.error('Error code:', code, '| Is timeout:', isTimeout);
-
-            // If timeout on first attempt, try to proceed with fallback immediately
-            if (isTimeout) {
-              console.log('⚡ Timeout detected - will try fallback methods');
-            }
+          if (authError || !authData.user) {
+            throw authError ?? new Error('Login failed');
           }
 
-          if (!userData && !isOfflineError) {
-            try {
-              const emailQuery = await withTimeout(
-                getDocs(query(collection(db, 'users'), where('email', '==', normalizedEmail))),
-                10000
-              );
-              const emailDoc = emailQuery.docs[0];
-              if (emailDoc) {
-                const data = emailDoc.data() as AuthUser;
-                businessId = data.businessId;
-                userData = {
-                  id: credential.user.uid,
-                  email: data.email ?? credential.user.email ?? normalizedEmail,
-                  name: data.name ?? credential.user.displayName ?? normalizedEmail.split('@')[0],
-                  role: data.role ?? 'admin',
-                  businessId: data.businessId,
-                };
-                await setDoc(doc(db, 'users', credential.user.uid), userData, { merge: true });
-              }
-            } catch (lookupError) {
-              const code = (lookupError as { code?: string })?.code;
-              isOfflineError =
-                isOfflineError || isOfflineCode(code) || (lookupError as Error).message === 'timeout';
-              console.warn('Could not lookup user by email:', lookupError);
-            }
+          const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('id, email, name, role, business_id, businessId')
+            .eq('id', authData.user.id)
+            .maybeSingle();
+
+          if (profileError) {
+            console.warn('Auth successful, but profile lookup failed:', profileError);
           }
 
-          if (!userData && !isOfflineError) {
-            try {
-              const businessSnap = await withTimeout(
-                getDocs(query(collection(db, 'businesses'), where('ownerUid', '==', credential.user.uid))),
-                10000
-              );
-              const businessDoc = businessSnap.docs[0];
-              if (businessDoc) {
-                const data = businessDoc.data() as { name?: string };
-                businessId = businessDoc.id;
-                businessName = data?.name ?? null;
-                userData = {
-                  id: credential.user.uid,
-                  email: credential.user.email || normalizedEmail,
-                  name: credential.user.displayName || normalizedEmail.split('@')[0],
-                  role: 'admin',
-                  businessId,
-                };
-                await setDoc(doc(db, 'users', credential.user.uid), userData, { merge: true });
-              }
-            } catch (fallbackError) {
-              const code = (fallbackError as { code?: string })?.code;
-              isOfflineError =
-                isOfflineError || isOfflineCode(code) || (fallbackError as Error).message === 'timeout';
-              console.warn('Could not recover business profile:', fallbackError);
-            }
-          }
+          const businessId = profile?.business_id ?? profile?.businessId ?? null;
 
-          if (!userData) {
-            try {
-              console.log('🔧 Auto-provisioning user profile...');
-              const createdAt = new Date().toISOString();
-              businessId = `business-${credential.user.uid.substring(0, 8)}`;
-              businessName = credential.user.displayName
-                ? `${credential.user.displayName}'s Business`
-                : `${normalizedEmail.split('@')[0]}'s Business`;
-              console.log('🆕 Creating NEW businessId:', businessId);
-              console.log('👤 For user UID:', credential.user.uid);
-              userData = {
-                id: credential.user.uid,
-                email: credential.user.email || normalizedEmail,
-                name: credential.user.displayName || normalizedEmail.split('@')[0],
-                role: 'admin',
-                businessId,
-              };
-
-              // Try to provision with short timeout - if it fails, continue anyway
-              try {
-                await Promise.race([
-                  Promise.all([
-                    setDoc(doc(db, 'businesses', businessId), {
-                      id: businessId,
-                      name: businessName,
-                      ownerUid: credential.user.uid,
-                      createdAt,
-                    }),
-                    setDoc(doc(db, 'users', credential.user.uid), {
-                      ...userData,
-                      createdAt,
-                    }),
-                    setDoc(doc(db, `businesses/${businessId}/team`, credential.user.uid), {
-                      id: credential.user.uid,
-                      email: userData.email,
-                      name: userData.name,
-                      role: userData.role,
-                      createdAt,
-                      lastLogin: createdAt,
-                    }),
-                  ]),
-                  new Promise((_, reject) => setTimeout(() => reject(new Error('provision-timeout')), 3000))
-                ]);
-                console.log('✅ User profile provisioned successfully');
-              } catch (writeError) {
-                console.warn('⚠️ Could not write to Firestore, but continuing with login:', writeError);
-                // Continue anyway - user will still be logged in
-              }
-            } catch (provisionError) {
-              console.warn('Could not provision missing user profile:', provisionError);
-            }
-          }
-
-          if (!userData && isOfflineError) {
-            const cachedProfile = await storage.getItem(profileKey);
-            if (cachedProfile) {
-              const parsed = JSON.parse(cachedProfile) as { businessId?: string; name?: string };
-              businessId = parsed.businessId ?? null;
-              userData = {
-                id: credential.user.uid,
-                email: credential.user.email || normalizedEmail,
-                name: parsed.name ?? credential.user.displayName ?? normalizedEmail.split('@')[0],
-                role: 'admin',
-                businessId: businessId ?? '',
-              };
-            } else {
-              userData = {
-                id: credential.user.uid,
-                email: credential.user.email || normalizedEmail,
-                name: credential.user.displayName || normalizedEmail.split('@')[0],
-                role: 'admin',
-                businessId: '',
-              };
-            }
-          }
-
-          // CRITICAL: Require businessId - don't allow broken offline login
-          if (!userData || !businessId) {
-            await signOut(auth);
+          if (!businessId) {
+            await supabase.auth.signOut();
             set({ isAuthLoading: false });
             return {
               success: false,
-              error: isOfflineError
-                ? 'Cannot reach Firebase. Please check your internet connection and try again.'
-                : 'Account data not found. Please create a new account or contact support.',
+              error: 'Account data not found. Please contact support.',
             };
           }
+
+          const userData: AuthUser = {
+            id: authData.user.id,
+            email: profile?.email ?? authData.user.email ?? normalizedEmail,
+            name: profile?.name ?? authData.user.email?.split('@')[0] ?? normalizedEmail.split('@')[0],
+            role: normalizeRole(profile?.role),
+            businessId,
+          };
+
+          supabase
+            .from('team_members')
+            .update({ last_login: new Date().toISOString() })
+            .eq('user_id', authData.user.id)
+            .eq('business_id', businessId)
+            .then(() => {})
+            .catch(() => {});
 
           set({
             isAuthenticated: true,
             currentUser: userData,
-            businessId: businessId,
-            isOfflineMode: false, // If we got businessId, we're not offline
+            businessId,
+            isOfflineMode: false,
             isAuthLoading: false,
           });
 
-          if (businessId && !isOfflineError) {
-            try {
-              const businessSnap = await getDoc(doc(db, 'businesses', businessId));
-              if (businessSnap.exists()) {
-                const data = businessSnap.data() as { name?: string };
-                businessName = data?.name ?? businessName;
-              }
-              if (businessName) {
-                await storage.setItem(
-                  `fyll_business_settings:${businessId}`,
-                  JSON.stringify({ businessName })
-                );
-              }
-            } catch (settingsError) {
-              console.warn('Could not sync business settings:', settingsError);
-            }
-          }
+          storage.setItem(
+            profileKey,
+            JSON.stringify({ businessId, name: userData.name })
+          ).catch(() => {});
 
-          if (businessId) {
-            storage.setItem(
-              profileKey,
-              JSON.stringify({ businessId, name: userData.name })
-            ).catch(() => {});
-          }
+          supabase
+            .from('businesses')
+            .select('name')
+            .eq('id', businessId)
+            .maybeSingle()
+            .then(({ data, error }) => {
+              if (error || !data?.name) return;
+              storage.setItem(
+                `fyll_business_settings:${businessId}`,
+                JSON.stringify({ businessName: data.name })
+              ).catch(() => {});
+            })
+            .catch(() => {});
 
-          if (!isOfflineError) {
-            get()
-              .refreshTeamData()
-              .catch((refreshError) => {
-                console.warn('Could not refresh team data:', refreshError);
-              });
-          }
+          get()
+            .refreshTeamData()
+            .catch((refreshError) => {
+              console.warn('Could not refresh team data:', refreshError);
+            });
 
           return { success: true };
         } catch (error) {
@@ -426,87 +278,89 @@ const useAuthStore = create<AuthStore>()(
       },
 
       signup: async ({ businessName, name, email, password }) => {
-        let createdUser: typeof auth.currentUser | null = null;
+        let createdUserId: string | null = null;
         try {
           set({ isAuthLoading: true });
 
-          // Check if user already exists in Firestore
-          try {
-            const existingUserQuery = query(
-              collection(db, 'users'),
-              where('email', '==', email.trim().toLowerCase())
-            );
-            const existingUserSnap = await getDocs(existingUserQuery);
+          const normalizedEmail = email.trim().toLowerCase();
+          const { data: existingProfile } = await supabase
+            .from('profiles')
+            .select('id, business_id, businessId')
+            .eq('email', normalizedEmail)
+            .maybeSingle();
 
-            if (!existingUserSnap.empty) {
-              const existingUser = existingUserSnap.docs[0].data() as AuthUser;
-              set({ isAuthLoading: false });
-              return {
-                success: false,
-                error: `This email is already registered. Please sign in instead. (Business: ${existingUser.businessId})`
-              };
-            }
-          } catch (checkError) {
-            console.warn('Could not check for existing user:', checkError);
-            // Continue with signup if check fails
+          if (existingProfile) {
+            set({ isAuthLoading: false });
+            return {
+              success: false,
+              error: 'This email is already registered. Please sign in instead.',
+            };
           }
 
-          const normalizedEmail = email.trim().toLowerCase();
-          const credential = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
-          createdUser = credential.user;
+          const { data: signupData, error: signupError } = await supabase.auth.signUp({
+            email: normalizedEmail,
+            password,
+            options: {
+              data: { name: name.trim() },
+            },
+          });
+
+          if (signupError || !signupData.user) {
+            throw signupError ?? new Error('Unable to create account');
+          }
+
+          createdUserId = signupData.user.id;
           const businessId = createBusinessId(businessName);
           const createdAt = new Date().toISOString();
 
           console.log('🆕 Creating new account:', {
             email: normalizedEmail,
             businessId,
-            uid: credential.user.uid,
+            uid: createdUserId,
           });
 
-          // Try to write to Firestore with timeout and fallback
-          try {
-            const firestoreTimeout = new Promise((_, reject) =>
-              setTimeout(() => reject(new Error('Firestore timeout')), 10000)
-            );
+          const { error: businessError } = await supabase.from('businesses').insert({
+            id: businessId,
+            name: businessName.trim(),
+            owner_id: createdUserId,
+            created_at: createdAt,
+          });
 
-            await Promise.race([
-              Promise.all([
-                setDoc(doc(db, 'businesses', businessId), {
-                  id: businessId,
-                  name: businessName.trim(),
-                  ownerUid: credential.user.uid,
-                  createdAt,
-                }),
-                setDoc(doc(db, 'users', credential.user.uid), {
-                  id: credential.user.uid,
-                  email: normalizedEmail,
-                  name: name.trim(),
-                  role: 'admin',
-                  businessId,
-                  createdAt,
-                }),
-                setDoc(doc(db, `businesses/${businessId}/team`, credential.user.uid), {
-                  id: credential.user.uid,
-                  email: normalizedEmail,
-                  name: name.trim(),
-                  role: 'admin',
-                  createdAt,
-                  lastLogin: createdAt,
-                }),
-              ]),
-              firestoreTimeout,
-            ]);
+          if (businessError) {
+            throw businessError;
+          }
 
-            console.log('Firestore signup data saved successfully');
-          } catch (firestoreError) {
-            console.warn('Firestore unavailable during signup, continuing with auth-only mode:', firestoreError);
-            // Continue without Firestore - user is still created in Firebase Auth
+          const { error: profileError } = await supabase.from('profiles').insert({
+            id: createdUserId,
+            email: normalizedEmail,
+            name: name.trim(),
+            role: 'admin',
+            business_id: businessId,
+            created_at: createdAt,
+          });
+
+          if (profileError) {
+            throw profileError;
+          }
+
+          const { error: teamError } = await supabase.from('team_members').insert({
+            user_id: createdUserId,
+            email: normalizedEmail,
+            name: name.trim(),
+            role: 'admin',
+            business_id: businessId,
+            created_at: createdAt,
+            last_login: createdAt,
+          });
+
+          if (teamError) {
+            throw teamError;
           }
 
           set({
             isAuthenticated: true,
             currentUser: {
-              id: credential.user.uid,
+              id: createdUserId,
               email: normalizedEmail,
               name: name.trim(),
               role: 'admin',
@@ -548,13 +402,6 @@ const useAuthStore = create<AuthStore>()(
 
           return { success: true };
         } catch (error) {
-          if (createdUser) {
-            try {
-              await deleteUser(createdUser);
-            } catch (cleanupError) {
-              console.error('Cleanup failed after signup error:', cleanupError);
-            }
-          }
           set({ isAuthLoading: false });
           console.error('Signup failed:', error);
           return { success: false, error: getAuthErrorMessage(error, 'Unable to create account. Please try again.') };
@@ -564,7 +411,7 @@ const useAuthStore = create<AuthStore>()(
       logout: async () => {
         try {
           await Promise.race([
-            signOut(auth),
+            supabase.auth.signOut(),
             new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000)),
           ]);
         } catch (error) {
@@ -585,6 +432,96 @@ const useAuthStore = create<AuthStore>()(
           teamMembers: [],
           pendingInvites: [],
         });
+      },
+
+      updateProfile: async (name, email) => {
+        const currentUser = get().currentUser;
+        if (!currentUser) {
+          throw new Error('Not signed in');
+        }
+
+        const normalizedEmail = email.trim().toLowerCase();
+
+        const { error: authError } = await supabase.auth.updateUser({
+          email: normalizedEmail,
+          data: { name: name.trim() },
+        });
+
+        if (authError) {
+          throw authError;
+        }
+
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .update({
+            name: name.trim(),
+            email: normalizedEmail,
+          })
+          .eq('id', currentUser.id);
+
+        if (profileError) {
+          throw profileError;
+        }
+
+        const { error: teamError } = await supabase
+          .from('team_members')
+          .update({
+            name: name.trim(),
+            email: normalizedEmail,
+          })
+          .eq('user_id', currentUser.id);
+
+        if (teamError) {
+          throw teamError;
+        }
+
+        const updatedUser = {
+          ...currentUser,
+          name: name.trim(),
+          email: normalizedEmail,
+        };
+
+        set({ currentUser: updatedUser });
+
+        const oldProfileKey = `fyll_user_profile:${currentUser.email}`;
+        const newProfileKey = `fyll_user_profile:${normalizedEmail}`;
+
+        if (currentUser.businessId) {
+          storage.setItem(
+            newProfileKey,
+            JSON.stringify({ businessId: currentUser.businessId, name: updatedUser.name })
+          ).catch(() => {});
+        }
+
+        if (oldProfileKey !== newProfileKey) {
+          storage.removeItem(oldProfileKey).catch(() => {});
+        }
+      },
+
+      updatePassword: async (currentPassword, newPassword) => {
+        const currentUser = get().currentUser;
+        if (!currentUser?.email) {
+          return { success: false, error: 'Not signed in.' };
+        }
+
+        const { error: verifyError } = await supabase.auth.signInWithPassword({
+          email: currentUser.email,
+          password: currentPassword,
+        });
+
+        if (verifyError) {
+          return { success: false, error: 'Current password is incorrect.' };
+        }
+
+        const { error: updateError } = await supabase.auth.updateUser({
+          password: newPassword,
+        });
+
+        if (updateError) {
+          return { success: false, error: getAuthErrorMessage(updateError, 'Failed to update password.') };
+        }
+
+        return { success: true };
       },
 
       enableOfflineMode: (input) => {
@@ -634,16 +571,46 @@ const useAuthStore = create<AuthStore>()(
         const businessId = get().businessId;
         if (!businessId) return;
 
-        const teamSnap = await getDocs(collection(db, `businesses/${businessId}/team`));
-        const members = teamSnap.docs.map((docSnap) => docSnap.data() as TeamMember);
+        const { data: teamRows, error: teamError } = await supabase
+          .from('team_members')
+          .select('*')
+          .eq('business_id', businessId);
 
-        const invitesSnap = await getDocs(
-          query(collection(db, 'invites'), where('businessId', '==', businessId))
-        );
+        if (teamError) {
+          throw teamError;
+        }
+
+        const members = (teamRows ?? []).map((row) => ({
+          id: row.user_id ?? row.id,
+          email: row.email,
+          name: row.name,
+          role: normalizeRole(row.role),
+          createdAt: row.created_at ?? row.createdAt ?? new Date().toISOString(),
+          lastLogin: row.last_login ?? row.lastLogin,
+        })) as TeamMember[];
+
+        const { data: inviteRows, error: inviteError } = await supabase
+          .from('invites')
+          .select('*')
+          .eq('business_id', businessId);
+
+        if (inviteError) {
+          throw inviteError;
+        }
+
         const now = new Date();
-        const invites = invitesSnap.docs
-          .map((docSnap) => docSnap.data() as PendingInvite)
-          .filter((invite) => new Date(invite.expiresAt) > now);
+        const invites = (inviteRows ?? [])
+          .map((row) => ({
+            id: row.id,
+            email: row.email,
+            role: normalizeRole(row.role),
+            inviteCode: row.invite_code ?? row.inviteCode,
+            invitedBy: row.invited_by ?? row.invitedBy,
+            invitedAt: row.invited_at ?? row.invitedAt ?? new Date().toISOString(),
+            expiresAt: row.expires_at ?? row.expiresAt ?? new Date().toISOString(),
+            businessId: row.business_id ?? row.businessId,
+          }))
+          .filter((invite) => new Date(invite.expiresAt) > now) as PendingInvite[];
 
         set({ teamMembers: members, pendingInvites: invites });
       },
@@ -652,8 +619,37 @@ const useAuthStore = create<AuthStore>()(
         const businessId = get().businessId;
         if (!businessId) return;
 
-        await updateDoc(doc(db, `businesses/${businessId}/team`, id), updates);
-        await updateDoc(doc(db, 'users', id), updates);
+        const updatePayload: Record<string, unknown> = {};
+        if (updates.name) updatePayload.name = updates.name;
+        if (updates.email) updatePayload.email = updates.email;
+        if (updates.role) updatePayload.role = updates.role;
+        if (updates.lastLogin) updatePayload.last_login = updates.lastLogin;
+
+        const { error: teamError } = await supabase
+          .from('team_members')
+          .update(updatePayload)
+          .eq('user_id', id)
+          .eq('business_id', businessId);
+
+        if (teamError) {
+          throw teamError;
+        }
+
+        const profilePayload: Record<string, unknown> = {};
+        if (updates.name) profilePayload.name = updates.name;
+        if (updates.email) profilePayload.email = updates.email;
+        if (updates.role) profilePayload.role = updates.role;
+
+        if (Object.keys(profilePayload).length > 0) {
+          const { error: profileError } = await supabase
+            .from('profiles')
+            .update(profilePayload)
+            .eq('id', id);
+
+          if (profileError) {
+            throw profileError;
+          }
+        }
 
         set({
           teamMembers: get().teamMembers.map((member) =>
@@ -666,8 +662,15 @@ const useAuthStore = create<AuthStore>()(
         const businessId = get().businessId;
         if (!businessId) return;
 
-        await deleteDoc(doc(db, `businesses/${businessId}/team`, id));
-        await deleteDoc(doc(db, 'users', id));
+        const { error: teamError } = await supabase
+          .from('team_members')
+          .delete()
+          .eq('user_id', id)
+          .eq('business_id', businessId);
+
+        if (teamError) {
+          throw teamError;
+        }
 
         set({
           teamMembers: get().teamMembers.filter((member) => member.id !== id),
@@ -703,55 +706,79 @@ const useAuthStore = create<AuthStore>()(
           businessId,
         };
 
-        // Save to Firestore; invite must exist for other devices
-        try {
-          const firestoreTimeout = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Firestore timeout')), 5000)
-          );
+        const { data: inviteRow, error: inviteError } = await supabase
+          .from('invites')
+          .insert({
+            email: invite.email,
+            role: invite.role,
+            invite_code: invite.inviteCode,
+            invited_by: invite.invitedBy,
+            invited_at: invite.invitedAt,
+            expires_at: invite.expiresAt,
+            business_id: invite.businessId,
+          })
+          .select()
+          .single();
 
-          await Promise.race([
-            setDoc(doc(db, 'invites', invite.id), invite),
-            firestoreTimeout,
-          ]);
-          console.log('Invite saved to Firestore');
-        } catch (firestoreError) {
-          const code = (firestoreError as { code?: string })?.code;
-          console.warn('Firestore unavailable, invite not created:', firestoreError);
-          if (code === 'permission-denied') {
-            throw new Error('Permission denied. Check Firestore rules for invites.');
-          }
-          if (code === 'unavailable' || code === 'failed-precondition') {
-            throw new Error('Network issue. Please check your connection and try again.');
-          }
+        if (inviteError) {
+          console.warn('Supabase invite creation failed:', inviteError);
           throw new Error('Invite could not be created. Please try again.');
         }
 
-        // Update local state after Firestore succeeds
-        set({ pendingInvites: [...get().pendingInvites, invite] });
+        const savedInvite: PendingInvite = {
+          ...invite,
+          id: inviteRow?.id ?? invite.id,
+        };
 
-        return invite;
+        set({ pendingInvites: [...get().pendingInvites, savedInvite] });
+
+        return savedInvite;
       },
 
       cancelInvite: async (inviteId) => {
-        await deleteDoc(doc(db, 'invites', inviteId));
+        const { error: inviteError } = await supabase
+          .from('invites')
+          .delete()
+          .eq('id', inviteId);
+
+        if (inviteError) {
+          throw inviteError;
+        }
         set({
           pendingInvites: get().pendingInvites.filter((invite) => invite.id !== inviteId),
         });
       },
 
       getInviteByCode: async (inviteCode) => {
-        const inviteSnap = await getDocs(
-          query(collection(db, 'invites'), where('inviteCode', '==', inviteCode))
-        );
+        const { data: inviteRows, error: inviteError } = await supabase
+          .from('invites')
+          .select('*')
+          .eq('invite_code', inviteCode)
+          .limit(1);
 
-        const invite = inviteSnap.docs.map((docSnap) => docSnap.data() as PendingInvite)[0];
+        if (inviteError) {
+          throw inviteError;
+        }
+
+        const row = inviteRows?.[0];
+        const invite = row
+          ? {
+            id: row.id,
+            email: row.email,
+            role: normalizeRole(row.role),
+            inviteCode: row.invite_code ?? row.inviteCode,
+            invitedBy: row.invited_by ?? row.invitedBy,
+            invitedAt: row.invited_at ?? row.invitedAt ?? new Date().toISOString(),
+            expiresAt: row.expires_at ?? row.expiresAt ?? new Date().toISOString(),
+            businessId: row.business_id ?? row.businessId,
+          }
+          : undefined;
         if (!invite) return undefined;
         if (new Date(invite.expiresAt) < new Date()) return undefined;
         return invite;
       },
 
       acceptInvite: async (inviteCode, name, password) => {
-        let createdUser: typeof auth.currentUser | null = null;
         try {
           set({ isAuthLoading: true });
           const invite = await get().getInviteByCode(inviteCode);
@@ -761,34 +788,61 @@ const useAuthStore = create<AuthStore>()(
             return { success: false, error: 'Invalid or expired invite code' };
           }
 
-          const credential = await createUserWithEmailAndPassword(auth, invite.email, password);
-          createdUser = credential.user;
+          const { data: signupData, error: signupError } = await supabase.auth.signUp({
+            email: invite.email,
+            password,
+            options: {
+              data: { name: name.trim() },
+            },
+          });
+
+          if (signupError || !signupData.user) {
+            throw signupError ?? new Error('Invite signup failed');
+          }
+
+          const createdUserId = signupData.user.id;
           const createdAt = new Date().toISOString();
 
-          await setDoc(doc(db, 'users', credential.user.uid), {
-            id: credential.user.uid,
+          const { error: profileError } = await supabase.from('profiles').insert({
+            id: createdUserId,
             email: invite.email,
             name: name.trim(),
             role: invite.role,
-            businessId: invite.businessId,
-            createdAt,
+            business_id: invite.businessId,
+            created_at: createdAt,
           });
 
-          await setDoc(doc(db, `businesses/${invite.businessId}/team`, credential.user.uid), {
-            id: credential.user.uid,
+          if (profileError) {
+            throw profileError;
+          }
+
+          const { error: teamError } = await supabase.from('team_members').insert({
+            user_id: createdUserId,
             email: invite.email,
             name: name.trim(),
             role: invite.role,
-            createdAt,
-            lastLogin: createdAt,
+            business_id: invite.businessId,
+            created_at: createdAt,
+            last_login: createdAt,
           });
 
-          await deleteDoc(doc(db, 'invites', invite.id));
+          if (teamError) {
+            throw teamError;
+          }
+
+          const { error: inviteError } = await supabase
+            .from('invites')
+            .delete()
+            .eq('id', invite.id);
+
+          if (inviteError) {
+            throw inviteError;
+          }
 
           set({
             isAuthenticated: true,
             currentUser: {
-              id: credential.user.uid,
+              id: createdUserId,
               email: invite.email,
               name: name.trim(),
               role: invite.role,
@@ -801,13 +855,6 @@ const useAuthStore = create<AuthStore>()(
           await get().refreshTeamData();
           return { success: true };
         } catch (error) {
-          if (createdUser) {
-            try {
-              await deleteUser(createdUser);
-            } catch (cleanupError) {
-              console.error('Cleanup failed after invite error:', cleanupError);
-            }
-          }
           set({ isAuthLoading: false });
           console.error('Invite signup failed:', error);
           return { success: false, error: getAuthErrorMessage(error, 'Failed to create account.') };
@@ -815,7 +862,7 @@ const useAuthStore = create<AuthStore>()(
       },
 
       setUserPassword: () => {
-        // Password changes are handled by Firebase Auth and are not implemented yet.
+        // Password changes are handled through Supabase Auth.
       },
     }),
     {

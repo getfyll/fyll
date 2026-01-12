@@ -189,6 +189,9 @@ const useAuthStore = create<AuthStore>()(
           // Authenticate with Firebase
           const credential = await signInWithEmailAndPassword(auth, normalizedEmail, password);
 
+          console.log('🔐 User authenticated with UID:', credential.user.uid);
+          console.log('📧 Email:', normalizedEmail);
+
           let userData: AuthUser | null = null;
           let businessId: string | null = null;
           let businessName: string | null = null;
@@ -204,6 +207,7 @@ const useAuthStore = create<AuthStore>()(
               const data = userSnap.data() as AuthUser;
               userData = data;
               businessId = data.businessId;
+              console.log('🏢 BusinessId from Firestore:', businessId);
 
               if (businessId) {
                 setDoc(
@@ -292,6 +296,8 @@ const useAuthStore = create<AuthStore>()(
               businessName = credential.user.displayName
                 ? `${credential.user.displayName}'s Business`
                 : `${normalizedEmail.split('@')[0]}'s Business`;
+              console.log('🆕 Creating NEW businessId:', businessId);
+              console.log('👤 For user UID:', credential.user.uid);
               userData = {
                 id: credential.user.uid,
                 email: credential.user.email || normalizedEmail,

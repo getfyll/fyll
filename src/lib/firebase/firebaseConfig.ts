@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore/lite';
+import { initializeFirestore, memoryLocalCache } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 
@@ -14,13 +14,12 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-const databaseId = process.env.EXPO_PUBLIC_FIREBASE_DATABASE_ID;
-const resolvedDatabaseId =
-  databaseId && databaseId !== '(default)' ? databaseId : undefined;
-
-const db = resolvedDatabaseId
-  ? getFirestore(app, resolvedDatabaseId)
-  : getFirestore(app);
+// Use memory-only cache to prevent "offline" issues on web
+// This disables IndexedDB persistence which was causing problems
+const db = initializeFirestore(app, {
+  localCache: memoryLocalCache(),
+  experimentalForceLongPolling: true,
+});
 
 export { db };
 export const auth = getAuth(app);

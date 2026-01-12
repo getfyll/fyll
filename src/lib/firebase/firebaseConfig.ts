@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { initializeFirestore, memoryLocalCache } from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 
@@ -14,12 +14,9 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-// Use memory-only cache to prevent "offline" issues on web
-// This disables IndexedDB persistence which was causing problems
-const db = initializeFirestore(app, {
-  localCache: memoryLocalCache(),
-  // Removed experimentalForceLongPolling - it was causing slow reads/timeouts
-});
+// Use default Firestore initialization - simpler and more reliable
+// Previous attempts with memoryLocalCache were preventing connection on web
+const db = getFirestore(app);
 
 export { db };
 export const auth = getAuth(app);

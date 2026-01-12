@@ -319,42 +319,60 @@ const useAuthStore = create<AuthStore>()(
             uid: createdUserId,
           });
 
-          const { error: businessError } = await supabase.from('businesses').insert({
-            id: businessId,
-            name: businessName.trim(),
-            owner_id: createdUserId,
-            created_at: createdAt,
-          });
+          // Use upsert to handle cases where user was created but insert failed
+          const { error: businessError } = await supabase
+            .from('businesses')
+            .upsert({
+              id: businessId,
+              name: businessName.trim(),
+              owner_id: createdUserId,
+              created_at: createdAt,
+            }, {
+              onConflict: 'id'
+            });
 
           if (businessError) {
             throw businessError;
           }
 
-          const { error: profileError } = await supabase.from('profiles').insert({
-            id: createdUserId,
-            email: normalizedEmail,
-            name: name.trim(),
-            role: 'admin',
-            business_id: businessId,
-            created_at: createdAt,
-          });
+          const { error: profileError } = await supabase
+            .from('profiles')
+            .upsert({
+              id: createdUserId,
+              email: normalizedEmail,
+              name: name.trim(),
+              role: 'admin',
+              business_id: businessId,
+              created_at: createdAt,
+            }, {
+              onConflict: 'id'
+            });
 
           if (profileError) {
             throw profileError;
           }
 
-          const { error: teamError } = await supabase.from('team_members').insert({
-            user_id: createdUserId,
-            email: normalizedEmail,
-            name: name.trim(),
-            role: 'admin',
-            business_id: businessId,
-            created_at: createdAt,
-            last_login: createdAt,
-          });
+          // Try to insert team member, but don't fail if table doesn't exist
+          try {
+            const { error: teamError } = await supabase
+              .from('team_members')
+              .upsert({
+                user_id: createdUserId,
+                email: normalizedEmail,
+                name: name.trim(),
+                role: 'admin',
+                business_id: businessId,
+                created_at: createdAt,
+                last_login: createdAt,
+              }, {
+                onConflict: 'user_id,business_id'
+              });
 
-          if (teamError) {
-            throw teamError;
+            if (teamError) {
+              console.warn('Could not upsert team member:', teamError);
+            }
+          } catch (teamInsertError) {
+            console.warn('team_members table may not exist:', teamInsertError);
           }
 
           set({

@@ -231,6 +231,10 @@ export function getPreviousPeriodRange(range: TimeRange): { start: Date; end: Da
   return { start: previousStart, end: previousEnd };
 }
 
+function getOrderDate(order: Order): Date {
+  return new Date(order.orderDate ?? order.createdAt);
+}
+
 /**
  * Filter orders by date range and paid status
  */
@@ -241,7 +245,7 @@ export function filterOrdersByDateRange(
   excludeRefunded: boolean = true
 ): Order[] {
   return orders.filter((order) => {
-    const orderDate = new Date(order.createdAt);
+    const orderDate = getOrderDate(order);
     const inRange = orderDate >= start && orderDate <= end;
     const notRefunded = excludeRefunded ? order.status !== 'Refunded' : true;
     return inRange && notRefunded;
@@ -267,7 +271,7 @@ export function groupByDay(orders: Order[], start: Date, end: Date): ChartDataPo
 
   // Sum orders by day
   orders.forEach((order) => {
-    const dateKey = new Date(order.createdAt).toISOString().split('T')[0];
+    const dateKey = getOrderDate(order).toISOString().split('T')[0];
     if (dayMap.has(dateKey)) {
       dayMap.set(dateKey, (dayMap.get(dateKey) || 0) + order.totalAmount);
     }
@@ -301,7 +305,7 @@ export function groupByWeek(orders: Order[], start: Date, end: Date): ChartDataP
 
   // Sum orders by week
   orders.forEach((order) => {
-    const orderDate = new Date(order.createdAt);
+    const orderDate = getOrderDate(order);
     const daysSinceStart = Math.floor(
       (orderDate.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
     );
@@ -323,7 +327,7 @@ export function groupByMonth(orders: Order[]): ChartDataPoint[] {
   const monthSales = new Array(12).fill(0);
 
   orders.forEach((order) => {
-    const orderDate = new Date(order.createdAt);
+    const orderDate = getOrderDate(order);
     const month = orderDate.getMonth();
     monthSales[month] += order.totalAmount;
   });
@@ -344,12 +348,12 @@ export function getHourlyTrend(orders: Order[]): number[] {
   const hourlyData = new Array(12).fill(0); // 12 data points (every 2 hours)
 
   const todayOrders = orders.filter((order) => {
-    const orderDate = new Date(order.createdAt);
+    const orderDate = getOrderDate(order);
     return orderDate >= today && order.status !== 'Refunded';
   });
 
   todayOrders.forEach((order) => {
-    const orderDate = new Date(order.createdAt);
+    const orderDate = getOrderDate(order);
     const hour = orderDate.getHours();
     const bucket = Math.min(Math.floor(hour / 2), 11);
     hourlyData[bucket] += order.totalAmount;
@@ -383,7 +387,7 @@ export function countNewCustomers(
   // Build map of first order date for each customer
   allOrders.forEach((order) => {
     const key = order.customerEmail || order.customerName.toLowerCase();
-    const orderDate = new Date(order.createdAt);
+    const orderDate = getOrderDate(order);
     const existing = customerFirstOrders.get(key);
     if (!existing || orderDate < existing) {
       customerFirstOrders.set(key, orderDate);
@@ -517,7 +521,7 @@ export function getTodayStats(orders: Order[]): {
   today.setHours(0, 0, 0, 0);
 
   const todayOrders = orders.filter((order) => {
-    const orderDate = new Date(order.createdAt);
+    const orderDate = getOrderDate(order);
     return orderDate >= today;
   });
 
@@ -639,7 +643,7 @@ export function groupOrdersByDay(orders: Order[], start: Date, end: Date): Chart
   }
 
   orders.forEach((order) => {
-    const dateKey = new Date(order.createdAt).toISOString().split('T')[0];
+    const dateKey = getOrderDate(order).toISOString().split('T')[0];
     if (dayMap.has(dateKey)) {
       dayMap.set(dateKey, (dayMap.get(dateKey) || 0) + 1);
     }
@@ -665,7 +669,7 @@ export function groupOrdersByWeek(orders: Order[], start: Date, end: Date): Char
   }
 
   orders.forEach((order) => {
-    const orderDate = new Date(order.createdAt);
+    const orderDate = getOrderDate(order);
     const daysSinceStart = Math.floor(
       (orderDate.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
     );
@@ -684,7 +688,7 @@ export function groupOrdersByMonth(orders: Order[]): ChartDataPoint[] {
   const monthCounts = new Array(12).fill(0);
 
   orders.forEach((order) => {
-    const orderDate = new Date(order.createdAt);
+    const orderDate = getOrderDate(order);
     const month = orderDate.getMonth();
     monthCounts[month] += 1;
   });
@@ -706,33 +710,36 @@ export function getReturningVsNew(
   rangeStart: Date
 ): { returning: number; new: number; returningPercentage: number } {
   const customerFirstOrders = new Map<string, Date>();
-  const customersInRange = new Set<string>();
+  const ordersInRangeByCustomer = new Map<string, number>();
 
   // Build map of first order date for each customer
   allOrders.forEach((order) => {
     const key = order.customerEmail || order.customerName.toLowerCase();
-    const orderDate = new Date(order.createdAt);
+    const orderDate = getOrderDate(order);
     const existing = customerFirstOrders.get(key);
     if (!existing || orderDate < existing) {
       customerFirstOrders.set(key, orderDate);
     }
   });
 
-  // Get unique customers in range
+  // Count orders per customer within current range
   ordersInRange.forEach((order) => {
     const key = order.customerEmail || order.customerName.toLowerCase();
-    customersInRange.add(key);
+    ordersInRangeByCustomer.set(key, (ordersInRangeByCustomer.get(key) || 0) + 1);
   });
 
   let newCount = 0;
   let returningCount = 0;
 
-  customersInRange.forEach((key) => {
+  ordersInRangeByCustomer.forEach((orderCount, key) => {
     const firstOrder = customerFirstOrders.get(key);
-    if (firstOrder && firstOrder >= rangeStart) {
-      newCount++;
-    } else {
+    const hadPriorOrder = firstOrder != null && firstOrder < rangeStart;
+    const madeMultipleOrders = orderCount > 1;
+
+    if (hadPriorOrder || madeMultipleOrders) {
       returningCount++;
+    } else {
+      newCount++;
     }
   });
 

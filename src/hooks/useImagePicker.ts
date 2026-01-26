@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { compressImage } from '@/lib/image-compression';
 
 export interface UseImagePickerResult {
   pickImage: () => Promise<string | null>;
@@ -50,9 +51,17 @@ export function useImagePicker(): UseImagePickerResult {
                 const reader = new FileReader();
                 reader.onload = () => {
                   const dataUrl = reader.result as string;
-                  setIsLoading(false);
-                  resolveRef.current?.(dataUrl);
-                  resolveRef.current = null;
+                  compressImage(dataUrl)
+                    .then((compressed) => {
+                      setIsLoading(false);
+                      resolveRef.current?.(compressed);
+                      resolveRef.current = null;
+                    })
+                    .catch(() => {
+                      setIsLoading(false);
+                      resolveRef.current?.(dataUrl);
+                      resolveRef.current = null;
+                    });
                 };
                 reader.onerror = () => {
                   setError('Failed to read image file');
@@ -114,7 +123,7 @@ export function useImagePicker(): UseImagePickerResult {
         setIsLoading(false);
 
         if (!result.canceled && result.assets[0]) {
-          return result.assets[0].uri;
+          return await compressImage(result.assets[0].uri);
         }
 
         return null;
@@ -140,23 +149,25 @@ export function useImagePicker(): UseImagePickerResult {
  * This is a simpler alternative when you don't need the hook's state management.
  */
 export async function pickImageSimple(): Promise<string | null> {
-  if (Platform.OS === 'web') {
-    return new Promise((resolve) => {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = 'image/*';
-      input.style.display = 'none';
+    if (Platform.OS === 'web') {
+      return new Promise((resolve) => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.style.display = 'none';
 
-      input.addEventListener('change', (event) => {
-        const target = event.target as HTMLInputElement;
-        const file = target.files?.[0];
+        input.addEventListener('change', (event) => {
+          const target = event.target as HTMLInputElement;
+          const file = target.files?.[0];
 
-        if (file) {
-          const reader = new FileReader();
-          reader.onload = () => {
-            document.body.removeChild(input);
-            resolve(reader.result as string);
-          };
+          if (file) {
+            const reader = new FileReader();
+            reader.onload = () => {
+              document.body.removeChild(input);
+              compressImage(reader.result as string)
+                .then((compressed) => resolve(compressed))
+                .catch(() => resolve(reader.result as string));
+            };
           reader.onerror = () => {
             document.body.removeChild(input);
             resolve(null);
@@ -192,7 +203,7 @@ export async function pickImageSimple(): Promise<string | null> {
       });
 
       if (!result.canceled && result.assets[0]) {
-        return result.assets[0].uri;
+        return await compressImage(result.assets[0].uri);
       }
 
       return null;

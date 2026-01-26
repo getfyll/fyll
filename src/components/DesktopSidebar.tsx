@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, Pressable, ScrollView, Platform } from 'react-native';
 import { usePathname, useRouter } from 'expo-router';
-import { LayoutDashboard, Package, ShoppingCart, Settings, BarChart3, Users, LogOut, Database } from 'lucide-react-native';
+import { LayoutDashboard, Package, ShoppingCart, MoreHorizontal, BarChart3, Users, LogOut, Database } from 'lucide-react-native';
 import { useThemeColors } from '@/lib/theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import useAuthStore, { ROLE_PERMISSIONS } from '@/lib/state/auth-store';
@@ -22,7 +22,7 @@ const navItems: NavItem[] = [
   { name: 'Orders', href: '/orders', icon: ShoppingCart },
   { name: 'Customers', href: '/customers', icon: Users },
   { name: 'Insights', href: '/insights', icon: BarChart3, requiresPermission: 'canViewInsights' },
-  { name: 'Settings', href: '/settings', icon: Settings },
+  { name: 'More', href: '/settings', icon: MoreHorizontal },
 ];
 
 export function DesktopSidebar() {

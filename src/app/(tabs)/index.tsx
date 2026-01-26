@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { View, Text, ScrollView, Pressable, Dimensions } from 'react-native';
+import { View, Text, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
@@ -18,10 +18,8 @@ import {
 import useFyllStore, { formatCurrency, Order } from '@/lib/state/fyll-store';
 import { useThemeColors } from '@/lib/theme';
 import * as Haptics from 'expo-haptics';
-import { useBusinessSettings } from '@/hooks/useBusinessSettings';
 import { getPlatformBreakdown } from '@/lib/analytics-utils';
-
-const { width } = Dimensions.get('window');
+import useAuthStore from '@/lib/state/auth-store';
 
 interface MetricCardProps {
   title: string;
@@ -35,7 +33,7 @@ interface MetricCardProps {
 function MetricCard({ title, value, subtitle, trend, icon, onPress }: MetricCardProps) {
   const colors = useThemeColors();
   return (
-    <View style={{ width: (width - 52) / 2 }}>
+    <View style={{ flex: 1, minWidth: 0 }}>
       <Pressable
         onPress={onPress}
         className="rounded-2xl p-4 active:opacity-80"
@@ -211,7 +209,7 @@ export default function DashboardScreen() {
   const useGlobalLowStockThreshold = useFyllStore((s) => s.useGlobalLowStockThreshold);
   const globalLowStockThreshold = useFyllStore((s) => s.globalLowStockThreshold);
 
-  const { businessName } = useBusinessSettings();
+  const userName = useAuthStore((s) => s.currentUser?.name ?? '');
 
   // Check if audit banner should show (25th-31st of month, and no audit logged this month)
   const showAuditBanner = useMemo(() => {
@@ -230,7 +228,7 @@ export default function DashboardScreen() {
   // Recent orders (last 5, sorted by date)
   const recentOrders = useMemo(() => {
     return [...orders]
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .sort((a, b) => new Date(b.orderDate ?? b.createdAt).getTime() - new Date(a.orderDate ?? a.createdAt).getTime())
       .slice(0, 5);
   }, [orders]);
 
@@ -244,7 +242,7 @@ export default function DashboardScreen() {
     // Calculate current month revenue (excluding refunded)
     const totalRevenue = orders
       .filter((o) => {
-        const orderDate = new Date(o.createdAt);
+        const orderDate = new Date(o.orderDate ?? o.createdAt);
         return o.status !== 'Refunded' &&
                orderDate.getMonth() === currentMonth &&
                orderDate.getFullYear() === currentYear;
@@ -254,7 +252,7 @@ export default function DashboardScreen() {
     // Calculate last month revenue for comparison
     const lastMonthRevenue = orders
       .filter((o) => {
-        const orderDate = new Date(o.createdAt);
+        const orderDate = new Date(o.orderDate ?? o.createdAt);
         return o.status !== 'Refunded' &&
                orderDate.getMonth() === lastMonth &&
                orderDate.getFullYear() === lastMonthYear;
@@ -269,7 +267,7 @@ export default function DashboardScreen() {
     // Calculate product sales (subtotal only) - current month
     const productSales = orders
       .filter((o) => {
-        const orderDate = new Date(o.createdAt);
+        const orderDate = new Date(o.orderDate ?? o.createdAt);
         return o.status !== 'Refunded' &&
                orderDate.getMonth() === currentMonth &&
                orderDate.getFullYear() === currentYear;
@@ -279,7 +277,7 @@ export default function DashboardScreen() {
     // Calculate delivery fees - current month
     const deliveryFees = orders
       .filter((o) => {
-        const orderDate = new Date(o.createdAt);
+        const orderDate = new Date(o.orderDate ?? o.createdAt);
         return o.status !== 'Refunded' &&
                orderDate.getMonth() === currentMonth &&
                orderDate.getFullYear() === currentYear;
@@ -289,7 +287,7 @@ export default function DashboardScreen() {
     // Calculate services revenue - current month
     const servicesRevenue = orders
       .filter((o) => {
-        const orderDate = new Date(o.createdAt);
+        const orderDate = new Date(o.orderDate ?? o.createdAt);
         return o.status !== 'Refunded' &&
                orderDate.getMonth() === currentMonth &&
                orderDate.getFullYear() === currentYear;
@@ -358,8 +356,8 @@ export default function DashboardScreen() {
             <View className="flex-row items-center justify-between">
               <View>
                 <Text style={{ color: colors.text.tertiary }} className="text-sm font-medium">Welcome back</Text>
-                {businessName ? (
-                  <Text style={{ color: colors.text.primary }} className="text-3xl font-bold tracking-tight">{businessName}</Text>
+                {userName ? (
+                  <Text style={{ color: colors.text.primary }} className="text-3xl font-bold tracking-tight">{userName}</Text>
                 ) : null}
               </View>
             </View>

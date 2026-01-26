@@ -103,37 +103,14 @@ export function useBusinessSettings(): BusinessSettingsResult {
 
       // Try loading from Supabase businesses table (for online mode)
       if (businessId && !isOfflineMode) {
-        // Try to select data column, but don't fail if it doesn't exist
         const { data: business, error } = await supabase
           .from('businesses')
-          .select('name, data')
+          .select('*')
           .eq('id', businessId)
           .maybeSingle();
 
-        // If error is about missing column, just get the name
-        if (error && error.message?.includes('column')) {
-          const { data: businessBasic } = await supabase
-            .from('businesses')
-            .select('name')
-            .eq('id', businessId)
-            .maybeSingle();
-
-          if (businessBasic) {
-            const remoteSettings: BusinessSettings = {
-              businessName: (businessBasic.name as string) ?? '',
-              businessLogo: null,
-              businessPhone: '',
-              businessWebsite: '',
-              returnAddress: '',
-            };
-            setSettings(remoteSettings);
-            const key = getSettingsKey(businessId);
-            await AsyncStorage.setItem(key, JSON.stringify(remoteSettings));
-            setIsLoading(false);
-            return;
-          }
-        } else if (!error && business) {
-          const data = business.data as Record<string, unknown> | null;
+        if (!error && business) {
+          const data = (business as { data?: Record<string, unknown> | null }).data ?? null;
           const remoteSettings: BusinessSettings = {
             businessName: (business.name as string) ?? '',
             businessLogo: (data?.businessLogo as string | null) ?? null,
@@ -144,7 +121,6 @@ export function useBusinessSettings(): BusinessSettingsResult {
 
           setSettings(remoteSettings);
 
-          // Cache to AsyncStorage
           const key = getSettingsKey(businessId);
           await AsyncStorage.setItem(key, JSON.stringify(remoteSettings));
           setIsLoading(false);
@@ -188,17 +164,27 @@ export function useBusinessSettings(): BusinessSettingsResult {
 
       // Save to Supabase businesses table (for online mode)
       if (businessId && !isOfflineMode) {
+        const { data: businessRow } = await supabase
+          .from('businesses')
+          .select('data')
+          .eq('id', businessId)
+          .maybeSingle();
+
+        const existingData = (businessRow?.data as Record<string, unknown> | null) ?? {};
+        const mergedData = {
+          ...existingData,
+          businessLogo: newSettings.businessLogo,
+          businessPhone: newSettings.businessPhone,
+          businessWebsite: newSettings.businessWebsite,
+          returnAddress: newSettings.returnAddress,
+        };
+
         // Try to update with data column first
         let { error: businessError } = await supabase
           .from('businesses')
           .update({
             name: newSettings.businessName,
-            data: {
-              businessLogo: newSettings.businessLogo,
-              businessPhone: newSettings.businessPhone,
-              businessWebsite: newSettings.businessWebsite,
-              returnAddress: newSettings.returnAddress,
-            },
+            data: mergedData,
           })
           .eq('id', businessId);
 
@@ -234,6 +220,10 @@ export function useBusinessSettings(): BusinessSettingsResult {
   };
 
   const updateBusinessName = useCallback(async (name: string): Promise<{ success: boolean; error?: string }> => {
+    if (settings.businessName.trim()) {
+      return { success: false, error: 'Business name is locked after setup.' };
+    }
+
     const trimmedName = name.trim();
     if (!trimmedName) {
       return { success: false, error: 'Business name cannot be empty' };
@@ -255,13 +245,15 @@ export function useBusinessSettings(): BusinessSettingsResult {
   }, [settings, businessId, isOfflineMode]);
 
   const saveSettings = useCallback(async (partialSettings: Partial<BusinessSettings>): Promise<{ success: boolean; error?: string }> => {
+    const lockedName = settings.businessName.trim();
+    const resolvedName = lockedName || partialSettings.businessName?.trim() || settings.businessName;
     const newSettings: BusinessSettings = {
       ...settings,
       ...partialSettings,
+      businessName: resolvedName,
     };
 
-    // Validate business name
-    if (partialSettings.businessName !== undefined && !partialSettings.businessName.trim()) {
+    if (!resolvedName) {
       return { success: false, error: 'Business name cannot be empty' };
     }
 

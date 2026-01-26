@@ -7,6 +7,7 @@ import { useThemeColors } from '@/lib/theme';
 import { PrescriptionInfo } from '@/lib/state/fyll-store';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
+import { compressImage } from '@/lib/image-compression';
 
 interface PrescriptionSectionProps {
   prescription?: PrescriptionInfo;
@@ -22,6 +23,9 @@ export function PrescriptionSection({ prescription, onUpdate, editable = true }:
   const [editText, setEditText] = useState('');
   const [editFileUrl, setEditFileUrl] = useState('');
   const [editMode, setEditMode] = useState<'file' | 'text' | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const MAX_PDF_SIZE_MB = 1;
 
   const hasPrescription = !!prescription?.fileUrl || !!prescription?.text;
   const isPdf = prescription?.fileUrl?.toLowerCase().endsWith('.pdf');
@@ -47,6 +51,7 @@ export function PrescriptionSection({ prescription, onUpdate, editable = true }:
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setEditText(prescription?.text || '');
     setEditFileUrl(prescription?.fileUrl || '');
+    setUploadError(null);
 
     // Determine initial edit mode based on existing data
     if (prescription?.fileUrl) {
@@ -60,6 +65,7 @@ export function PrescriptionSection({ prescription, onUpdate, editable = true }:
   };
 
   const handlePickImage = async () => {
+    setUploadError(null);
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: false,
@@ -68,13 +74,15 @@ export function PrescriptionSection({ prescription, onUpdate, editable = true }:
 
     if (!result.canceled && result.assets[0]) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      setEditFileUrl(result.assets[0].uri);
+      const compressedUri = await compressImage(result.assets[0].uri);
+      setEditFileUrl(compressedUri);
       setEditMode('file');
     }
   };
 
   const handlePickDocument = async () => {
     try {
+      setUploadError(null);
       const result = await DocumentPicker.getDocumentAsync({
         type: ['application/pdf', 'image/*'],
         copyToCacheDirectory: true,
@@ -82,7 +90,24 @@ export function PrescriptionSection({ prescription, onUpdate, editable = true }:
 
       if (!result.canceled && result.assets[0]) {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        setEditFileUrl(result.assets[0].uri);
+        const asset = result.assets[0];
+        const isPdf =
+          asset.mimeType === 'application/pdf' ||
+          asset.name?.toLowerCase().endsWith('.pdf');
+        const isImage = asset.mimeType?.startsWith('image/');
+
+        if (isPdf && asset.size && asset.size > MAX_PDF_SIZE_MB * 1024 * 1024) {
+          setUploadError(`PDF is too large. Please keep it under ${MAX_PDF_SIZE_MB}MB.`);
+          return;
+        }
+
+        if (isImage) {
+          const compressedUri = await compressImage(asset.uri);
+          setEditFileUrl(compressedUri);
+        } else {
+          setEditFileUrl(asset.uri);
+        }
+
         setEditMode('file');
       }
     } catch (error) {
@@ -92,6 +117,7 @@ export function PrescriptionSection({ prescription, onUpdate, editable = true }:
 
   const handleSave = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setUploadError(null);
 
     if (!editFileUrl && !editText.trim()) {
       // Clear prescription if both are empty
@@ -110,6 +136,7 @@ export function PrescriptionSection({ prescription, onUpdate, editable = true }:
   const handleClearFile = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setEditFileUrl('');
+    setUploadError(null);
     if (!editText.trim()) {
       setEditMode(null);
     }
@@ -335,6 +362,9 @@ export function PrescriptionSection({ prescription, onUpdate, editable = true }:
                       </Pressable>
                     </View>
                   )}
+                  {uploadError ? (
+                    <Text className="text-red-500 text-xs mt-2">{uploadError}</Text>
+                  ) : null}
                 </View>
 
                 {/* Divider with OR */}

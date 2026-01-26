@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { storage } from "@/lib/storage";
+import { supabaseData } from "@/lib/supabase/data";
+import { supabaseSettings } from "@/lib/supabase/settings";
 
 // Nigeria States
 export const NIGERIA_STATES = [
@@ -63,9 +65,10 @@ export const CURRENCIES: Record<CurrencyCode, CurrencySettings> = {
   GBP: { code: 'GBP', symbol: '£', name: 'British Pound' },
 };
 
-export const formatCurrency = (amount: number, currencyCode: CurrencyCode = 'NGN'): string => {
+export const formatCurrency = (amount: number | null | undefined, currencyCode: CurrencyCode = 'NGN'): string => {
   const currency = CURRENCIES[currencyCode];
-  return `${currency.symbol}${amount.toLocaleString()}`;
+  const safeAmount = typeof amount === 'number' && Number.isFinite(amount) ? amount : 0;
+  return `${currency.symbol}${safeAmount.toLocaleString()}`;
 };
 
 // Custom Service for orders
@@ -237,6 +240,148 @@ export interface RestockLog {
   performedBy?: string;
 }
 
+// Case Types for FYLL Cases feature
+export type CaseType = 'Repair' | 'Replacement' | 'Refund' | 'Partial Refund' | 'Goodwill' | 'Other';
+export type CaseStatus = string;
+export type CasePriority = 'Critical' | 'High' | 'Medium' | 'Low';
+export type CaseSource = 'Email' | 'Phone' | 'Chat' | 'Web' | 'In-Store' | 'Other';
+
+// Case timeline entry for audit history
+export interface CaseTimelineEntry {
+  id: string;
+  date: string; // ISO timestamp
+  action: string; // e.g., "Status changed to Under Review", "Note added: ..."
+  user: string; // Who performed the action
+}
+export interface CaseAttachment {
+  id: string;
+  label: string;
+  uri: string;
+  preview?: string;
+  description?: string;
+  uploadedAt: string;
+}
+export interface CaseStatusOption {
+  id: string;
+  name: string;
+  color: string;
+  description?: string;
+  order?: number;
+}
+export type ResolutionType = 'Refund Issued' | 'Credit Applied' | 'Replacement Sent' | 'Repair Completed' | 'No Action Required' | 'Other';
+
+export interface CaseResolution {
+  type: ResolutionType;
+  notes: string;
+  value?: number; // For refund/credit amount
+  resolvedAt: string; // ISO timestamp
+  resolvedBy?: string; // Staff name
+}
+
+export interface Case {
+  id: string;
+  caseNumber: string; // Auto-generated like "CASE-001234"
+  orderId: string; // Required - linked order
+  orderNumber: string; // Denormalized for display
+  customerId?: string; // Optional - linked customer
+  customerName: string; // Denormalized for display
+  type: CaseType;
+  status: CaseStatus;
+  priority?: CasePriority; // Critical, High, Medium, Low
+  source?: CaseSource; // Email, Phone, Chat, Web, In-Store, Other
+  issueSummary: string; // Short description
+  originalCustomerMessage?: string; // Full customer complaint/message
+  resolution?: CaseResolution;
+  attachments?: CaseAttachment[];
+  timeline?: CaseTimelineEntry[]; // Audit history of all actions
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string; // Staff name who created
+  updatedBy?: string; // Staff name who last updated
+}
+
+export const CASE_TYPES: CaseType[] = [
+  'Repair',
+  'Replacement',
+  'Refund',
+  'Partial Refund',
+  'Goodwill',
+  'Other'
+];
+
+export const CASE_PRIORITIES: CasePriority[] = ['Critical', 'High', 'Medium', 'Low'];
+
+export const CASE_PRIORITY_COLORS: Record<CasePriority, string> = {
+  'Critical': '#DC2626', // Red
+  'High': '#F59E0B', // Amber
+  'Medium': '#3B82F6', // Blue
+  'Low': '#6B7280', // Gray
+};
+
+export const CASE_SOURCES: CaseSource[] = ['Email', 'Phone', 'Chat', 'Web', 'In-Store', 'Other'];
+export const CASE_STATUS_COLORS: Record<string, string> = {
+  'Open': '#3B82F6', // Blue
+  'Under Review': '#F59E0B', // Amber
+  'Awaiting Customer': '#8B5CF6', // Purple
+  'Awaiting Internal Action': '#F97316', // Orange
+  'Resolved': '#10B981', // Green
+  'Closed': '#6B7280', // Gray
+};
+
+export const DEFAULT_CASE_STATUS_OPTIONS: CaseStatusOption[] = [
+  {
+    id: 'case-status-open',
+    name: 'Open',
+    color: CASE_STATUS_COLORS['Open'],
+    description: 'New cases waiting for review',
+    order: 1,
+  },
+  {
+    id: 'case-status-under-review',
+    name: 'Under Review',
+    color: CASE_STATUS_COLORS['Under Review'],
+    description: 'Case is being investigated internally',
+    order: 2,
+  },
+  {
+    id: 'case-status-awaiting-customer',
+    name: 'Awaiting Customer',
+    color: CASE_STATUS_COLORS['Awaiting Customer'],
+    description: 'Waiting on customer for more info',
+    order: 3,
+  },
+  {
+    id: 'case-status-awaiting-team',
+    name: 'Awaiting Internal Action',
+    color: CASE_STATUS_COLORS['Awaiting Internal Action'],
+    description: 'Requires action from our team',
+    order: 4,
+  },
+  {
+    id: 'case-status-resolved',
+    name: 'Resolved',
+    color: CASE_STATUS_COLORS['Resolved'],
+    description: 'Issue has been resolved with customer',
+    order: 5,
+  },
+  {
+    id: 'case-status-closed',
+    name: 'Closed',
+    color: CASE_STATUS_COLORS['Closed'],
+    description: 'Case archived or closed after follow-up',
+    order: 6,
+  },
+];
+
+export const RESOLUTION_TYPES: ResolutionType[] = [
+  'Refund Issued',
+  'Credit Applied',
+  'Replacement Sent',
+  'Repair Completed',
+  'No Action Required',
+  'Other'
+];
+
 export type UserRole = 'owner' | 'staff';
 export type ThemeMode = 'light' | 'dark';
 
@@ -259,23 +404,26 @@ interface FyllStore {
   // Global Categories
   categories: string[];
   addCategory: (category: string) => void;
-  deleteCategory: (category: string) => void;
+  updateCategory: (previous: string, next: string) => void;
+  deleteCategory: (category: string, businessId?: string | null) => void;
+  saveGlobalSettings: (businessId?: string | null) => Promise<{ success: boolean; error?: string }>;
 
   // Customers (CRM)
   customers: Customer[];
-  addCustomer: (customer: Customer) => void;
+  addCustomer: (customer: Customer, businessId?: string | null) => Promise<void>;
   updateCustomer: (id: string, customer: Partial<Customer>) => void;
-  deleteCustomer: (id: string) => void;
+  deleteCustomer: (id: string, businessId?: string | null) => void;
 
   // Products
   products: Product[];
   productVariables: ProductVariable[];
   addProduct: (product: Product, businessId?: string | null) => Promise<void>;
+  addProductsBulk: (products: Product[], businessId?: string | null) => Promise<void>;
   updateProduct: (id: string, product: Partial<Product>, businessId?: string | null) => Promise<void>;
   deleteProduct: (id: string, businessId?: string | null) => Promise<void>;
   addProductVariable: (variable: ProductVariable) => void;
   updateProductVariable: (id: string, variable: Partial<ProductVariable>) => void;
-  deleteProductVariable: (id: string) => void;
+  deleteProductVariable: (id: string, businessId?: string | null) => void;
   updateVariantStock: (productId: string, variantId: string, delta: number) => void;
   addProductVariant: (productId: string, variant: ProductVariant) => void;
   updateProductVariant: (productId: string, variantId: string, variant: Partial<ProductVariant>) => void;
@@ -291,33 +439,33 @@ interface FyllStore {
   orders: Order[];
   orderStatuses: OrderStatus[];
   saleSources: SaleSource[];
-  addOrder: (order: Order) => void;
-  updateOrder: (id: string, order: Partial<Order>) => void;
-  deleteOrder: (id: string) => void;
+  addOrder: (order: Order, businessId?: string | null) => Promise<void>;
+  updateOrder: (id: string, order: Partial<Order>, businessId?: string | null) => Promise<void>;
+  deleteOrder: (id: string, businessId?: string | null) => void;
   addOrderStatus: (status: OrderStatus) => void;
   updateOrderStatus: (id: string, status: Partial<OrderStatus>) => void;
-  deleteOrderStatus: (id: string) => void;
+  deleteOrderStatus: (id: string, businessId?: string | null) => void;
   addSaleSource: (source: SaleSource) => void;
   updateSaleSource: (id: string, source: Partial<SaleSource>) => void;
-  deleteSaleSource: (id: string) => void;
+  deleteSaleSource: (id: string, businessId?: string | null) => void;
 
   // Custom Services
   customServices: CustomService[];
   addCustomService: (service: CustomService) => void;
   updateCustomService: (id: string, service: Partial<CustomService>) => void;
-  deleteCustomService: (id: string) => void;
+  deleteCustomService: (id: string, businessId?: string | null) => void;
 
   // Payment Methods
   paymentMethods: PaymentMethod[];
   addPaymentMethod: (method: PaymentMethod) => void;
   updatePaymentMethod: (id: string, method: Partial<PaymentMethod>) => void;
-  deletePaymentMethod: (id: string) => void;
+  deletePaymentMethod: (id: string, businessId?: string | null) => void;
 
   // Logistics Carriers
   logisticsCarriers: LogisticsCarrier[];
   addLogisticsCarrier: (carrier: LogisticsCarrier) => void;
   updateLogisticsCarrier: (id: string, carrier: Partial<LogisticsCarrier>) => void;
-  deleteLogisticsCarrier: (id: string) => void;
+  deleteLogisticsCarrier: (id: string, businessId?: string | null) => void;
 
   // Procurement
   procurements: Procurement[];
@@ -333,12 +481,23 @@ interface FyllStore {
   deleteExpense: (id: string) => void;
   addExpenseCategory: (category: ExpenseCategory) => void;
   updateExpenseCategory: (id: string, category: Partial<ExpenseCategory>) => void;
-  deleteExpenseCategory: (id: string) => void;
+  deleteExpenseCategory: (id: string, businessId?: string | null) => void;
 
   // Audit Logs
   auditLogs: AuditLog[];
   addAuditLog: (log: AuditLog) => void;
   hasAuditForMonth: (month: number, year: number) => boolean;
+
+  // Cases
+  cases: Case[];
+  addCase: (caseItem: Case, businessId?: string | null) => Promise<void>;
+  updateCase: (id: string, updates: Partial<Case>, businessId?: string | null) => Promise<void>;
+  deleteCase: (id: string, businessId?: string | null) => void;
+  getCasesForOrder: (orderId: string) => Case[];
+  caseStatuses: CaseStatusOption[];
+  addCaseStatus: (status: CaseStatusOption) => void;
+  updateCaseStatus: (id: string, updates: Partial<CaseStatusOption>) => void;
+  deleteCaseStatus: (id: string, businessId?: string | null) => void;
 
   // Reset
   resetStore: () => void;
@@ -353,56 +512,19 @@ const generateBarcode = () => {
 };
 
 // Initial Mint Eyewear Data
-const initialOrderStatuses: OrderStatus[] = [
-  { id: '0', name: 'Processing', color: '#3B82F6', order: 0 },
-  { id: '1', name: 'Prescription Needed', color: '#F59E0B', order: 1 },
-  { id: '2', name: 'Lab Processing', color: '#8B5CF6', order: 2 },
-  { id: '3', name: 'Quality Check', color: '#111111', order: 3 },
-  { id: '4', name: 'Ready for Pickup', color: '#10B981', order: 4 },
-  { id: '5', name: 'Delivered', color: '#059669', order: 5 },
-  { id: '6', name: 'Refunded', color: '#EF4444', order: 6 },
-];
+const initialOrderStatuses: OrderStatus[] = [];
 
-const initialSaleSources: SaleSource[] = [
-  { id: '1', name: 'WhatsApp', icon: 'message-circle' },
-  { id: '2', name: 'Instagram', icon: 'instagram' },
-  { id: '3', name: 'Website', icon: 'globe' },
-  { id: '4', name: 'Physical Store', icon: 'store' },
-];
+const initialSaleSources: SaleSource[] = [];
 
-const initialExpenseCategories: ExpenseCategory[] = [
-  { id: '1', name: 'Rent' },
-  { id: '2', name: 'Power' },
-  { id: '3', name: 'Marketing' },
-  { id: '4', name: 'Supplies' },
-  { id: '5', name: 'Salaries' },
-];
+const initialExpenseCategories: ExpenseCategory[] = [];
 
-const initialCustomServices: CustomService[] = [
-  { id: '1', name: 'Lens Coating', defaultPrice: 5000 },
-  { id: '2', name: 'Express Delivery', defaultPrice: 3000 },
-  { id: '3', name: 'Frame Adjustment', defaultPrice: 1500 },
-  { id: '4', name: 'Anti-Scratch Protection', defaultPrice: 2500 },
-];
+const initialCustomServices: CustomService[] = [];
 
-const initialPaymentMethods: PaymentMethod[] = [
-  { id: '1', name: 'Bank Transfer' },
-  { id: '2', name: 'Website Payment' },
-  { id: '3', name: 'POS' },
-  { id: '4', name: 'Cash' },
-];
+const initialPaymentMethods: PaymentMethod[] = [];
 
-const initialLogisticsCarriers: LogisticsCarrier[] = [
-  { id: '1', name: 'GIG Logistics' },
-  { id: '2', name: 'DHL' },
-  { id: '3', name: 'FedEx' },
-  { id: '4', name: 'GIGL' },
-  { id: '5', name: 'Kwik Delivery' },
-];
+const initialLogisticsCarriers: LogisticsCarrier[] = [];
 
-const initialProductVariables: ProductVariable[] = [
-  { id: '1', name: 'Color', values: ['Gold', 'Silver', 'Matte Black'] },
-];
+const initialProductVariables: ProductVariable[] = [];
 
 const initialProducts: Product[] = [
   {
@@ -531,7 +653,7 @@ const initialExpenses: Expense[] = [
   { id: '3', category: 'Power', description: 'Electricity bill', amount: 18000, date: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(), createdAt: new Date().toISOString() },
 ];
 
-const initialCategories: string[] = ['Sunglasses', 'Optical', 'Accessories'];
+const initialCategories: string[] = [];
 
 const initialState = {
   themeMode: 'light' as ThemeMode,
@@ -553,6 +675,40 @@ const initialState = {
   expenseCategories: initialExpenseCategories,
   auditLogs: [] as AuditLog[],
   restockLogs: [] as RestockLog[],
+  cases: [] as Case[],
+  caseStatuses: DEFAULT_CASE_STATUS_OPTIONS,
+};
+
+const slugify = (value: string) => value
+  .toLowerCase()
+  .trim()
+  .replace(/[^a-z0-9]+/g, '-')
+  .replace(/(^-|-$)+/g, '');
+
+const buildCategoryItems = (categories: string[]) => {
+  const items = new Map<string, { id: string; name: string }>();
+  categories.forEach((category) => {
+    const trimmed = category.trim();
+    if (!trimmed) return;
+    const slug = slugify(trimmed);
+    const id = slug || trimmed;
+    if (!items.has(id)) {
+      items.set(id, { id, name: trimmed });
+    }
+  });
+  return Array.from(items.values());
+};
+
+const dedupeByName = <T extends { name: string }>(items: T[]) => {
+  const seen = new Set<string>();
+  const result: T[] = [];
+  items.forEach((item) => {
+    const key = item.name.trim().toLowerCase();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    result.push(item);
+  });
+  return result;
 };
 
 const useFyllStore = create<FyllStore>()(
@@ -577,41 +733,186 @@ const useFyllStore = create<FyllStore>()(
       // Global Categories
       addCategory: (category) => {
         const current = get().categories;
-        if (!current.includes(category)) {
-          set({ categories: [...current, category] });
+        const normalized = category.trim();
+        if (!normalized) return;
+        const exists = current.some((existing) => existing.trim().toLowerCase() === normalized.toLowerCase());
+        if (!exists) {
+          set({ categories: [...current, normalized] });
         }
       },
-      deleteCategory: (category) => set({ categories: get().categories.filter((c) => c !== category) }),
+      updateCategory: (previous, next) => {
+        const trimmedNext = next.trim();
+        if (!trimmedNext) return;
+        const normalizedNext = trimmedNext.toLowerCase();
+        const nextCategories = get().categories
+          .map((category) => (category === previous ? trimmedNext : category))
+          .filter((category, index, list) => list.findIndex(
+            (item) => item.trim().toLowerCase() === category.trim().toLowerCase()
+          ) === index);
+        if (nextCategories.some((category) => category.trim().toLowerCase() === normalizedNext)) {
+          set({ categories: nextCategories });
+          return;
+        }
+        set({ categories: nextCategories });
+      },
+      deleteCategory: (category, businessId) => {
+        set({ categories: get().categories.filter((c) => c !== category) });
+        if (!businessId) return;
+        const slug = slugify(category.trim());
+        const id = slug || category.trim();
+        supabaseSettings
+          .deleteSettings('product_categories', businessId, [id])
+          .catch((error) => console.warn('Supabase category delete failed:', error));
+      },
+      saveGlobalSettings: async (businessId) => {
+        if (!businessId) {
+          return { success: false, error: 'No business selected.' };
+        }
+
+        try {
+          const state = get();
+          const orderStatuses = dedupeByName(state.orderStatuses ?? []).filter((status) => status.name.trim());
+          const saleSources = dedupeByName(state.saleSources ?? []).filter((source) => source.name.trim());
+          const customServices = dedupeByName(state.customServices ?? []).filter((service) => service.name.trim());
+          const paymentMethods = dedupeByName(state.paymentMethods ?? []).filter((method) => method.name.trim());
+          const logisticsCarriers = dedupeByName(state.logisticsCarriers ?? []).filter((carrier) => carrier.name.trim());
+          const productVariables = dedupeByName(state.productVariables ?? []).filter((variable) => variable.name.trim());
+          const expenseCategories = dedupeByName(state.expenseCategories ?? []).filter((category) => category.name.trim());
+          const caseStatuses = dedupeByName(state.caseStatuses ?? []).filter((status) => status.name.trim());
+          const categories = (state.categories ?? []).filter((category) => category.trim());
+          const categoryItems = buildCategoryItems(categories);
+          const categoryNames = categoryItems.map((item) => item.name);
+          const businessSettings = [{
+            id: 'global',
+            useGlobalLowStockThreshold: state.useGlobalLowStockThreshold ?? false,
+            globalLowStockThreshold: state.globalLowStockThreshold ?? 0,
+          }];
+
+          set({
+            orderStatuses,
+            saleSources,
+            customServices,
+            paymentMethods,
+            logisticsCarriers,
+            productVariables,
+            expenseCategories,
+            caseStatuses,
+            categories: categoryNames,
+          });
+
+          const syncTable = async <T extends { id: string }>(table: string, items: T[]) => {
+            const existing = await supabaseSettings.fetchSettings<{ id: string }>(table, businessId);
+            const existingIds = existing.map((row) => row.id);
+            const nextIds = new Set(items.map((item) => item.id));
+            const removed = existingIds.filter((id) => !nextIds.has(id));
+
+            await supabaseSettings.upsertSettings(table, businessId, items);
+            await supabaseSettings.deleteSettings(table, businessId, removed);
+          };
+
+          await Promise.all([
+            syncTable('order_statuses', orderStatuses),
+            syncTable('sale_sources', saleSources),
+            syncTable('custom_services', customServices),
+            syncTable('payment_methods', paymentMethods),
+            syncTable('logistics_carriers', logisticsCarriers),
+            syncTable('product_variables', productVariables),
+            syncTable('expense_categories', expenseCategories),
+            syncTable('case_statuses', caseStatuses),
+            syncTable('product_categories', categoryItems),
+            supabaseSettings.upsertSettings('business_settings', businessId, businessSettings),
+          ]);
+
+          return { success: true };
+        } catch (err) {
+          console.warn('Global settings save failed:', err);
+          return { success: false, error: 'Failed to sync settings.' };
+        }
+      },
 
       // Customers (CRM)
-      addCustomer: (customer) => set({ customers: [...get().customers, customer] }),
+      addCustomer: async (customer, businessId) => {
+        set({ customers: [...get().customers, customer] });
+        if (businessId) {
+          supabaseData
+            .upsertCollection('customers', businessId, [customer])
+            .catch((error) => console.warn('Supabase customer add failed:', error));
+        }
+      },
       updateCustomer: (id, updates) => set({
         customers: get().customers.map((c) => c.id === id ? { ...c, ...updates } : c),
       }),
-      deleteCustomer: (id) => set({ customers: get().customers.filter((c) => c.id !== id) }),
+      deleteCustomer: (id, businessId) => {
+        // Update local state immediately
+        set({ customers: get().customers.filter((c) => c.id !== id) });
+
+        if (!businessId) return;
+        supabaseData
+          .deleteByIds('customers', businessId, [id])
+          .catch((error) => console.warn('Supabase customer delete failed:', error));
+      },
 
       // Products
-      addProduct: async (product, _businessId) => {
+      addProduct: async (product, businessId) => {
         console.log('➕ Adding product:', product.name, 'ID:', product.id);
 
         // Update local state immediately
         set({ products: [...get().products, product] });
+
+        if (businessId) {
+          supabaseData
+            .upsertCollection('products', businessId, [product])
+            .catch((error) => console.warn('Supabase product create failed:', error));
+        }
       },
-      updateProduct: async (id, updates, _businessId) => {
+      addProductsBulk: async (productsToAdd, businessId) => {
+        if (!productsToAdd.length) return;
+
+        const existing = get().products;
+        set({ products: [...existing, ...productsToAdd] });
+
+        if (businessId) {
+          supabaseData
+            .upsertCollection('products', businessId, productsToAdd)
+            .catch((error) => console.warn('Supabase product bulk create failed:', error));
+        }
+      },
+      updateProduct: async (id, updates, businessId) => {
         // Update local state immediately
         set({
           products: get().products.map((p) => p.id === id ? { ...p, ...updates } : p),
         });
+
+        if (businessId) {
+          const updated = get().products.find((p) => p.id === id);
+          if (updated) {
+            supabaseData
+              .upsertCollection('products', businessId, [updated])
+              .catch((error) => console.warn('Supabase product update failed:', error));
+          }
+        }
       },
-      deleteProduct: async (id, _businessId) => {
+      deleteProduct: async (id, businessId) => {
         // Update local state immediately
         set({ products: get().products.filter((p) => p.id !== id) });
+
+        if (businessId) {
+          supabaseData
+            .deleteByIds('products', businessId, [id])
+            .catch((error) => console.warn('Supabase product delete failed:', error));
+        }
       },
       addProductVariable: (variable) => set({ productVariables: [...get().productVariables, variable] }),
       updateProductVariable: (id, updates) => set({
         productVariables: get().productVariables.map((v) => v.id === id ? { ...v, ...updates } : v),
       }),
-      deleteProductVariable: (id) => set({ productVariables: get().productVariables.filter((v) => v.id !== id) }),
+      deleteProductVariable: (id, businessId) => {
+        set({ productVariables: get().productVariables.filter((v) => v.id !== id) });
+        if (!businessId) return;
+        supabaseSettings
+          .deleteSettings('product_variables', businessId, [id])
+          .catch((error) => console.warn('Supabase product variable delete failed:', error));
+      },
       updateVariantStock: (productId, variantId, delta) => set({
         products: get().products.map((p) =>
           p.id === productId
@@ -655,42 +956,105 @@ const useFyllStore = create<FyllStore>()(
       }),
 
       // Orders
-      addOrder: (order) => set({ orders: [...get().orders, order] }),
-      updateOrder: (id, updates) => set({
-        orders: get().orders.map((o) => o.id === id ? { ...o, ...updates, updatedAt: new Date().toISOString() } : o),
-      }),
-      deleteOrder: (id) => set({ orders: get().orders.filter((o) => o.id !== id) }),
+      addOrder: async (order, businessId) => {
+        const previousOrders = get().orders;
+        set({ orders: [...previousOrders, order] });
+        if (!businessId) {
+          throw new Error('No business selected for order sync.');
+        }
+        try {
+          await supabaseData.upsertCollection('orders', businessId, [order]);
+        } catch (error) {
+          set({ orders: previousOrders });
+          console.warn('Supabase order add failed:', error);
+          throw error;
+        }
+      },
+      updateOrder: async (id, updates, businessId) => {
+        set({
+          orders: get().orders.map((o) =>
+            o.id === id ? { ...o, ...updates, updatedAt: new Date().toISOString() } : o
+          ),
+        });
+        if (businessId) {
+          const updated = get().orders.find((o) => o.id === id);
+          if (updated) {
+            supabaseData
+              .upsertCollection('orders', businessId, [updated])
+              .catch((error) => console.warn('Supabase order update failed:', error));
+          }
+        }
+      },
+      deleteOrder: (id, businessId) => {
+        // Update local state immediately
+        set({ orders: get().orders.filter((o) => o.id !== id) });
+
+        if (!businessId) return;
+        supabaseData
+          .deleteByIds('orders', businessId, [id])
+          .catch((error) => console.warn('Supabase order delete failed:', error));
+      },
       addOrderStatus: (status) => set({ orderStatuses: [...get().orderStatuses, status] }),
       updateOrderStatus: (id, updates) => set({
         orderStatuses: get().orderStatuses.map((s) => s.id === id ? { ...s, ...updates } : s),
       }),
-      deleteOrderStatus: (id) => set({ orderStatuses: get().orderStatuses.filter((s) => s.id !== id) }),
+      deleteOrderStatus: (id, businessId) => {
+        set({ orderStatuses: get().orderStatuses.filter((s) => s.id !== id) });
+        if (!businessId) return;
+        supabaseSettings
+          .deleteSettings('order_statuses', businessId, [id])
+          .catch((error) => console.warn('Supabase order status delete failed:', error));
+      },
       addSaleSource: (source) => set({ saleSources: [...get().saleSources, source] }),
       updateSaleSource: (id, updates) => set({
         saleSources: get().saleSources.map((s) => s.id === id ? { ...s, ...updates } : s),
       }),
-      deleteSaleSource: (id) => set({ saleSources: get().saleSources.filter((s) => s.id !== id) }),
+      deleteSaleSource: (id, businessId) => {
+        set({ saleSources: get().saleSources.filter((s) => s.id !== id) });
+        if (!businessId) return;
+        supabaseSettings
+          .deleteSettings('sale_sources', businessId, [id])
+          .catch((error) => console.warn('Supabase sale source delete failed:', error));
+      },
 
       // Custom Services
       addCustomService: (service) => set({ customServices: [...get().customServices, service] }),
       updateCustomService: (id, updates) => set({
         customServices: get().customServices.map((s) => s.id === id ? { ...s, ...updates } : s),
       }),
-      deleteCustomService: (id) => set({ customServices: get().customServices.filter((s) => s.id !== id) }),
+      deleteCustomService: (id, businessId) => {
+        set({ customServices: get().customServices.filter((s) => s.id !== id) });
+        if (!businessId) return;
+        supabaseSettings
+          .deleteSettings('custom_services', businessId, [id])
+          .catch((error) => console.warn('Supabase custom service delete failed:', error));
+      },
 
       // Payment Methods
       addPaymentMethod: (method) => set({ paymentMethods: [...get().paymentMethods, method] }),
       updatePaymentMethod: (id, updates) => set({
         paymentMethods: get().paymentMethods.map((m) => m.id === id ? { ...m, ...updates } : m),
       }),
-      deletePaymentMethod: (id) => set({ paymentMethods: get().paymentMethods.filter((m) => m.id !== id) }),
+      deletePaymentMethod: (id, businessId) => {
+        set({ paymentMethods: get().paymentMethods.filter((m) => m.id !== id) });
+        if (!businessId) return;
+        supabaseSettings
+          .deleteSettings('payment_methods', businessId, [id])
+          .catch((error) => console.warn('Supabase payment method delete failed:', error));
+      },
 
       // Logistics Carriers
       addLogisticsCarrier: (carrier) => set({ logisticsCarriers: [...get().logisticsCarriers, carrier] }),
       updateLogisticsCarrier: (id, updates) => set({
         logisticsCarriers: get().logisticsCarriers.map((c) => c.id === id ? { ...c, ...updates } : c),
       }),
-      deleteLogisticsCarrier: (id) => set({ logisticsCarriers: get().logisticsCarriers.filter((c) => c.id !== id) }),
+      deleteLogisticsCarrier: (id, businessId) => {
+        set({ logisticsCarriers: get().logisticsCarriers.filter((c) => c.id !== id) });
+        if (!businessId) return;
+        supabaseSettings
+          .deleteSettings('logistics_carriers', businessId, [id])
+          .catch((error) => console.warn('Supabase logistics carrier delete failed:', error));
+      },
 
       // Procurement
       addProcurement: (procurement) => set({ procurements: [...get().procurements, procurement] }),
@@ -709,7 +1073,13 @@ const useFyllStore = create<FyllStore>()(
       updateExpenseCategory: (id, updates) => set({
         expenseCategories: get().expenseCategories.map((c) => c.id === id ? { ...c, ...updates } : c),
       }),
-      deleteExpenseCategory: (id) => set({ expenseCategories: get().expenseCategories.filter((c) => c.id !== id) }),
+      deleteExpenseCategory: (id, businessId) => {
+        set({ expenseCategories: get().expenseCategories.filter((c) => c.id !== id) });
+        if (!businessId) return;
+        supabaseSettings
+          .deleteSettings('expense_categories', businessId, [id])
+          .catch((error) => console.warn('Supabase expense category delete failed:', error));
+      },
 
       // Audit Logs
       addAuditLog: (log) => set({ auditLogs: [...get().auditLogs, log] }),
@@ -769,19 +1139,128 @@ const useFyllStore = create<FyllStore>()(
         });
       },
 
+      caseStatuses: DEFAULT_CASE_STATUS_OPTIONS,
+      addCaseStatus: (status) => {
+        const normalizedName = status.name.trim();
+        if (!normalizedName) return;
+        const normalizedStatus: CaseStatusOption = {
+          ...status,
+          name: normalizedName,
+          color: status.color || '#6B7280',
+          description: status.description?.trim(),
+        };
+        set({
+          caseStatuses: [...get().caseStatuses, normalizedStatus],
+        });
+      },
+      updateCaseStatus: (id, updates) => {
+        set({
+          caseStatuses: get().caseStatuses.map((existing) => (
+            existing.id === id
+              ? {
+                  ...existing,
+                  ...updates,
+                  name: updates.name?.trim() ?? existing.name,
+                  color: updates.color ?? existing.color,
+                  description: updates.description ?? existing.description,
+                }
+              : existing
+          )),
+        });
+      },
+      deleteCaseStatus: (id, businessId) => {
+        const currentStatuses = get().caseStatuses;
+        const removedStatus = currentStatuses.find((status) => status.id === id);
+        if (!removedStatus) return;
+        const remainingStatuses = currentStatuses.filter((status) => status.id !== id);
+        const fallbackStatus = remainingStatuses[0]?.name ?? removedStatus.name ?? 'Open';
+        set({
+          caseStatuses: remainingStatuses,
+          cases: get().cases.map((c) =>
+            c.status === removedStatus.name ? { ...c, status: fallbackStatus } : c
+          ),
+        });
+        if (!businessId) return;
+        supabaseSettings
+          .deleteSettings('case_statuses', businessId, [id])
+          .catch((error) => console.warn('Supabase case status delete failed:', error));
+      },
+
+      // Cases
+      addCase: async (caseItem, businessId) => {
+        const previousCases = get().cases;
+        set({ cases: [...previousCases, caseItem] });
+        if (!businessId) {
+          throw new Error('No business selected for case sync.');
+        }
+        try {
+          await supabaseData.upsertCollection('cases', businessId, [caseItem]);
+        } catch (error) {
+          set({ cases: previousCases });
+          console.warn('Supabase case add failed:', error);
+          throw error;
+        }
+      },
+
+      updateCase: async (id, updates, businessId) => {
+        set({
+          cases: get().cases.map((c) =>
+            c.id === id ? { ...c, ...updates, updatedAt: new Date().toISOString() } : c
+          ),
+        });
+        if (businessId) {
+          const updated = get().cases.find((c) => c.id === id);
+          if (updated) {
+            supabaseData
+              .upsertCollection('cases', businessId, [updated])
+              .catch((error) => console.warn('Supabase case update failed:', error));
+          }
+        }
+      },
+
+      deleteCase: (id, businessId) => {
+        set({ cases: get().cases.filter((c) => c.id !== id) });
+        if (!businessId) return;
+        supabaseData
+          .deleteByIds('cases', businessId, [id])
+          .catch((error) => console.warn('Supabase case delete failed:', error));
+      },
+
+      getCasesForOrder: (orderId) => {
+        return get().cases.filter((c) => c.orderId === orderId);
+      },
+
       // Reset
       resetStore: () => set(initialState),
     }),
     {
       name: "fyll-storage",
       storage: createJSONStorage(() => storage),
-    }
-  )
-);
+        partialize: (state) => ({
+          themeMode: state.themeMode,
+          userRole: state.userRole,
+          useGlobalLowStockThreshold: state.useGlobalLowStockThreshold,
+          globalLowStockThreshold: state.globalLowStockThreshold,
+          categories: state.categories,
+          productVariables: state.productVariables,
+          orderStatuses: state.orderStatuses,
+          saleSources: state.saleSources,
+          customServices: state.customServices,
+          paymentMethods: state.paymentMethods,
+          logisticsCarriers: state.logisticsCarriers,
+          expenseCategories: state.expenseCategories,
+          auditLogs: state.auditLogs,
+          caseStatuses: state.caseStatuses,
+        }),
+      }
+    )
+  );
 
 // Helper functions
 export const generateProductId = generateId;
 export const generateVariantBarcode = generateBarcode;
 export const generateOrderNumber = () => `ORD-${String(Date.now()).slice(-6)}`;
+export const generateCaseNumber = () => `CASE-${String(Date.now()).slice(-6)}`;
+export const generateCaseId = generateId;
 
 export default useFyllStore;

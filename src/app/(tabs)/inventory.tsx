@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, ScrollView, Pressable, TextInput, Dimensions, Modal, Image, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -10,8 +10,10 @@ import { useThemeColors } from '@/lib/theme';
 import { useBreakpoint } from '@/lib/useBreakpoint';
 import { SplitViewLayout } from '@/components/SplitViewLayout';
 import { ProductDetailPanel } from '@/components/ProductDetailPanel';
+import { ProductCardSkeleton } from '@/components/SkeletonLoader';
 import Animated, { FadeIn, FadeInDown, FadeInRight, Layout } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
+import useAuthStore from '@/lib/state/auth-store';
 
 const { width } = Dimensions.get('window');
 
@@ -139,21 +141,24 @@ function ProductCard({ product, isOwner, onPress, onSelect, isSelected, onAdjust
 
   const [expanded, setExpanded] = useState(false);
   const totalStock = product.variants.reduce((sum, v) => sum + v.stock, 0);
+  const totalValue = product.variants.reduce((sum, v) => sum + v.stock * v.sellingPrice, 0);
   const lowStockCount = product.variants.filter((v) => v.stock <= effectiveThreshold).length;
 
-  const handleToggle = () => {
+  const handlePress = () => {
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
     // In split view mode, select the product instead of expanding
     if (showSplitView && onSelect) {
       onSelect();
-    } else {
-      setExpanded(!expanded);
+      return;
     }
+    if (!showSplitView && onPress) {
+      onPress();
+      return;
+    }
+    setExpanded(!expanded);
   };
-
-  const totalValue = product.variants.reduce((sum, v) => sum + v.sellingPrice * v.stock, 0);
 
   return (
     <View className="mb-3">
@@ -168,30 +173,30 @@ function ProductCard({ product, isOwner, onPress, onSelect, isSelected, onAdjust
         className="rounded-2xl overflow-hidden"
       >
         <Pressable
-          onPress={handleToggle}
-          className="p-4 flex-row items-center active:opacity-70"
+          onPress={handlePress}
+          className="p-3 flex-row items-center active:opacity-70"
         >
           {/* Product Image or Placeholder */}
           {product.imageUrl ? (
-            <View className="w-12 h-12 rounded-xl overflow-hidden mr-3" style={{ borderWidth: 0.5, borderColor: separatorColor }}>
+            <View className="w-10 h-10 rounded-lg overflow-hidden mr-3" style={{ borderWidth: 0.5, borderColor: separatorColor }}>
               <Image
                 source={{ uri: product.imageUrl }}
-                style={{ width: 48, height: 48 }}
+                style={{ width: 40, height: 40 }}
                 resizeMode="cover"
               />
             </View>
           ) : (
             <View
-              className="w-12 h-12 rounded-xl items-center justify-center mr-3"
+              className="w-10 h-10 rounded-lg items-center justify-center mr-3"
               style={{ backgroundColor: lowStockCount > 0 ? 'rgba(245, 158, 11, 0.15)' : 'rgba(16, 185, 129, 0.15)' }}
             >
-              <Package size={24} color={lowStockCount > 0 ? '#F59E0B' : '#10B981'} strokeWidth={1.5} />
+              <Package size={20} color={lowStockCount > 0 ? '#F59E0B' : '#10B981'} strokeWidth={1.5} />
             </View>
           )}
 
           <View className="flex-1">
             <View className="flex-row items-center">
-              <Text style={{ color: colors.text.primary }} className="font-bold text-base">{product.name}</Text>
+              <Text style={{ color: colors.text.primary }} className="font-bold text-sm">{product.name}</Text>
               {product.isNewDesign && (
                 <View className="ml-2 px-1.5 py-0.5 rounded" style={{ backgroundColor: '#3B82F6' }}>
                   <Text className="text-white text-[10px] font-bold">
@@ -201,7 +206,7 @@ function ProductCard({ product, isOwner, onPress, onSelect, isSelected, onAdjust
               )}
             </View>
             <Text style={{ color: colors.text.tertiary }} className="text-xs mt-0.5">
-              {product.variants.length} variants · {totalStock} units
+              {totalStock} in stock
             </Text>
           </View>
 
@@ -212,7 +217,7 @@ function ProductCard({ product, isOwner, onPress, onSelect, isSelected, onAdjust
           )}
 
           <View
-            className="w-8 h-8 rounded-lg items-center justify-center"
+            className="w-7 h-7 rounded-lg items-center justify-center"
             style={{
               backgroundColor: colors.border.light,
               transform: [{ rotate: expanded ? '90deg' : '0deg' }]
@@ -274,12 +279,23 @@ export default function InventoryScreen() {
   const products = useFyllStore((s) => s.products);
   const updateVariantStock = useFyllStore((s) => s.updateVariantStock);
   const userRole = useFyllStore((s) => s.userRole);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
   // Global low stock threshold settings
   const useGlobalLowStockThreshold = useFyllStore((s) => s.useGlobalLowStockThreshold);
   const globalLowStockThreshold = useFyllStore((s) => s.globalLowStockThreshold);
 
   const isOwner = userRole === 'owner';
+
+  // Show skeleton loader on first load when authenticated but no products yet
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const isInitialLoading = isAuthenticated && products.length === 0 && !hasLoadedOnce;
+
+  useEffect(() => {
+    if (products.length > 0) {
+      setHasLoadedOnce(true);
+    }
+  }, [products.length]);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterLowStock, setFilterLowStock] = useState(false);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
@@ -344,6 +360,14 @@ export default function InventoryScreen() {
     return result;
   }, [products, searchQuery, filterLowStock, useGlobalLowStockThreshold, globalLowStockThreshold, sortBy]);
 
+  useEffect(() => {
+    if (!showSplitView) return;
+    if (selectedProductId && filteredProducts.some((product) => product.id === selectedProductId)) return;
+    if (filteredProducts.length > 0) {
+      setSelectedProductId(filteredProducts[0].id);
+    }
+  }, [showSplitView, filteredProducts, selectedProductId]);
+
   const stats = useMemo(() => {
     const totalProducts = products.length;
     const totalVariants = products.reduce((sum, p) => sum + p.variants.length, 0);
@@ -392,21 +416,21 @@ export default function InventoryScreen() {
                 if (Platform.OS !== 'web') {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                 }
-                router.push('/inventory-audit');
+                router.replace('/inventory-audit');
               }}
               className="rounded-xl overflow-hidden active:opacity-80"
-              style={{ paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bg.secondary, borderWidth: 0.5, borderColor: separatorColor }}
+              style={{ paddingHorizontal: 14, height: 42, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(168, 85, 247, 0.08)' }}
             >
-              <ClipboardList size={16} color={colors.text.primary} strokeWidth={2} />
-              <Text style={{ color: colors.text.primary }} className="font-semibold ml-1.5 text-sm">Audit</Text>
+              <ClipboardList size={16} color="#A856F6" strokeWidth={2} />
+              <Text style={{ color: '#A856F6' }} className="font-semibold ml-1.5 text-sm">Audit</Text>
             </Pressable>
             <Pressable
               onPress={handleAddProduct}
               className="rounded-xl overflow-hidden active:opacity-80"
-              style={{ paddingHorizontal: 16, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', backgroundColor: colors.accent.primary }}
+              style={{ paddingHorizontal: 14, height: 42, flexDirection: 'row', alignItems: 'center', backgroundColor: '#111111' }}
             >
-              <Plus size={18} color={isDark ? '#000000' : '#FFFFFF'} strokeWidth={2.5} />
-              <Text style={{ color: isDark ? '#000000' : '#FFFFFF' }} className="font-semibold ml-1.5 text-sm">Add</Text>
+              <Plus size={18} color="#FFFFFF" strokeWidth={2.5} />
+              <Text style={{ color: '#FFFFFF' }} className="font-semibold ml-1.5 text-sm">Add</Text>
             </Pressable>
           </View>
         </View>
@@ -467,7 +491,16 @@ export default function InventoryScreen() {
         }}
         showsVerticalScrollIndicator={false}
       >
-        {filteredProducts.length === 0 ? (
+        {isInitialLoading ? (
+          // Show skeleton loaders while data is syncing on first load
+          <View>
+            <ProductCardSkeleton />
+            <ProductCardSkeleton />
+            <ProductCardSkeleton />
+            <ProductCardSkeleton />
+            <ProductCardSkeleton />
+          </View>
+        ) : filteredProducts.length === 0 ? (
           <View className="items-center justify-center py-20">
             <View
               className="w-20 h-20 rounded-2xl items-center justify-center mb-4"

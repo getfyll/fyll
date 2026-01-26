@@ -1,10 +1,12 @@
-import React, { useMemo } from 'react';
-import { View, Text, Pressable, Platform, Linking, Alert } from 'react-native';
-import { User, Phone, Mail, MapPin, Edit2, Trash2, ShoppingCart, Calendar } from 'lucide-react-native';
+import React, { useMemo, useState } from 'react';
+import { View, Text, Pressable, Platform, Linking, Modal } from 'react-native';
+import { ArrowLeft, User, Phone, Mail, MapPin, Edit2, Trash2, ShoppingCart, Calendar } from 'lucide-react-native';
 import useFyllStore, { Customer, formatCurrency } from '@/lib/state/fyll-store';
+import useAuthStore from '@/lib/state/auth-store';
 import { useThemeColors } from '@/lib/theme';
 import { DetailSection, DetailKeyValue, DetailActionButton } from './SplitViewLayout';
 import * as Haptics from 'expo-haptics';
+import { useBreakpoint } from '@/lib/useBreakpoint';
 
 interface CustomerDetailPanelProps {
   customerId: string;
@@ -15,10 +17,13 @@ interface CustomerDetailPanelProps {
 export function CustomerDetailPanel({ customerId, onEdit, onClose }: CustomerDetailPanelProps) {
   const colors = useThemeColors();
   const isDark = colors.bg.primary === '#111111';
+  const { isMobile } = useBreakpoint();
 
   const customers = useFyllStore((s) => s.customers);
   const orders = useFyllStore((s) => s.orders);
   const deleteCustomer = useFyllStore((s) => s.deleteCustomer);
+  const businessId = useAuthStore((s) => s.businessId ?? s.currentUser?.businessId ?? null);
+  const [showDeletePrompt, setShowDeletePrompt] = useState(false);
 
   const customer = useMemo(() => customers.find((c) => c.id === customerId), [customers, customerId]);
 
@@ -52,27 +57,28 @@ export function CustomerDetailPanel({ customerId, onEdit, onClose }: CustomerDet
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
-    Alert.alert(
-      'Delete Customer',
-      `Are you sure you want to delete "${customer.fullName}"?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            if (Platform.OS !== 'web') {
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-            }
-            deleteCustomer(customer.id);
-            onClose?.();
-          },
-        },
-      ]
-    );
+    if (Platform.OS === 'web') {
+      const active = typeof document !== 'undefined' ? document.activeElement : null;
+      if (active instanceof HTMLElement) {
+        active.blur();
+      }
+    }
+    setShowDeletePrompt(true);
   };
 
-  const createdDate = new Date(customer.createdAt).toLocaleDateString('en-US', {
+  const confirmDelete = () => {
+    if (Platform.OS !== 'web') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    }
+    deleteCustomer(customer.id, businessId);
+    setShowDeletePrompt(false);
+    onClose?.();
+  };
+
+  const customerSinceTimestamp = customerOrders.length
+    ? Math.min(...customerOrders.map((order) => new Date(order.orderDate ?? order.createdAt).getTime()))
+    : new Date(customer.createdAt ?? Date.now()).getTime();
+  const createdDate = new Date(customerSinceTimestamp).toLocaleDateString('en-US', {
     month: 'long',
     day: 'numeric',
     year: 'numeric',
@@ -80,6 +86,31 @@ export function CustomerDetailPanel({ customerId, onEdit, onClose }: CustomerDet
 
   return (
     <View style={{ flex: 1 }}>
+      {isMobile && onClose && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 12 }}>
+          <Pressable
+            onPress={onClose}
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 10,
+              backgroundColor: colors.bg.secondary,
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginRight: 12,
+            }}
+          >
+            <ArrowLeft size={18} color={colors.text.primary} strokeWidth={2} />
+          </Pressable>
+          <Text
+            style={{ color: colors.text.primary, fontSize: 16, fontWeight: '700', flex: 1 }}
+            numberOfLines={1}
+          >
+            {customer.fullName}
+          </Text>
+        </View>
+      )}
+
       {/* Customer Header */}
       <View style={{ paddingHorizontal: 20, paddingTop: 16, alignItems: 'center' }}>
         <View
@@ -217,7 +248,7 @@ export function CustomerDetailPanel({ customerId, onEdit, onClose }: CustomerDet
       {customerOrders.length > 0 && (
         <DetailSection title={`Recent Orders (${customerOrders.length})`}>
           {customerOrders.slice(0, 5).map((order, index) => {
-            const orderDate = new Date(order.createdAt).toLocaleDateString('en-US', {
+            const orderDate = new Date(order.orderDate ?? order.createdAt).toLocaleDateString('en-US', {
               month: 'short',
               day: 'numeric',
             });
@@ -274,6 +305,48 @@ export function CustomerDetailPanel({ customerId, onEdit, onClose }: CustomerDet
           variant="danger"
         />
       </View>
+
+      <Modal
+        visible={showDeletePrompt}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setShowDeletePrompt(false)}
+      >
+        <Pressable
+          className="flex-1 items-center justify-center"
+          style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}
+          onPress={() => setShowDeletePrompt(false)}
+        >
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            className="w-[90%] rounded-2xl overflow-hidden"
+            style={{ backgroundColor: colors.bg.primary, maxWidth: 360 }}
+          >
+            <View className="px-5 py-4" style={{ borderBottomWidth: 1, borderBottomColor: colors.border.light }}>
+              <Text style={{ color: colors.text.primary }} className="font-bold text-lg">Delete Customer</Text>
+              <Text style={{ color: colors.text.tertiary }} className="text-sm mt-1">
+                {`Delete ${customer.fullName}?`}
+              </Text>
+            </View>
+            <View className="px-5 py-4 flex-row gap-3">
+              <Pressable
+                onPress={() => setShowDeletePrompt(false)}
+                className="flex-1 rounded-xl items-center"
+                style={{ backgroundColor: colors.bg.secondary, height: 48, justifyContent: 'center' }}
+              >
+                <Text style={{ color: colors.text.tertiary }} className="font-medium">Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={confirmDelete}
+                className="flex-1 rounded-xl items-center"
+                style={{ backgroundColor: '#EF4444', height: 48, justifyContent: 'center' }}
+              >
+                <Text className="text-white font-semibold">Delete</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }

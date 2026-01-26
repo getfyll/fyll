@@ -1,12 +1,12 @@
-import React, { useMemo } from 'react';
-import { View, Text, Pressable, Image } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { View, Text, Pressable, Image, Modal, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Package, Edit2, Printer, PackagePlus, Plus, Minus, Tag, Clock } from 'lucide-react-native';
+import { Package, Edit2, Printer, PackagePlus, Plus, Minus, Tag, Clock, Trash2 } from 'lucide-react-native';
 import useFyllStore, { Product, formatCurrency } from '@/lib/state/fyll-store';
+import useAuthStore from '@/lib/state/auth-store';
 import { useThemeColors } from '@/lib/theme';
 import { DetailSection, DetailImagePreview, DetailActionButton, DetailKeyValue } from './SplitViewLayout';
 import * as Haptics from 'expo-haptics';
-import { Platform } from 'react-native';
 
 interface ProductDetailPanelProps {
   productId: string;
@@ -20,10 +20,13 @@ export function ProductDetailPanel({ productId, onClose }: ProductDetailPanelPro
 
   const products = useFyllStore((s) => s.products);
   const updateVariantStock = useFyllStore((s) => s.updateVariantStock);
+  const deleteProduct = useFyllStore((s) => s.deleteProduct);
   const userRole = useFyllStore((s) => s.userRole);
   const restockLogs = useFyllStore((s) => s.restockLogs);
   const useGlobalLowStockThreshold = useFyllStore((s) => s.useGlobalLowStockThreshold);
   const globalLowStockThreshold = useFyllStore((s) => s.globalLowStockThreshold);
+  const businessId = useAuthStore((s) => s.businessId ?? s.currentUser?.businessId ?? null);
+  const [pendingDelete, setPendingDelete] = useState(false);
 
   const product = useMemo(() => products.find((p) => p.id === productId), [products, productId]);
   const isOwner = userRole === 'owner';
@@ -70,6 +73,26 @@ export function ProductDetailPanel({ productId, onClose }: ProductDetailPanelPro
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
     router.push(`/product/${product.id}`);
+  };
+
+  const handleDelete = () => {
+    if (Platform.OS === 'web') {
+      const active = document.activeElement as HTMLElement | null;
+      active?.blur();
+    }
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
+    setPendingDelete(true);
+  };
+
+  const confirmDelete = () => {
+    if (Platform.OS !== 'web') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    }
+    deleteProduct(product.id, businessId);
+    setPendingDelete(false);
+    onClose?.();
   };
 
   return (
@@ -297,7 +320,6 @@ export function ProductDetailPanel({ productId, onClose }: ProductDetailPanelPro
           })}
         </DetailSection>
       )}
-
       {/* Actions */}
       <View style={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 24 }}>
         <DetailActionButton
@@ -305,7 +327,61 @@ export function ProductDetailPanel({ productId, onClose }: ProductDetailPanelPro
           icon={<Edit2 size={18} color={isDark ? '#000000' : '#FFFFFF'} strokeWidth={2} />}
           onPress={handleEdit}
         />
+        <Pressable
+          onPress={handleDelete}
+          className="rounded-xl items-center justify-center mt-3 active:opacity-80"
+          style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', height: 48 }}
+        >
+          <View className="flex-row items-center">
+            <Trash2 size={18} color="#EF4444" strokeWidth={2} />
+            <Text style={{ color: '#EF4444', fontSize: 15, fontWeight: '600', marginLeft: 8 }}>
+              Delete Product
+            </Text>
+          </View>
+        </Pressable>
       </View>
+
+      <Modal
+        visible={pendingDelete}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setPendingDelete(false)}
+      >
+        <Pressable
+          className="flex-1 items-center justify-center"
+          style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}
+          onPress={() => setPendingDelete(false)}
+        >
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            className="w-[90%] rounded-2xl overflow-hidden"
+            style={{ backgroundColor: colors.bg.primary, maxWidth: 360 }}
+          >
+            <View className="px-5 py-4" style={{ borderBottomWidth: 1, borderBottomColor: colors.border.light }}>
+              <Text style={{ color: colors.text.primary }} className="font-bold text-lg">Delete Product</Text>
+              <Text style={{ color: colors.text.tertiary }} className="text-sm mt-1">
+                {product.name ? `Delete ${product.name}?` : 'Delete this product?'}
+              </Text>
+            </View>
+            <View className="px-5 py-4 flex-row gap-3">
+              <Pressable
+                onPress={() => setPendingDelete(false)}
+                className="flex-1 rounded-xl items-center"
+                style={{ backgroundColor: colors.bg.secondary, height: 48, justifyContent: 'center' }}
+              >
+                <Text style={{ color: colors.text.tertiary }} className="font-medium">Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={confirmDelete}
+                className="flex-1 rounded-xl items-center"
+                style={{ backgroundColor: '#EF4444', height: 48, justifyContent: 'center' }}
+              >
+                <Text className="text-white font-semibold">Delete</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }

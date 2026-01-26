@@ -1,38 +1,82 @@
-import React, { useState } from 'react';
-import { View, Text, Pressable, TextInput, Alert, Switch } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, Pressable, TextInput, Alert, Switch, Platform, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
-import { Trash2, Edit2, Check, X, ChevronRight, ChevronLeft, Package, ShoppingCart, Tag, RotateCcw, Info, CreditCard, Truck, Wrench, Users, Moon, Sun, LogOut, Shield, Building2, AlertTriangle, UserCircle } from 'lucide-react-native';
+import { Trash2, Edit2, Check, X, ChevronRight, ChevronLeft, Package, ShoppingCart, Tag, RotateCcw, Info, CreditCard, Truck, Wrench, Users, Moon, Sun, LogOut, Shield, Building2, AlertTriangle, UserCircle, Upload, FileText } from 'lucide-react-native';
 import useFyllStore, { formatCurrency } from '@/lib/state/fyll-store';
 import useAuthStore from '@/lib/state/auth-store';
 import { useThemeColors } from '@/lib/theme';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import * as Haptics from 'expo-haptics';
 
-type SettingsSection = 'order-statuses' | 'sale-sources' | 'custom-services' | 'payment-methods' | 'logistics-carriers';
+type SettingsSection =
+  | 'order-statuses'
+  | 'sale-sources'
+  | 'custom-services'
+  | 'payment-methods'
+  | 'logistics-carriers'
+  | 'case-statuses';
+
+const SETTINGS_SECTIONS: SettingsSection[] = [
+  'order-statuses',
+  'sale-sources',
+  'custom-services',
+  'payment-methods',
+  'logistics-carriers',
+  'case-statuses',
+];
 
 interface EditableItemProps {
-  item: { id: string; name: string; color?: string; defaultPrice?: number };
-  onUpdate: (name: string, color?: string, defaultPrice?: number) => void;
+  item: { id: string; name: string; color?: string; defaultPrice?: number; description?: string };
+  onUpdate: (name: string, color?: string, defaultPrice?: number, description?: string) => void;
   onDelete: () => void;
   showColor?: boolean;
   showPrice?: boolean;
+  showDescription?: boolean;
 }
 
-function EditableItem({ item, onUpdate, onDelete, showColor = false, showPrice = false }: EditableItemProps) {
+function EditableItem({
+  item,
+  onUpdate,
+  onDelete,
+  showColor = false,
+  showPrice = false,
+  showDescription = false,
+}: EditableItemProps) {
   const colors = useThemeColors();
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(item.name);
   const [editColor, setEditColor] = useState(item.color || '#6B7280');
   const [editPrice, setEditPrice] = useState(item.defaultPrice?.toString() || '0');
+  const [editDescription, setEditDescription] = useState(item.description || '');
 
-  const colorOptions = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899', '#6B7280', '#059669'];
+  const colorOptions = [
+    '#EF4444',
+    '#F97316',
+    '#F59E0B',
+    '#EAB308',
+    '#84CC16',
+    '#22C55E',
+    '#14B8A6',
+    '#06B6D4',
+    '#3B82F6',
+    '#6366F1',
+    '#8B5CF6',
+    '#EC4899',
+    '#F43F5E',
+    '#6B7280',
+  ];
 
   const handleSave = () => {
     if (editName.trim()) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      onUpdate(editName.trim(), showColor ? editColor : undefined, showPrice ? parseFloat(editPrice) || 0 : undefined);
+      onUpdate(
+        editName.trim(),
+        showColor ? editColor : undefined,
+        showPrice ? parseFloat(editPrice) || 0 : undefined,
+        showDescription ? editDescription.trim() : undefined,
+      );
       setIsEditing(false);
     }
   };
@@ -86,6 +130,18 @@ function EditableItem({ item, onUpdate, onDelete, showColor = false, showPrice =
                 ))}
               </View>
             )}
+            {showDescription && (
+              <View className="rounded-xl px-4 mb-3" style={{ backgroundColor: colors.input.bg, borderWidth: 1, borderColor: colors.input.border, minHeight: 50, justifyContent: 'center' }}>
+                <TextInput
+                  value={editDescription}
+                  onChangeText={setEditDescription}
+                  style={{ color: colors.input.text, fontSize: 14 }}
+                  placeholder="Description"
+                  placeholderTextColor={colors.input.placeholder}
+                  selectionColor={colors.text.primary}
+                />
+              </View>
+            )}
             <View className="flex-row gap-2">
               <Pressable
                 onPress={handleSave}
@@ -99,6 +155,7 @@ function EditableItem({ item, onUpdate, onDelete, showColor = false, showPrice =
                   setEditName(item.name);
                   setEditColor(item.color || '#6B7280');
                   setEditPrice(item.defaultPrice?.toString() || '0');
+                  setEditDescription(item.description || '');
                   setIsEditing(false);
                 }}
                 className="px-4 rounded-xl items-center active:opacity-70"
@@ -121,6 +178,11 @@ function EditableItem({ item, onUpdate, onDelete, showColor = false, showPrice =
               {showPrice && item.defaultPrice !== undefined && (
                 <Text style={{ color: colors.text.tertiary }} className="text-xs">{formatCurrency(item.defaultPrice)}</Text>
               )}
+              {showDescription && item.description ? (
+                <Text style={{ color: colors.text.tertiary }} className="text-[11px]">
+                  {item.description}
+                </Text>
+              ) : null}
             </View>
             <Pressable
               onPress={() => {
@@ -147,42 +209,69 @@ function EditableItem({ item, onUpdate, onDelete, showColor = false, showPrice =
   );
 }
 
-interface SectionCardProps {
+interface SettingsRowProps {
   title: string;
-  description: string;
+  description?: string;
   icon: React.ReactNode;
-  iconColor: string;
-  count?: number;
-  onPress: () => void;
+  rightText?: string;
+  onPress?: () => void;
+  showChevron?: boolean;
+  rightElement?: React.ReactNode;
 }
 
-function SectionCard({ title, description, icon, iconColor, count, onPress }: SectionCardProps) {
+function SettingsRow({
+  title,
+  description,
+  icon,
+  rightText,
+  onPress,
+  showChevron = true,
+  rightElement,
+}: SettingsRowProps) {
   const colors = useThemeColors();
   return (
     <Pressable
       onPress={() => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        onPress();
+        if (onPress) {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          onPress();
+        }
       }}
-      className="mb-3 active:opacity-80"
+      className="active:opacity-80"
+      disabled={!onPress}
     >
-      <View className="rounded-xl p-4 flex-row items-center" style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light }}>
+      <View
+        className="flex-row items-center px-4 py-3"
+        style={{
+          backgroundColor: colors.bg.card,
+          borderWidth: 1,
+          borderColor: colors.border.light,
+          borderRadius: 14,
+        }}
+      >
         <View
-          className="w-12 h-12 rounded-xl items-center justify-center mr-3"
-          style={{ backgroundColor: `${iconColor}15` }}
+          className="w-9 h-9 rounded-lg items-center justify-center mr-3"
+          style={{ backgroundColor: colors.bg.secondary }}
         >
           {icon}
         </View>
         <View className="flex-1">
-          <Text style={{ color: colors.text.primary }} className="font-bold text-base">{title}</Text>
-          <Text style={{ color: colors.text.tertiary }} className="text-xs mt-0.5">{description}</Text>
+          <Text style={{ color: colors.text.primary }} className="font-semibold text-sm">
+            {title}
+          </Text>
+          {description ? (
+            <Text style={{ color: colors.text.tertiary }} className="text-[11px] mt-0.5">
+              {description}
+            </Text>
+          ) : null}
         </View>
-        {count !== undefined && (
-          <View className="px-3 py-1.5 rounded-full mr-2" style={{ backgroundColor: colors.bg.secondary }}>
-            <Text style={{ color: colors.text.tertiary }} className="text-sm font-semibold">{count}</Text>
-          </View>
-        )}
-        <ChevronRight size={20} color={colors.text.muted} strokeWidth={2} />
+        {rightText ? (
+          <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold mr-2">
+            {rightText}
+          </Text>
+        ) : null}
+        {rightElement ? rightElement : null}
+        {showChevron && onPress ? <ChevronRight size={18} color={colors.text.muted} strokeWidth={2} /> : null}
       </View>
     </Pressable>
   );
@@ -190,6 +279,7 @@ function SectionCard({ title, description, icon, iconColor, count, onPress }: Se
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const { section: sectionParam } = useLocalSearchParams<{ section?: SettingsSection }>();
   const colors = useThemeColors();
   const tabBarHeight = useBottomTabBarHeight();
   const orderStatuses = useFyllStore((s) => s.orderStatuses);
@@ -199,9 +289,20 @@ export default function SettingsScreen() {
   const customServices = useFyllStore((s) => s.customServices);
   const paymentMethods = useFyllStore((s) => s.paymentMethods);
   const logisticsCarriers = useFyllStore((s) => s.logisticsCarriers);
+  const caseStatuses = useFyllStore((s) => s.caseStatuses);
+  const saveGlobalSettings = useFyllStore((s) => s.saveGlobalSettings);
   const customers = useFyllStore((s) => s.customers);
   const themeMode = useFyllStore((s) => s.themeMode);
   const setThemeMode = useFyllStore((s) => s.setThemeMode);
+  const businessId = useAuthStore((s) => s.businessId);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [sectionSaveStatus, setSectionSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+  const [pendingDeleteSetting, setPendingDeleteSetting] = useState<{
+    id: string;
+    name: string;
+    type: SettingsSection;
+  } | null>(null);
 
   // Global Low Stock Threshold
   const useGlobalLowStockThreshold = useFyllStore((s) => s.useGlobalLowStockThreshold);
@@ -209,6 +310,7 @@ export default function SettingsScreen() {
   const setUseGlobalLowStockThreshold = useFyllStore((s) => s.setUseGlobalLowStockThreshold);
   const setGlobalLowStockThreshold = useFyllStore((s) => s.setGlobalLowStockThreshold);
   const [tempThreshold, setTempThreshold] = useState(globalLowStockThreshold.toString());
+  const [showLowStockModal, setShowLowStockModal] = useState(false);
 
   const addOrderStatus = useFyllStore((s) => s.addOrderStatus);
   const updateOrderStatus = useFyllStore((s) => s.updateOrderStatus);
@@ -229,12 +331,160 @@ export default function SettingsScreen() {
   const addLogisticsCarrier = useFyllStore((s) => s.addLogisticsCarrier);
   const updateLogisticsCarrier = useFyllStore((s) => s.updateLogisticsCarrier);
   const deleteLogisticsCarrier = useFyllStore((s) => s.deleteLogisticsCarrier);
+  const addCaseStatus = useFyllStore((s) => s.addCaseStatus);
+  const updateCaseStatus = useFyllStore((s) => s.updateCaseStatus);
+  const deleteCaseStatus = useFyllStore((s) => s.deleteCaseStatus);
 
-  const resetStore = useFyllStore((s) => s.resetStore);
+  const openDeleteSetting = (type: SettingsSection, setting: { id: string; name: string }) => {
+    if (Platform.OS === 'web') {
+      const active = typeof document !== 'undefined' ? document.activeElement : null;
+      if (active instanceof HTMLElement) {
+        active.blur();
+      }
+    }
+    setPendingDeleteSetting({ id: setting.id, name: setting.name, type });
+  };
+
+  const confirmDeleteSetting = () => {
+    if (!pendingDeleteSetting) return;
+    switch (pendingDeleteSetting.type) {
+      case 'order-statuses':
+        deleteOrderStatus(pendingDeleteSetting.id, businessId);
+        break;
+      case 'case-statuses':
+        deleteCaseStatus(pendingDeleteSetting.id, businessId);
+        break;
+      case 'sale-sources':
+        deleteSaleSource(pendingDeleteSetting.id, businessId);
+        break;
+      case 'custom-services':
+        deleteCustomService(pendingDeleteSetting.id, businessId);
+        break;
+      case 'payment-methods':
+        deletePaymentMethod(pendingDeleteSetting.id, businessId);
+        break;
+      case 'logistics-carriers':
+        deleteLogisticsCarrier(pendingDeleteSetting.id, businessId);
+        break;
+      default:
+        break;
+    }
+    triggerGlobalSave();
+    setPendingDeleteSetting(null);
+  };
+
+  const renderDeleteSettingModal = () => (
+    <Modal
+      visible={!!pendingDeleteSetting}
+      animationType="fade"
+      transparent
+      onRequestClose={() => setPendingDeleteSetting(null)}
+    >
+      <Pressable
+        className="flex-1 items-center justify-center"
+        style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}
+        onPress={() => setPendingDeleteSetting(null)}
+      >
+        <Pressable
+          onPress={(e) => e.stopPropagation()}
+          className="w-[90%] rounded-2xl overflow-hidden"
+          style={{ backgroundColor: colors.bg.primary, maxWidth: 360 }}
+        >
+          <View className="px-5 py-4" style={{ borderBottomWidth: 1, borderBottomColor: colors.border.light }}>
+            <Text style={{ color: colors.text.primary }} className="font-bold text-lg">Delete Item</Text>
+            <Text style={{ color: colors.text.tertiary }} className="text-sm mt-1">
+              {pendingDeleteSetting ? `Delete ${pendingDeleteSetting.name}?` : 'Delete this item?'}
+            </Text>
+          </View>
+          <View className="px-5 py-4 flex-row gap-3">
+            <Pressable
+              onPress={() => setPendingDeleteSetting(null)}
+              className="flex-1 rounded-xl items-center"
+              style={{ backgroundColor: colors.bg.secondary, height: 48, justifyContent: 'center' }}
+            >
+              <Text style={{ color: colors.text.tertiary }} className="font-medium">Cancel</Text>
+            </Pressable>
+            <Pressable
+              onPress={confirmDeleteSetting}
+              className="flex-1 rounded-xl items-center"
+              style={{ backgroundColor: '#EF4444', height: 48, justifyContent: 'center' }}
+            >
+              <Text className="text-white font-semibold">Delete</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
 
   // Auth
   const currentUser = useAuthStore((s) => s.currentUser);
-  const businessId = useAuthStore((s) => s.businessId);
+
+  const handleSaveGlobalSettings = async () => {
+    if (!businessId) {
+      setSaveStatus('error');
+      setSaveMessage('No business selected.');
+      return;
+    }
+
+    setSaveStatus('saving');
+    setSaveMessage(null);
+    const result = await saveGlobalSettings(businessId);
+    if (result.success) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setSaveStatus('success');
+      setSaveMessage('Saved for all devices.');
+    } else {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setSaveStatus('error');
+      setSaveMessage(result.error ?? 'Save failed.');
+    }
+
+    setTimeout(() => {
+      setSaveStatus('idle');
+    }, 2500);
+  };
+
+  const handleSectionSave = async () => {
+    if (!businessId) {
+      setSectionSaveStatus('error');
+      return;
+    }
+
+    setSectionSaveStatus('saving');
+    const result = await saveGlobalSettings(businessId);
+    setSectionSaveStatus(result.success ? 'success' : 'error');
+
+    setTimeout(() => {
+      setSectionSaveStatus('idle');
+    }, 2000);
+  };
+
+  const triggerGlobalSave = () => {
+    if (!businessId) return;
+    void saveGlobalSettings(businessId).then((result) => {
+      if (result.success) {
+        setSaveStatus('success');
+        setSaveMessage('Saved for all devices.');
+      } else {
+        setSaveStatus('error');
+        setSaveMessage(result.error ?? 'Save failed.');
+      }
+
+      setTimeout(() => setSaveStatus('idle'), 2000);
+    });
+  };
+
+  const handleSaveLowStock = () => {
+    const parsed = parseInt(tempThreshold, 10);
+    if (!isNaN(parsed) && parsed >= 0) {
+      setGlobalLowStockThreshold(parsed);
+      triggerGlobalSave();
+    } else {
+      setTempThreshold(globalLowStockThreshold.toString());
+    }
+    setShowLowStockModal(false);
+  };
   const teamMembers = useAuthStore((s) => s.teamMembers);
   const logout = useAuthStore((s) => s.logout);
 
@@ -242,8 +492,34 @@ export default function SettingsScreen() {
   const [newItemName, setNewItemName] = useState('');
   const [newItemColor, setNewItemColor] = useState('#3B82F6');
   const [newItemPrice, setNewItemPrice] = useState('');
+  const [newItemDescription, setNewItemDescription] = useState('');
 
-  const colorOptions = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899', '#6B7280', '#059669'];
+  const colorOptions = [
+    '#EF4444',
+    '#F97316',
+    '#F59E0B',
+    '#EAB308',
+    '#84CC16',
+    '#22C55E',
+    '#14B8A6',
+    '#06B6D4',
+    '#3B82F6',
+    '#6366F1',
+    '#8B5CF6',
+    '#EC4899',
+    '#F43F5E',
+    '#6B7280',
+  ];
+
+  useEffect(() => {
+    if (
+      sectionParam &&
+      SETTINGS_SECTIONS.includes(sectionParam) &&
+      sectionParam !== activeSection
+    ) {
+      setActiveSection(sectionParam);
+    }
+  }, [sectionParam, activeSection]);
 
   const handleLogout = async () => {
     try {
@@ -265,41 +541,88 @@ export default function SettingsScreen() {
   };
 
   const handleAddItem = () => {
-    if (!newItemName.trim()) return;
+    const trimmedName = newItemName.trim();
+    if (!trimmedName) return;
 
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    const nameExists = (items: Array<{ name: string }>) =>
+      items.some((item) => item.name.trim().toLowerCase() === trimmedName.toLowerCase());
+
     const id = Math.random().toString(36).substring(2, 15);
+    let didAdd = false;
 
-    switch (activeSection) {
-      case 'order-statuses':
-        addOrderStatus({ id, name: newItemName.trim(), color: newItemColor, order: orderStatuses.length + 1 });
-        break;
-      case 'sale-sources':
+      switch (activeSection) {
+        case 'order-statuses':
+          if (nameExists(orderStatuses)) {
+            Alert.alert('Duplicate', 'This status already exists.');
+            return;
+          }
+          addOrderStatus({ id, name: newItemName.trim(), color: newItemColor, order: orderStatuses.length + 1 });
+          didAdd = true;
+          break;
+        case 'case-statuses':
+          if (nameExists(caseStatuses)) {
+            Alert.alert('Duplicate', 'This case status already exists.');
+            return;
+          }
+          addCaseStatus({
+            id,
+            name: newItemName.trim(),
+            color: newItemColor,
+            description: newItemDescription.trim(),
+            order: caseStatuses.length + 1,
+          });
+          didAdd = true;
+          setNewItemDescription('');
+          break;
+        case 'sale-sources':
+        if (nameExists(saleSources)) {
+          Alert.alert('Duplicate', 'This sale source already exists.');
+          return;
+        }
         addSaleSource({ id, name: newItemName.trim(), icon: 'circle' });
+        didAdd = true;
         break;
       case 'custom-services':
+        if (nameExists(customServices)) {
+          Alert.alert('Duplicate', 'This custom service already exists.');
+          return;
+        }
         addCustomService({ id, name: newItemName.trim(), defaultPrice: parseFloat(newItemPrice) || 0 });
+        didAdd = true;
         break;
       case 'payment-methods':
+        if (nameExists(paymentMethods)) {
+          Alert.alert('Duplicate', 'This payment method already exists.');
+          return;
+        }
         addPaymentMethod({ id, name: newItemName.trim() });
+        didAdd = true;
         break;
       case 'logistics-carriers':
+        if (nameExists(logisticsCarriers)) {
+          Alert.alert('Duplicate', 'This logistics carrier already exists.');
+          return;
+        }
         addLogisticsCarrier({ id, name: newItemName.trim() });
+        didAdd = true;
         break;
     }
 
+    if (!didAdd) return;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    triggerGlobalSave();
     setNewItemName('');
     setNewItemColor('#3B82F6');
     setNewItemPrice('');
   };
 
   const renderSectionContent = () => {
-    switch (activeSection) {
-      case 'order-statuses':
-        return (
-          <View className="px-5 pt-4">
-            <View className="rounded-xl p-4 mb-4" style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light }}>
-              <Text style={{ color: colors.text.primary }} className="font-bold text-sm mb-3">Add New Status</Text>
+      switch (activeSection) {
+        case 'order-statuses':
+          return (
+            <View className="px-5 pt-4">
+              <View className="rounded-xl p-4 mb-4" style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light }}>
+                <Text style={{ color: colors.text.primary }} className="font-bold text-sm mb-3">Add New Status</Text>
               <View className="rounded-xl px-4 mb-3" style={{ backgroundColor: colors.input.bg, borderWidth: 1, borderColor: colors.input.border, height: 50, justifyContent: 'center' }}>
                 <TextInput
                   placeholder="Status name"
@@ -343,8 +666,84 @@ export default function SettingsScreen() {
                 key={status.id}
                 item={status}
                 showColor
-                onUpdate={(name, color) => updateOrderStatus(status.id, { name, color })}
-                onDelete={() => deleteOrderStatus(status.id)}
+                onUpdate={(name, color) => {
+                  updateOrderStatus(status.id, { name, color });
+                  triggerGlobalSave();
+                }}
+                onDelete={() => {
+                  openDeleteSetting('order-statuses', status);
+                }}
+              />
+            ))}
+          </View>
+        );
+
+      case 'case-statuses':
+        return (
+          <View className="px-5 pt-4">
+            <View className="rounded-xl p-4 mb-4" style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light }}>
+              <Text style={{ color: colors.text.primary }} className="font-bold text-sm mb-3">Add Case Status</Text>
+              <View className="rounded-xl px-4 mb-3" style={{ backgroundColor: colors.input.bg, borderWidth: 1, borderColor: colors.input.border, height: 50, justifyContent: 'center' }}>
+                <TextInput
+                  placeholder="Status name"
+                  placeholderTextColor={colors.input.placeholder}
+                  value={newItemName}
+                  onChangeText={setNewItemName}
+                  style={{ color: colors.input.text, fontSize: 14 }}
+                  selectionColor={colors.text.primary}
+                />
+              </View>
+              <View className="rounded-xl px-4 mb-3" style={{ backgroundColor: colors.input.bg, borderWidth: 1, borderColor: colors.input.border, minHeight: 50, justifyContent: 'center' }}>
+                <TextInput
+                  placeholder="Description (optional)"
+                  placeholderTextColor={colors.input.placeholder}
+                  value={newItemDescription}
+                  onChangeText={setNewItemDescription}
+                  style={{ color: colors.input.text, fontSize: 14 }}
+                  selectionColor={colors.text.primary}
+                />
+              </View>
+              <View className="flex-row flex-wrap gap-2 mb-3">
+                {colorOptions.map((color) => (
+                  <Pressable
+                    key={color}
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      setNewItemColor(color);
+                    }}
+                    className="w-8 h-8 rounded-full items-center justify-center"
+                    style={{
+                      backgroundColor: color,
+                      borderWidth: newItemColor === color ? 2 : 0,
+                      borderColor: colors.text.primary,
+                    }}
+                  >
+                    {newItemColor === color && <Check size={14} color="#FFFFFF" strokeWidth={3} />}
+                  </Pressable>
+                ))}
+              </View>
+              <Pressable
+                onPress={handleAddItem}
+                className="rounded-xl items-center active:opacity-80"
+                style={{ backgroundColor: '#111111', height: 50, justifyContent: 'center' }}
+              >
+                <Text className="text-white font-semibold">Add Status</Text>
+              </Pressable>
+            </View>
+
+            {caseStatuses.map((status) => (
+              <EditableItem
+                key={status.id}
+                item={status}
+                showColor
+                showDescription
+                onUpdate={(name, color, _, description) => {
+                  updateCaseStatus(status.id, { name, color, description });
+                  triggerGlobalSave();
+                }}
+                onDelete={() => {
+                  openDeleteSetting('case-statuses', status);
+                }}
               />
             ))}
           </View>
@@ -378,8 +777,13 @@ export default function SettingsScreen() {
               <EditableItem
                 key={source.id}
                 item={source}
-                onUpdate={(name) => updateSaleSource(source.id, { name })}
-                onDelete={() => deleteSaleSource(source.id)}
+                onUpdate={(name) => {
+                  updateSaleSource(source.id, { name });
+                  triggerGlobalSave();
+                }}
+                onDelete={() => {
+                  openDeleteSetting('sale-sources', source);
+                }}
               />
             ))}
           </View>
@@ -425,8 +829,13 @@ export default function SettingsScreen() {
                 key={service.id}
                 item={service}
                 showPrice
-                onUpdate={(name, _, defaultPrice) => updateCustomService(service.id, { name, defaultPrice })}
-                onDelete={() => deleteCustomService(service.id)}
+                onUpdate={(name, _, defaultPrice) => {
+                  updateCustomService(service.id, { name, defaultPrice });
+                  triggerGlobalSave();
+                }}
+                onDelete={() => {
+                  openDeleteSetting('custom-services', service);
+                }}
               />
             ))}
           </View>
@@ -460,8 +869,13 @@ export default function SettingsScreen() {
               <EditableItem
                 key={method.id}
                 item={method}
-                onUpdate={(name) => updatePaymentMethod(method.id, { name })}
-                onDelete={() => deletePaymentMethod(method.id)}
+                onUpdate={(name) => {
+                  updatePaymentMethod(method.id, { name });
+                  triggerGlobalSave();
+                }}
+                onDelete={() => {
+                  openDeleteSetting('payment-methods', method);
+                }}
               />
             ))}
           </View>
@@ -495,8 +909,13 @@ export default function SettingsScreen() {
               <EditableItem
                 key={carrier.id}
                 item={carrier}
-                onUpdate={(name) => updateLogisticsCarrier(carrier.id, { name })}
-                onDelete={() => deleteLogisticsCarrier(carrier.id)}
+                onUpdate={(name) => {
+                  updateLogisticsCarrier(carrier.id, { name });
+                  triggerGlobalSave();
+                }}
+                onDelete={() => {
+                  openDeleteSetting('logistics-carriers', carrier);
+                }}
               />
             ))}
           </View>
@@ -514,6 +933,7 @@ export default function SettingsScreen() {
       'custom-services': 'Custom Services',
       'payment-methods': 'Payment Methods',
       'logistics-carriers': 'Logistics Carriers',
+      'case-statuses': 'Case Statuses',
     };
 
     return (
@@ -530,7 +950,24 @@ export default function SettingsScreen() {
             >
               <ChevronLeft size={20} color={colors.text.primary} strokeWidth={2} />
             </Pressable>
-            <Text style={{ color: colors.text.primary }} className="text-xl font-bold">{titles[activeSection]}</Text>
+            <View className="flex-1">
+              <Text style={{ color: colors.text.primary }} className="text-xl font-bold">{titles[activeSection]}</Text>
+              {sectionSaveStatus === 'success' && (
+                <Text style={{ color: colors.text.tertiary }} className="text-xs mt-1">Saved</Text>
+              )}
+              {sectionSaveStatus === 'error' && (
+                <Text style={{ color: '#EF4444' }} className="text-xs mt-1">Save failed</Text>
+              )}
+            </View>
+            <Pressable
+              onPress={handleSectionSave}
+              className="px-4 rounded-xl items-center justify-center active:opacity-80"
+              style={{ backgroundColor: '#111111', height: 42, minWidth: 104 }}
+            >
+              <Text className="text-white text-sm font-semibold">
+                {sectionSaveStatus === 'saving' ? 'Saving…' : 'Save'}
+              </Text>
+            </Pressable>
           </View>
           <KeyboardAwareScrollView
             className="flex-1"
@@ -543,6 +980,8 @@ export default function SettingsScreen() {
             <View className="h-24" />
           </KeyboardAwareScrollView>
         </SafeAreaView>
+
+        {renderDeleteSettingModal()}
       </View>
     );
   }
@@ -551,8 +990,8 @@ export default function SettingsScreen() {
     <View className="flex-1" style={{ backgroundColor: colors.bg.primary }}>
       <SafeAreaView className="flex-1" edges={['top']}>
         <View className="px-5 pt-6 pb-3" style={{ borderBottomWidth: 1, borderBottomColor: colors.border.light }}>
-          <Text style={{ color: colors.text.tertiary }} className="text-xs font-medium uppercase tracking-wider">Configuration</Text>
-          <Text style={{ color: colors.text.primary }} className="text-2xl font-bold">Settings</Text>
+          <Text style={{ color: colors.text.tertiary }} className="text-xs font-medium uppercase tracking-wider">Menu</Text>
+          <Text style={{ color: colors.text.primary }} className="text-2xl font-bold">More</Text>
         </View>
 
         <KeyboardAwareScrollView
@@ -562,84 +1001,166 @@ export default function SettingsScreen() {
           extraScrollHeight={100}
           contentContainerStyle={{ paddingBottom: tabBarHeight + 16 }}
         >
-          {/* Account Settings */}
           {currentUser && (
             <>
               <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mb-3 tracking-wider">Account</Text>
+              <View className="gap-2">
+                <SettingsRow
+                  title="Account Info"
+                  description="Email, role, business details"
+                  icon={<Info size={18} color={colors.text.tertiary} strokeWidth={2} />}
+                  onPress={() => router.push('/debug-business')}
+                />
+                <SettingsRow
+                  title="My Account"
+                  description="Profile and password"
+                  icon={<UserCircle size={18} color="#3B82F6" strokeWidth={2} />}
+                  onPress={() => router.push('/account-settings')}
+                />
+              </View>
+            </>
+          )}
 
-              {/* Account Info Debug Card */}
-              <Pressable
-                onPress={() => router.push('/debug-business')}
-                className="rounded-xl p-4 mb-3 active:opacity-70"
-                style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light }}
-              >
-                <View className="flex-row items-center mb-3">
-                  <Info size={18} color={colors.text.tertiary} strokeWidth={1.5} />
-                  <Text style={{ color: colors.text.secondary }} className="text-sm font-semibold ml-2">
-                    Account Information
-                  </Text>
-                  <ChevronRight size={16} color={colors.text.tertiary} strokeWidth={2} style={{ marginLeft: 'auto' }} />
-                </View>
-                <View className="space-y-2">
-                  <View className="flex-row justify-between items-center py-1">
-                    <Text style={{ color: colors.text.tertiary }} className="text-xs">Email</Text>
-                    <Text style={{ color: colors.text.primary }} className="text-xs font-medium">{currentUser.email}</Text>
-                  </View>
-                  <View className="flex-row justify-between items-center py-1">
-                    <Text style={{ color: colors.text.tertiary }} className="text-xs">User ID</Text>
-                    <Text style={{ color: colors.text.primary }} className="text-xs font-mono">{currentUser.id.substring(0, 12)}...</Text>
-                  </View>
-                  <View className="flex-row justify-between items-center py-1">
-                    <Text style={{ color: colors.text.tertiary }} className="text-xs">Business ID</Text>
-                    <Text style={{ color: colors.text.primary }} className="text-xs font-mono">{businessId?.substring(0, 20)}...</Text>
-                  </View>
-                  <View className="flex-row justify-between items-center py-1">
-                    <Text style={{ color: colors.text.tertiary }} className="text-xs">Role</Text>
-                    <Text style={{ color: colors.text.primary }} className="text-xs font-medium capitalize">{currentUser.role}</Text>
-                  </View>
-                </View>
-                <View className="mt-3 pt-3" style={{ borderTopWidth: 1, borderTopColor: colors.border.light }}>
-                  <Text style={{ color: colors.accent.primary }} className="text-xs font-semibold text-center">
-                    Tap to see full details
-                  </Text>
-                </View>
-              </Pressable>
+          <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mt-4 mb-3 tracking-wider">Business</Text>
+          <SettingsRow
+            title="Business Settings"
+            description="Name, logo, branding"
+            icon={<Building2 size={18} color="#10B981" strokeWidth={2} />}
+            onPress={() => router.push('/business-settings')}
+          />
 
-              <SectionCard
-                title="My Account"
-                description="Update profile and password"
-                icon={<UserCircle size={24} color="#3B82F6" strokeWidth={1.5} />}
-                iconColor="#3B82F6"
-                onPress={() => router.push('/account-settings')}
+          {currentUser?.role === 'admin' && (
+            <>
+              <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mt-4 mb-3 tracking-wider">Team</Text>
+              <SettingsRow
+                title="Team Members"
+                description="Roles and permissions"
+                icon={<Shield size={18} color="#EF4444" strokeWidth={2} />}
+                rightText={`${teamMembers.length}`}
+                onPress={() => router.push('/team')}
               />
             </>
           )}
 
-          {/* Theme Toggle */}
-          <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mb-3 tracking-wider">Appearance</Text>
+          <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mt-4 mb-3 tracking-wider">Customers</Text>
+          <SettingsRow
+            title="Customer List"
+            description="Contacts and history"
+            icon={<Users size={18} color="#10B981" strokeWidth={2} />}
+            rightText={`${customers.length}`}
+            onPress={() => router.push('/customers')}
+          />
 
-          <View className="rounded-xl p-4 mb-4" style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light }}>
-            <View className="flex-row items-center justify-between">
-              <View className="flex-row items-center">
-                <View
-                  className="w-12 h-12 rounded-xl items-center justify-center mr-3"
-                  style={{ backgroundColor: themeMode === 'dark' ? 'rgba(139, 92, 246, 0.15)' : 'rgba(245, 158, 11, 0.15)' }}
-                >
-                  {themeMode === 'dark' ? (
-                    <Moon size={24} color="#8B5CF6" strokeWidth={1.5} />
-                  ) : (
-                    <Sun size={24} color="#F59E0B" strokeWidth={1.5} />
-                  )}
-                </View>
-                <View>
-                  <Text style={{ color: colors.text.primary }} className="font-bold text-base">
-                    {themeMode === 'dark' ? 'Dark Mode' : 'Light Mode'}
-                  </Text>
-                  <Text style={{ color: colors.text.tertiary }} className="text-xs">
-                    {themeMode === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-                  </Text>
-                </View>
-              </View>
+          <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mt-4 mb-3 tracking-wider">Orders & Sales</Text>
+          <View className="gap-2">
+            <SettingsRow
+              title="Order Statuses"
+              description="Workflow stages"
+              icon={<ShoppingCart size={18} color="#F59E0B" strokeWidth={2} />}
+              rightText={`${orderStatuses.length}`}
+              onPress={() => setActiveSection('order-statuses')}
+            />
+            <SettingsRow
+              title="Sale Sources"
+              description="Where orders come from"
+              icon={<Tag size={18} color="#059669" strokeWidth={2} />}
+              rightText={`${saleSources.length}`}
+              onPress={() => setActiveSection('sale-sources')}
+            />
+            <SettingsRow
+              title="Payment Methods"
+              description="Bank transfer, POS, website"
+              icon={<CreditCard size={18} color="#3B82F6" strokeWidth={2} />}
+              rightText={`${paymentMethods.length}`}
+              onPress={() => setActiveSection('payment-methods')}
+            />
+          </View>
+
+          <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mt-4 mb-3 tracking-wider">Operations</Text>
+          <View className="gap-2">
+            <SettingsRow
+              title="Cases"
+              description="Post-order issues"
+              icon={<FileText size={18} color="#8B5CF6" strokeWidth={2} />}
+              onPress={() => router.push('/cases')}
+            />
+            <SettingsRow
+              title="Case Statuses"
+              description="Customize workflow stages"
+              icon={<FileText size={18} color="#F59E0B" strokeWidth={2} />}
+              rightText={`${caseStatuses.length}`}
+              onPress={() => setActiveSection('case-statuses')}
+            />
+          </View>
+
+          <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mt-4 mb-3 tracking-wider">Services & Logistics</Text>
+          <View className="gap-2">
+            <SettingsRow
+              title="Custom Services"
+              description="Lens coating, express delivery"
+              icon={<Wrench size={18} color="#8B5CF6" strokeWidth={2} />}
+              rightText={`${customServices.length}`}
+              onPress={() => setActiveSection('custom-services')}
+            />
+            <SettingsRow
+              title="Logistics Carriers"
+              description="Delivery partners"
+              icon={<Truck size={18} color="#F59E0B" strokeWidth={2} />}
+              rightText={`${logisticsCarriers.length}`}
+              onPress={() => setActiveSection('logistics-carriers')}
+            />
+          </View>
+
+          <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mt-4 mb-3 tracking-wider">Inventory</Text>
+          <View className="gap-2">
+            <SettingsRow
+              title="Low Stock Alert"
+              description={useGlobalLowStockThreshold
+                ? `On • ${globalLowStockThreshold} units`
+                : 'Off • Tap to configure'}
+              icon={<AlertTriangle size={18} color="#F59E0B" strokeWidth={2} />}
+              onPress={() => {
+                setTempThreshold(globalLowStockThreshold.toString());
+                setShowLowStockModal(true);
+              }}
+            />
+            <SettingsRow
+              title="Categories"
+              description="Product groups"
+              icon={<Tag size={18} color="#3B82F6" strokeWidth={2} />}
+              rightText={`${categories.length}`}
+              onPress={() => router.push('/category-manager')}
+            />
+            <SettingsRow
+              title="Product Variables"
+              description="Color, size, material"
+              icon={<Package size={18} color="#A855F7" strokeWidth={2} />}
+              rightText={`${productVariables.length}`}
+              onPress={() => router.push('/product-variables')}
+            />
+            <SettingsRow
+              title="Import Products"
+              description="Upload CSV"
+              icon={<Upload size={18} color="#10B981" strokeWidth={2} />}
+              onPress={() => router.push('/import-products')}
+            />
+          </View>
+
+          <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mt-4 mb-3 tracking-wider">Appearance</Text>
+          <SettingsRow
+            title={themeMode === 'dark' ? 'Dark Mode' : 'Light Mode'}
+            description={themeMode === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+            icon={
+              themeMode === 'dark'
+                ? <Moon size={18} color="#8B5CF6" strokeWidth={2} />
+                : <Sun size={18} color="#F59E0B" strokeWidth={2} />
+            }
+            showChevron={false}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setThemeMode(themeMode === 'dark' ? 'light' : 'dark');
+            }}
+            rightElement={
               <Switch
                 value={themeMode === 'dark'}
                 onValueChange={(value) => {
@@ -649,240 +1170,146 @@ export default function SettingsScreen() {
                 trackColor={{ false: '#E5E5E5', true: '#8B5CF6' }}
                 thumbColor="#FFFFFF"
               />
-            </View>
-          </View>
-
-          {/* Business Settings */}
-          <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mb-3 tracking-wider">Business</Text>
-
-          <SectionCard
-            title="Business Settings"
-            description="Name, logo, and branding"
-            icon={<Building2 size={24} color="#10B981" strokeWidth={1.5} />}
-            iconColor="#10B981"
-            onPress={() => router.push('/business-settings')}
+            }
           />
 
-          {/* Team Management (Admin Only) */}
-          {currentUser?.role === 'admin' && (
-            <>
-              <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mb-3 tracking-wider">Team</Text>
-              <SectionCard
-                title="Team Members"
-                description="Manage users and permissions"
-                icon={<Shield size={24} color="#EF4444" strokeWidth={1.5} />}
-                iconColor="#EF4444"
-                count={teamMembers.length}
-                onPress={() => router.push('/team')}
-              />
-            </>
+          <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mt-4 mb-3 tracking-wider">Sync</Text>
+          <SettingsRow
+            title="Save Global Settings"
+            description="Sync across devices"
+            icon={<Upload size={18} color="#10B981" strokeWidth={2} />}
+            showChevron={false}
+            rightElement={
+              <Pressable
+                onPress={handleSaveGlobalSettings}
+                disabled={saveStatus === 'saving'}
+                className="rounded-xl px-3 items-center justify-center active:opacity-80"
+                style={{ backgroundColor: '#111111', height: 36, minWidth: 80 }}
+              >
+                <Text className="text-white font-semibold text-xs">
+                  {saveStatus === 'saving' ? 'Saving…' : 'Save'}
+                </Text>
+              </Pressable>
+            }
+          />
+          {saveMessage && (
+            <Text
+              style={{ color: saveStatus === 'error' ? '#EF4444' : colors.text.tertiary }}
+              className="text-xs mt-2"
+            >
+              {saveMessage}
+            </Text>
           )}
 
-          {/* CRM */}
-          <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mb-3 tracking-wider">Customer Management</Text>
-
-          <SectionCard
-            title="Customers"
-            description="Manage your customer database"
-            icon={<Users size={24} color="#10B981" strokeWidth={1.5} />}
-            iconColor="#10B981"
-            count={customers.length}
-            onPress={() => router.push('/customers')}
-          />
-
-          <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mt-4 mb-3 tracking-wider">Orders & Sales</Text>
-
-          <SectionCard
-            title="Order Statuses"
-            description="Customize order workflow stages"
-            icon={<ShoppingCart size={24} color="#F59E0B" strokeWidth={1.5} />}
-            iconColor="#F59E0B"
-            count={orderStatuses.length}
-            onPress={() => setActiveSection('order-statuses')}
-          />
-
-          <SectionCard
-            title="Sale Sources"
-            description="Track where orders come from"
-            icon={<Tag size={24} color="#059669" strokeWidth={1.5} />}
-            iconColor="#059669"
-            count={saleSources.length}
-            onPress={() => setActiveSection('sale-sources')}
-          />
-
-          <SectionCard
-            title="Payment Methods"
-            description="Bank transfer, POS, website, cash"
-            icon={<CreditCard size={24} color="#3B82F6" strokeWidth={1.5} />}
-            iconColor="#3B82F6"
-            count={paymentMethods.length}
-            onPress={() => setActiveSection('payment-methods')}
-          />
-
-          <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mt-4 mb-3 tracking-wider">Services & Logistics</Text>
-
-          <SectionCard
-            title="Custom Services"
-            description="Lens coating, express delivery, etc."
-            icon={<Wrench size={24} color="#8B5CF6" strokeWidth={1.5} />}
-            iconColor="#8B5CF6"
-            count={customServices.length}
-            onPress={() => setActiveSection('custom-services')}
-          />
-
-          <SectionCard
-            title="Logistics Carriers"
-            description="GIG, DHL, Kwik, and more"
-            icon={<Truck size={24} color="#F59E0B" strokeWidth={1.5} />}
-            iconColor="#F59E0B"
-            count={logisticsCarriers.length}
-            onPress={() => setActiveSection('logistics-carriers')}
-          />
-
-          <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mt-4 mb-3 tracking-wider">Inventory</Text>
-
-          {/* Global Low Stock Threshold */}
-          <View className="rounded-xl p-4 mb-3" style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light }}>
-            <View className="flex-row items-center justify-between">
-              <View className="flex-row items-center flex-1">
-                <View
-                  className="w-12 h-12 rounded-xl items-center justify-center mr-3"
-                  style={{ backgroundColor: 'rgba(245, 158, 11, 0.15)' }}
-                >
-                  <AlertTriangle size={24} color="#F59E0B" strokeWidth={1.5} />
-                </View>
-                <View className="flex-1 mr-3">
-                  <Text style={{ color: colors.text.primary }} className="font-bold text-base">Global Low Stock Alert</Text>
-                  <Text style={{ color: colors.text.tertiary }} className="text-xs">Apply same threshold to all products</Text>
-                </View>
-              </View>
-              <Switch
-                value={useGlobalLowStockThreshold}
-                onValueChange={(value) => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setUseGlobalLowStockThreshold(value);
-                }}
-                trackColor={{ false: '#767577', true: '#F59E0B' }}
-                thumbColor="#FFFFFF"
+          <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mt-4 mb-3 tracking-wider">App</Text>
+          <View className="gap-2">
+            <SettingsRow
+              title="Fyll ERP"
+              description="Version 1.0.0"
+              icon={<Info size={18} color="#3B82F6" strokeWidth={2} />}
+              showChevron={false}
+            />
+            <SettingsRow
+              title="Refresh App"
+              description="Reload app data"
+              icon={<RotateCcw size={18} color={colors.text.tertiary} strokeWidth={2} />}
+              onPress={() => {
+                if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                  window.location.reload();
+                  return;
+                }
+                Alert.alert('Refresh App', 'Close the app and reopen it to refresh on iPhone.');
+              }}
+            />
+            {currentUser && (
+              <SettingsRow
+                title="Log Out"
+                icon={<LogOut size={18} color={colors.text.tertiary} strokeWidth={2} />}
+                showChevron={false}
+                onPress={handleLogout}
               />
-            </View>
-            {useGlobalLowStockThreshold && (
-              <View className="mt-4 pt-4" style={{ borderTopWidth: 1, borderTopColor: colors.border.light }}>
-                <Text style={{ color: colors.text.tertiary }} className="text-xs font-medium mb-2">Alert when stock falls below:</Text>
-                <View className="flex-row items-center">
-                  <View
-                    className="flex-1 rounded-xl px-4 mr-3"
-                    style={{
-                      backgroundColor: colors.input.bg,
-                      borderWidth: 1,
-                      borderColor: colors.input.border,
-                      height: 50,
-                      justifyContent: 'center'
-                    }}
-                  >
-                    <TextInput
-                      value={tempThreshold}
-                      onChangeText={setTempThreshold}
-                      onBlur={() => {
-                        const val = parseInt(tempThreshold, 10);
-                        if (!isNaN(val) && val >= 0) {
-                          setGlobalLowStockThreshold(val);
-                        } else {
-                          setTempThreshold(globalLowStockThreshold.toString());
-                        }
-                      }}
-                      keyboardType="number-pad"
-                      style={{ color: colors.input.text, fontSize: 16, fontWeight: '600' }}
-                      placeholderTextColor={colors.input.placeholder}
-                      selectionColor={colors.text.primary}
-                    />
-                  </View>
-                  <Text style={{ color: colors.text.tertiary }} className="text-sm">units</Text>
-                </View>
-                <Text style={{ color: colors.text.muted }} className="text-xs mt-2">
-                  This overrides individual product thresholds
-                </Text>
-              </View>
             )}
           </View>
 
-          <SectionCard
-            title="Categories"
-            description="Manage product categories"
-            icon={<Tag size={24} color="#3B82F6" strokeWidth={1.5} />}
-            iconColor="#3B82F6"
-            count={categories.length}
-            onPress={() => router.push('/category-manager')}
-          />
-
-          <SectionCard
-            title="Product Variables"
-            description="Define product attributes (Color, Size)"
-            icon={<Package size={24} color="#A855F7" strokeWidth={1.5} />}
-            iconColor="#A855F7"
-            count={productVariables.length}
-            onPress={() => router.push('/product-variables')}
-          />
-
-          <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mt-6 mb-3 tracking-wider">App</Text>
-
-          <View className="rounded-xl p-4" style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light }}>
-            <View className="flex-row items-center">
-              <View className="w-12 h-12 rounded-xl items-center justify-center mr-3" style={{ backgroundColor: 'rgba(59, 130, 246, 0.15)' }}>
-                <Info size={24} color="#3B82F6" strokeWidth={1.5} />
-              </View>
-              <View className="flex-1">
-                <Text style={{ color: colors.text.primary }} className="font-bold text-base">Fyll ERP</Text>
-                <Text style={{ color: colors.text.tertiary }} className="text-xs">Version 1.0.0</Text>
-              </View>
-            </View>
-          </View>
-
-          <Pressable
-            onPress={() => {
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-              Alert.alert(
-                'Reset Data',
-                'This will reset all data to the initial demo. This action cannot be undone.',
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Reset',
-                    style: 'destructive',
-                    onPress: () => {
-                      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                      resetStore();
-                    }
-                  },
-                ]
-              );
-            }}
-            className="mt-4 rounded-xl active:opacity-80"
-            style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', height: 50, justifyContent: 'center' }}
-          >
-            <View className="flex-row items-center justify-center">
-              <RotateCcw size={18} color="#EF4444" strokeWidth={2} />
-              <Text className="text-red-500 font-semibold ml-2">Reset to Demo Data</Text>
-            </View>
-          </Pressable>
-
-          {/* Logout Button */}
-          {currentUser && (
-            <Pressable
-              onPress={handleLogout}
-              className="mt-3 rounded-xl active:opacity-80"
-              style={{ backgroundColor: colors.bg.secondary, height: 50, justifyContent: 'center' }}
-            >
-              <View className="flex-row items-center justify-center">
-                <LogOut size={18} color={colors.text.tertiary} strokeWidth={2} />
-                <Text style={{ color: colors.text.tertiary }} className="font-semibold ml-2">Log Out</Text>
-              </View>
-            </Pressable>
-          )}
-
           <View className="h-24" />
         </KeyboardAwareScrollView>
+
+        <Modal
+          visible={showLowStockModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowLowStockModal(false)}
+        >
+          <View className="flex-1 items-center justify-center px-6" style={{ backgroundColor: 'rgba(0, 0, 0, 0.45)' }}>
+            <View className="w-full rounded-2xl p-5" style={{ backgroundColor: colors.bg.primary }}>
+              <View className="flex-row items-center justify-between mb-4">
+                <Text style={{ color: colors.text.primary }} className="text-lg font-bold">Global Low Stock Alert</Text>
+                <Pressable
+                  onPress={() => setShowLowStockModal(false)}
+                  className="w-9 h-9 rounded-xl items-center justify-center active:opacity-70"
+                  style={{ backgroundColor: colors.bg.secondary }}
+                >
+                  <X size={18} color={colors.text.tertiary} strokeWidth={2} />
+                </Pressable>
+              </View>
+
+              <View className="flex-row items-center justify-between mb-4">
+                <Text style={{ color: colors.text.tertiary }} className="text-sm">Enable global threshold</Text>
+                <Switch
+                  value={useGlobalLowStockThreshold}
+                  onValueChange={(value) => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setUseGlobalLowStockThreshold(value);
+                  }}
+                  trackColor={{ false: '#767577', true: '#F59E0B' }}
+                  thumbColor="#FFFFFF"
+                />
+              </View>
+
+              {useGlobalLowStockThreshold && (
+                <View className="mb-4">
+                  <Text style={{ color: colors.text.tertiary }} className="text-xs font-medium mb-2">Alert when stock falls below</Text>
+                  <View className="flex-row items-center">
+                    <View
+                      className="flex-1 rounded-xl px-4 mr-3"
+                      style={{
+                        backgroundColor: colors.input.bg,
+                        borderWidth: 1,
+                        borderColor: colors.input.border,
+                        height: 50,
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <TextInput
+                        value={tempThreshold}
+                        onChangeText={setTempThreshold}
+                        keyboardType="number-pad"
+                        style={{ color: colors.input.text, fontSize: 16, fontWeight: '600' }}
+                        placeholderTextColor={colors.input.placeholder}
+                        selectionColor={colors.text.primary}
+                      />
+                    </View>
+                    <Text style={{ color: colors.text.tertiary }} className="text-sm">units</Text>
+                  </View>
+                  <Text style={{ color: colors.text.muted }} className="text-xs mt-2">
+                    This overrides individual product thresholds
+                  </Text>
+                </View>
+              )}
+
+              <Pressable
+                onPress={handleSaveLowStock}
+                className="rounded-xl items-center justify-center active:opacity-80"
+                style={{ backgroundColor: '#111111', height: 48 }}
+              >
+                <Text className="text-white font-semibold">Save</Text>
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
       </SafeAreaView>
+
+      {renderDeleteSettingModal()}
     </View>
   );
 }

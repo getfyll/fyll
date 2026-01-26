@@ -27,7 +27,7 @@ export default function TopRevenueScreen() {
   const topRevenue = useMemo(() => {
     const { start, end } = getDateRange(timeRange);
     const ordersInRange = orders.filter((order) => {
-      const orderDate = new Date(order.createdAt);
+      const orderDate = new Date(order.orderDate ?? order.createdAt);
       return orderDate >= start && orderDate <= end && order.status !== 'Refunded';
     });
 

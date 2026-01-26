@@ -1,9 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, ScrollView, Pressable, TextInput, Modal, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ArrowLeft, Plus, Search, User, Phone, Mail, MapPin, Edit2, Trash2, X, Check, ChevronDown } from 'lucide-react-native';
+import { Plus, Upload, Search, User, Phone, Mail, MapPin, Edit2, Trash2, X, Check, ChevronDown } from 'lucide-react-native';
 import useFyllStore, { Customer, NIGERIA_STATES } from '@/lib/state/fyll-store';
+import useAuthStore from '@/lib/state/auth-store';
 import { useThemeColors } from '@/lib/theme';
 import { useBreakpoint } from '@/lib/useBreakpoint';
 import { SplitViewLayout } from '@/components/SplitViewLayout';
@@ -21,11 +22,13 @@ export default function CustomersScreen() {
   const addCustomer = useFyllStore((s) => s.addCustomer);
   const updateCustomer = useFyllStore((s) => s.updateCustomer);
   const deleteCustomer = useFyllStore((s) => s.deleteCustomer);
+  const businessId = useAuthStore((s) => s.businessId ?? s.currentUser?.businessId ?? null);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [showStateModal, setShowStateModal] = useState(false);
+  const [pendingDeleteCustomer, setPendingDeleteCustomer] = useState<Customer | null>(null);
 
   // Split view state
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
@@ -52,6 +55,14 @@ export default function CustomersScreen() {
       c.phone.includes(query)
     );
   }, [customers, searchQuery]);
+
+  useEffect(() => {
+    if (!showSplitView) return;
+    if (selectedCustomerId && filteredCustomers.some((customer) => customer.id === selectedCustomerId)) return;
+    if (filteredCustomers.length > 0) {
+      setSelectedCustomerId(filteredCustomers[0].id);
+    }
+  }, [showSplitView, filteredCustomers, selectedCustomerId]);
 
   const resetForm = () => {
     setFullName('');
@@ -103,42 +114,42 @@ export default function CustomersScreen() {
         defaultState,
         createdAt: new Date().toISOString(),
       };
-      addCustomer(newCustomer);
+      addCustomer(newCustomer, businessId);
     }
 
     setShowAddModal(false);
     resetForm();
   };
 
-  const handleDelete = (customer: Customer) => {
+  const openDeleteCustomer = (customer: Customer) => {
+    if (Platform.OS === 'web') {
+      const active = document.activeElement as HTMLElement | null;
+      active?.blur();
+    }
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
-    Alert.alert(
-      'Delete Customer',
-      `Are you sure you want to delete "${customer.fullName}"?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            if (Platform.OS !== 'web') {
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-            }
-            deleteCustomer(customer.id);
-            if (selectedCustomerId === customer.id) {
-              setSelectedCustomerId(null);
-            }
-          },
-        },
-      ]
-    );
+    setPendingDeleteCustomer(customer);
+  };
+
+  const confirmDeleteCustomer = () => {
+    if (!pendingDeleteCustomer) return;
+    if (Platform.OS !== 'web') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    }
+    deleteCustomer(pendingDeleteCustomer.id, businessId);
+    if (selectedCustomerId === pendingDeleteCustomer.id) {
+      setSelectedCustomerId(null);
+    }
+    setPendingDeleteCustomer(null);
   };
 
   const handleCustomerSelect = (customerId: string) => {
     if (showSplitView) {
       setSelectedCustomerId(customerId);
+    } else {
+      // On mobile, navigate to customer detail screen
+      router.push(`/customer/${customerId}`);
     }
   };
 
@@ -149,51 +160,59 @@ export default function CustomersScreen() {
   // Master pane content
   const masterContent = (
     <>
-      {/* Header */}
-      <View className="flex-row items-center justify-between px-5 py-4" style={{ borderBottomWidth: 1, borderBottomColor: colors.border.light }}>
-        <Pressable
-          onPress={() => router.back()}
-          className="w-10 h-10 rounded-xl items-center justify-center active:opacity-50"
-          style={{ backgroundColor: colors.bg.secondary }}
-        >
-          <ArrowLeft size={20} color={colors.text.primary} strokeWidth={2} />
-        </Pressable>
-        <Text style={{ color: colors.text.primary }} className="text-lg font-bold">Customers</Text>
-        <Pressable
-          onPress={() => {
-            if (Platform.OS !== 'web') {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            }
-            resetForm();
-            setShowAddModal(true);
-          }}
-          className="w-10 h-10 rounded-xl items-center justify-center active:opacity-50"
-          style={{ backgroundColor: '#111111' }}
-        >
-          <Plus size={20} color="#FFFFFF" strokeWidth={2} />
-        </Pressable>
-      </View>
+      {/* Header + Search */}
+      <View style={{ backgroundColor: colors.bg.primary, borderBottomWidth: 0.5, borderBottomColor: colors.border.light }}>
+        <View className="px-5 pt-6 pb-3">
+          <View className="flex-row items-center justify-between mb-4">
+            <View>
+              <Text style={{ color: colors.text.tertiary }} className="text-xs font-medium uppercase tracking-wider">Customers</Text>
+              <Text style={{ color: colors.text.primary }} className="text-2xl font-bold">Customers</Text>
+            </View>
+            <View className="flex-row gap-2">
+              <Pressable
+                onPress={() => router.push('/import-customers')}
+                className="rounded-xl items-center justify-center active:opacity-80"
+                style={{ paddingHorizontal: 14, height: 42, flexDirection: 'row', backgroundColor: colors.bg.secondary }}
+              >
+                <Upload size={16} color={colors.text.primary} strokeWidth={2} />
+                <Text style={{ color: colors.text.primary }} className="font-semibold ml-1.5 text-sm">Import</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  if (Platform.OS !== 'web') {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }
+                  resetForm();
+                  setShowAddModal(true);
+                }}
+                className="rounded-xl items-center justify-center active:opacity-80"
+                style={{ paddingHorizontal: 14, height: 42, flexDirection: 'row', backgroundColor: '#111111' }}
+              >
+                <Plus size={18} color="#FFFFFF" strokeWidth={2.5} />
+                <Text style={{ color: '#FFFFFF' }} className="font-semibold ml-1.5 text-sm">Add</Text>
+              </Pressable>
+            </View>
+          </View>
 
-      {/* Search */}
-      <View className="px-5 pt-4">
-        <View
-          className="flex-row items-center rounded-xl px-4"
-          style={{ backgroundColor: colors.input.bg, borderWidth: 1, borderColor: colors.input.border, height: 50 }}
-        >
-          <Search size={18} color={colors.input.placeholder} strokeWidth={2} />
-          <TextInput
-            placeholder="Search customers..."
-            placeholderTextColor={colors.input.placeholder}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            style={{ flex: 1, marginLeft: 8, color: colors.input.text, fontSize: 14 }}
-            selectionColor={colors.text.primary}
-          />
+          <View
+            className="flex-row items-center rounded-xl px-4"
+            style={{ height: 52, backgroundColor: colors.input.bg, borderWidth: 1, borderColor: colors.input.border }}
+          >
+            <Search size={18} color={colors.text.muted} strokeWidth={2} />
+            <TextInput
+              placeholder="Search customers..."
+              placeholderTextColor={colors.input.placeholder}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              style={{ flex: 1, marginLeft: 8, color: colors.input.text, fontSize: 14 }}
+              selectionColor={colors.text.primary}
+            />
+          </View>
         </View>
       </View>
 
       <ScrollView
-        className="flex-1 px-5 pt-4"
+        style={{ flex: 1, paddingHorizontal: 20, paddingTop: 16, backgroundColor: colors.bg.secondary }}
         contentContainerStyle={{ maxWidth: isDesktop ? 600 : undefined, alignSelf: isDesktop && !selectedCustomerId ? 'center' : undefined }}
         showsVerticalScrollIndicator={false}
       >
@@ -276,7 +295,7 @@ export default function CustomersScreen() {
                           <Edit2 size={16} color={colors.text.tertiary} strokeWidth={2} />
                         </Pressable>
                         <Pressable
-                          onPress={() => handleDelete(customer)}
+                          onPress={() => openDeleteCustomer(customer)}
                           className="p-2 active:opacity-50"
                         >
                           <Trash2 size={16} color="#EF4444" strokeWidth={2} />
@@ -304,6 +323,48 @@ export default function CustomersScreen() {
           {masterContent}
         </SplitViewLayout>
       </SafeAreaView>
+
+      <Modal
+        visible={!!pendingDeleteCustomer}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setPendingDeleteCustomer(null)}
+      >
+        <Pressable
+          className="flex-1 items-center justify-center"
+          style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}
+          onPress={() => setPendingDeleteCustomer(null)}
+        >
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            className="w-[90%] rounded-2xl overflow-hidden"
+            style={{ backgroundColor: colors.bg.primary, maxWidth: 360 }}
+          >
+            <View className="px-5 py-4" style={{ borderBottomWidth: 1, borderBottomColor: colors.border.light }}>
+              <Text style={{ color: colors.text.primary }} className="font-bold text-lg">Delete Customer</Text>
+              <Text style={{ color: colors.text.tertiary }} className="text-sm mt-1">
+                {pendingDeleteCustomer?.fullName ? `Delete ${pendingDeleteCustomer.fullName}?` : 'Delete this customer?'}
+              </Text>
+            </View>
+            <View className="px-5 py-4 flex-row gap-3">
+              <Pressable
+                onPress={() => setPendingDeleteCustomer(null)}
+                className="flex-1 rounded-xl items-center"
+                style={{ backgroundColor: colors.bg.secondary, height: 48, justifyContent: 'center' }}
+              >
+                <Text style={{ color: colors.text.tertiary }} className="font-medium">Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={confirmDeleteCustomer}
+                className="flex-1 rounded-xl items-center"
+                style={{ backgroundColor: '#EF4444', height: 48, justifyContent: 'center' }}
+              >
+                <Text className="text-white font-semibold">Delete</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* Add/Edit Customer Modal */}
       <Modal

@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, Plus, Trash2, Edit3, Check, X, Palette, Tag } from 'lucide-react-native';
 import useFyllStore, { ProductVariable } from '@/lib/state/fyll-store';
+import useAuthStore from '@/lib/state/auth-store';
 import Animated, { FadeInDown, FadeInRight, FadeOutRight, Layout, SlideInRight } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { cn } from '@/lib/cn';
@@ -38,6 +39,8 @@ export default function ProductVariablesScreen() {
   const addProductVariable = useFyllStore((s) => s.addProductVariable);
   const updateProductVariable = useFyllStore((s) => s.updateProductVariable);
   const deleteProductVariable = useFyllStore((s) => s.deleteProductVariable);
+  const saveGlobalSettings = useFyllStore((s) => s.saveGlobalSettings);
+  const businessId = useAuthStore((s) => s.businessId ?? s.currentUser?.businessId ?? null);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [newVariableName, setNewVariableName] = useState('');
@@ -45,8 +48,9 @@ export default function ProductVariablesScreen() {
   const [editingValueText, setEditingValueText] = useState('');
   const [addingValueToId, setAddingValueToId] = useState<string | null>(null);
   const [newValueText, setNewValueText] = useState('');
+  const [pendingDeleteVariable, setPendingDeleteVariable] = useState<ProductVariable | null>(null);
 
-  const handleAddVariable = () => {
+  const handleAddVariable = async () => {
     if (!newVariableName.trim()) return;
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -58,30 +62,39 @@ export default function ProductVariablesScreen() {
     };
 
     addProductVariable(newVariable);
+    if (businessId) {
+      const result = await saveGlobalSettings(businessId);
+      if (!result.success) {
+        Alert.alert('Save failed', result.error ?? 'Could not save this change.');
+      }
+    }
     setNewVariableName('');
     setShowAddModal(false);
   };
 
-  const handleDeleteVariable = (variable: ProductVariable) => {
+  const openDeleteVariable = (variable: ProductVariable) => {
+    if (Platform.OS === 'web') {
+      const active = document.activeElement as HTMLElement | null;
+      active?.blur();
+    }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    Alert.alert(
-      'Delete Variable',
-      `Are you sure you want to delete "${variable.name}"? This will remove all its values.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-            deleteProductVariable(variable.id);
-          },
-        },
-      ]
-    );
+    setPendingDeleteVariable(variable);
   };
 
-  const handleAddValue = (variableId: string) => {
+  const confirmDeleteVariable = async () => {
+    if (!pendingDeleteVariable) return;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    deleteProductVariable(pendingDeleteVariable.id, businessId);
+    setPendingDeleteVariable(null);
+    if (businessId) {
+      const result = await saveGlobalSettings(businessId);
+      if (!result.success) {
+        Alert.alert('Delete failed', result.error ?? 'Could not delete this variable.');
+      }
+    }
+  };
+
+  const handleAddValue = async (variableId: string) => {
     if (!newValueText.trim()) return;
 
     const variable = productVariables.find((v) => v.id === variableId);
@@ -97,12 +110,18 @@ export default function ProductVariablesScreen() {
     updateProductVariable(variableId, {
       values: [...variable.values, newValueText.trim()],
     });
+    if (businessId) {
+      const result = await saveGlobalSettings(businessId);
+      if (!result.success) {
+        Alert.alert('Save failed', result.error ?? 'Could not save this change.');
+      }
+    }
 
     setNewValueText('');
     setAddingValueToId(null);
   };
 
-  const handleEditValue = (variableId: string, oldValue: string) => {
+  const handleEditValue = async (variableId: string, oldValue: string) => {
     if (!editingValueText.trim()) return;
 
     const variable = productVariables.find((v) => v.id === variableId);
@@ -118,6 +137,12 @@ export default function ProductVariablesScreen() {
     updateProductVariable(variableId, {
       values: variable.values.map((v) => v === oldValue ? editingValueText.trim() : v),
     });
+    if (businessId) {
+      const result = await saveGlobalSettings(businessId);
+      if (!result.success) {
+        Alert.alert('Save failed', result.error ?? 'Could not save this change.');
+      }
+    }
 
     setEditingValueId(null);
     setEditingValueText('');
@@ -141,6 +166,9 @@ export default function ProductVariablesScreen() {
             updateProductVariable(variableId, {
               values: variable.values.filter((v) => v !== value),
             });
+            if (businessId) {
+              void saveGlobalSettings(businessId);
+            }
           },
         },
       ]
@@ -246,7 +274,7 @@ export default function ProductVariablesScreen() {
                         </View>
                       </View>
                       <Pressable
-                        onPress={() => handleDeleteVariable(variable)}
+                        onPress={() => openDeleteVariable(variable)}
                         className="w-9 h-9 rounded-lg items-center justify-center active:opacity-50"
                         style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)' }}
                       >
@@ -469,6 +497,46 @@ export default function ProductVariablesScreen() {
           </KeyboardAvoidingView>
         </Modal>
       </SafeAreaView>
+
+      <Modal
+        visible={!!pendingDeleteVariable}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPendingDeleteVariable(null)}
+      >
+        <Pressable
+          className="flex-1 items-center justify-center"
+          style={{ backgroundColor: 'rgba(0, 0, 0, 0.45)' }}
+          onPress={() => setPendingDeleteVariable(null)}
+        >
+          <Pressable
+            onPress={(event) => event.stopPropagation()}
+            className="w-[90%] rounded-2xl p-5"
+            style={{ backgroundColor: '#FFFFFF', maxWidth: 420 }}
+          >
+            <Text className="text-lg font-bold text-gray-900 mb-2">Delete variable?</Text>
+            <Text className="text-sm text-gray-600 mb-4">
+              This will remove "{pendingDeleteVariable?.name}" and all of its values.
+            </Text>
+            <View className="flex-row gap-3">
+              <Pressable
+                onPress={() => setPendingDeleteVariable(null)}
+                className="flex-1 rounded-xl items-center justify-center"
+                style={{ height: 48, backgroundColor: '#F3F4F6' }}
+              >
+                <Text className="text-gray-700 font-semibold">Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={confirmDeleteVariable}
+                className="flex-1 rounded-xl items-center justify-center"
+                style={{ height: 48, backgroundColor: '#EF4444' }}
+              >
+                <Text className="text-white font-semibold">Delete</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }

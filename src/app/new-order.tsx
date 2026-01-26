@@ -1,14 +1,15 @@
-import React, { useState, useMemo } from 'react';
-import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform, Modal, Switch, ActivityIndicator } from 'react-native';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Modal, ActivityIndicator } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { X, Plus, Minus, Trash2, ChevronDown, Check, Search, Package, MapPin, User, Users, Calendar, ChevronLeft, ChevronRight } from 'lucide-react-native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { X, Plus, Minus, Trash2, ChevronDown, Check, Search, Package, MapPin, User, Users, Calendar, ChevronLeft, ChevronRight, Sparkles, Pencil } from 'lucide-react-native';
 import useFyllStore, { OrderItem, OrderService, generateOrderNumber, formatCurrency, NIGERIA_STATES, Customer } from '@/lib/state/fyll-store';
 import useAuthStore from '@/lib/state/auth-store';
 import { cn } from '@/lib/cn';
 import * as Haptics from 'expo-haptics';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Button, StickyButtonContainer } from '@/components/Button';
+import { useBreakpoint } from '@/lib/useBreakpoint';
 
 interface SearchResult {
   productId: string;
@@ -21,7 +22,20 @@ interface SearchResult {
 
 export default function NewOrderScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{
+    aiParsed?: string;
+    customerName?: string;
+    customerPhone?: string;
+    customerEmail?: string;
+    deliveryAddress?: string;
+    deliveryState?: string;
+    deliveryFee?: string;
+    websiteOrderReference?: string;
+    notes?: string;
+    items?: string;
+  }>();
   const insets = useSafeAreaInsets();
+  const { isDesktop } = useBreakpoint();
   const products = useFyllStore((s) => s.products);
   const saleSources = useFyllStore((s) => s.saleSources);
   const orderStatuses = useFyllStore((s) => s.orderStatuses);
@@ -32,18 +46,27 @@ export default function NewOrderScreen() {
   const addCustomer = useFyllStore((s) => s.addCustomer);
   const updateVariantStock = useFyllStore((s) => s.updateVariantStock);
   const currentUser = useAuthStore((s) => s.currentUser);
+  const businessId = useAuthStore((s) => s.businessId ?? s.currentUser?.businessId ?? null);
 
   // Loading state
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submitGuard = useRef(false);
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Customer info
-  const [customerName, setCustomerName] = useState('');
-  const [customerEmail, setCustomerEmail] = useState('');
-  const [customerPhone, setCustomerPhone] = useState('');
-  const [deliveryState, setDeliveryState] = useState('');
-  const [deliveryAddress, setDeliveryAddress] = useState('');
+  useEffect(() => () => {
+    if (toastTimer.current) {
+      clearTimeout(toastTimer.current);
+    }
+  }, []);
+
+  // Customer info - initialize from AI params if provided
+  const [customerName, setCustomerName] = useState(params.customerName || '');
+  const [customerEmail, setCustomerEmail] = useState(params.customerEmail || '');
+  const [customerPhone, setCustomerPhone] = useState(params.customerPhone || '');
+  const [deliveryState, setDeliveryState] = useState(params.deliveryState || '');
+  const [deliveryAddress, setDeliveryAddress] = useState(params.deliveryAddress || '');
   const [showStateModal, setShowStateModal] = useState(false);
-  const [saveToDatabase, setSaveToDatabase] = useState(false);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [showCustomerSearch, setShowCustomerSearch] = useState(false);
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
@@ -53,12 +76,15 @@ export default function NewOrderScreen() {
   const [paymentMethod, setPaymentMethod] = useState(paymentMethods[0]?.name || '');
   const [items, setItems] = useState<OrderItem[]>([]);
   const [services, setServices] = useState<OrderService[]>([]);
-  const [deliveryFee, setDeliveryFee] = useState('');
+  const [editingServiceIndex, setEditingServiceIndex] = useState<number | null>(null);
+  const [servicePriceInput, setServicePriceInput] = useState('');
+  const [showServicePriceModal, setShowServicePriceModal] = useState(false);
+  const [deliveryFee, setDeliveryFee] = useState(params.deliveryFee || '');
   const [additionalCharges, setAdditionalCharges] = useState('');
   const [additionalChargesNote, setAdditionalChargesNote] = useState('');
   const [discountCode, setDiscountCode] = useState('');
   const [discountAmount, setDiscountAmount] = useState('');
-  const [websiteOrderRef, setWebsiteOrderRef] = useState('');
+  const [websiteOrderRef, setWebsiteOrderRef] = useState(params.websiteOrderReference || '');
 
   // UI state
   const [searchQuery, setSearchQuery] = useState('');
@@ -72,6 +98,59 @@ export default function NewOrderScreen() {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [calendarViewDate, setCalendarViewDate] = useState(new Date()); // For calendar navigation
+
+  // Handle AI-parsed items
+  useEffect(() => {
+    if (params.aiParsed === 'true' && params.items) {
+      try {
+        const parsedItems: Array<{
+          productName: string;
+          variantInfo: string;
+          quantity: number;
+        }> = JSON.parse(params.items);
+
+        // Try to match AI-parsed products to actual products in inventory
+        const matchedItems: OrderItem[] = [];
+
+        parsedItems.forEach((aiItem) => {
+          // Search for matching product
+          const matchingProduct = products.find((p) =>
+            p.name.toLowerCase().includes(aiItem.productName.toLowerCase()) ||
+            aiItem.productName.toLowerCase().includes(p.name.toLowerCase())
+          );
+
+          if (matchingProduct) {
+            // Try to find matching variant
+            const matchingVariant = matchingProduct.variants.find((v) => {
+              const variantName = Object.values(v.variableValues).join(' ').toLowerCase();
+              const aiVariant = aiItem.variantInfo.toLowerCase();
+              return variantName.includes(aiVariant) || aiVariant.includes(variantName);
+            });
+
+            // Use first variant if no match found
+            const variant = matchingVariant || matchingProduct.variants[0];
+
+            if (variant) {
+              matchedItems.push({
+                productId: matchingProduct.id,
+                variantId: variant.id,
+                quantity: aiItem.quantity,
+                unitPrice: typeof aiItem.unitPrice === 'number' && aiItem.unitPrice > 0
+                  ? aiItem.unitPrice
+                  : variant.sellingPrice || 0,
+              });
+            }
+          }
+        });
+
+        if (matchedItems.length > 0) {
+          setItems(matchedItems);
+        }
+      } catch (error) {
+        console.error('Error parsing AI items:', error);
+      }
+    }
+  }, [params.aiParsed, params.items, products]);
 
   // Search results - searches both product names and variant values
   // Excludes discontinued products
@@ -200,12 +279,19 @@ export default function NewOrderScreen() {
     if (!service) return;
 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setServices([...services, {
+    const nextServices = [...services, {
       serviceId: service.id,
       name: service.name,
       price: service.defaultPrice
-    }]);
+    }];
+    setServices(nextServices);
     setShowServiceModal(false);
+
+    if (service.defaultPrice === 0) {
+      setEditingServiceIndex(nextServices.length - 1);
+      setServicePriceInput('');
+      setShowServicePriceModal(true);
+    }
   };
 
   const handleRemoveService = (index: number) => {
@@ -213,68 +299,129 @@ export default function NewOrderScreen() {
     setServices(services.filter((_, i) => i !== index));
   };
 
-  const handleSubmit = async () => {
-    if (!customerName.trim() || items.length === 0 || isSubmitting) return;
+  const openEditServicePrice = (index: number) => {
+    const current = services[index];
+    if (!current) return;
+    setEditingServiceIndex(index);
+    setServicePriceInput(current.price ? current.price.toString() : '');
+    setShowServicePriceModal(true);
+  };
 
+  const confirmEditServicePrice = () => {
+    if (editingServiceIndex === null) return;
+    const parsed = parseFloat(servicePriceInput);
+    const nextPrice = Number.isFinite(parsed) ? parsed : 0;
+    setServices(services.map((service, index) =>
+      index === editingServiceIndex ? { ...service, price: nextPrice } : service
+    ));
+    setEditingServiceIndex(null);
+    setServicePriceInput('');
+    setShowServicePriceModal(false);
+  };
+
+  const showToast = (type: 'success' | 'error', message: string) => {
+    setToast({ type, message });
+    if (toastTimer.current) {
+      clearTimeout(toastTimer.current);
+    }
+    toastTimer.current = setTimeout(() => setToast(null), 2200);
+  };
+
+  const handleSubmit = async () => {
+    if (!customerName.trim() || items.length === 0 || isSubmitting || submitGuard.current) return;
+
+    submitGuard.current = true;
     setIsSubmitting(true);
 
-    // Small delay for better UX
-    await new Promise(resolve => setTimeout(resolve, 300));
+    try {
+      // Small delay for better UX
+      await new Promise(resolve => setTimeout(resolve, 300));
 
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      let resolvedCustomerId = selectedCustomerId ?? undefined;
 
-    // Save customer to database if toggle is on and not already saved
-    if (saveToDatabase && !selectedCustomerId && customerName.trim()) {
-      const newCustomer: Customer = {
+      if (!resolvedCustomerId && customerName.trim()) {
+        const normalizedEmail = customerEmail.trim().toLowerCase();
+        const normalizedPhone = customerPhone.trim();
+        const normalizedName = customerName.trim().toLowerCase();
+
+        const existingCustomer = customers.find((customer) =>
+          (normalizedEmail && customer.email.toLowerCase() === normalizedEmail) ||
+          (normalizedPhone && customer.phone === normalizedPhone) ||
+          customer.fullName.toLowerCase() === normalizedName
+        );
+
+        if (existingCustomer) {
+          resolvedCustomerId = existingCustomer.id;
+        } else {
+          const newCustomerId = Math.random().toString(36).substring(2, 15);
+          const newCustomer: Customer = {
+            id: newCustomerId,
+            fullName: customerName.trim(),
+            email: customerEmail.trim(),
+            phone: customerPhone.trim(),
+            defaultState: deliveryState,
+            defaultAddress: deliveryAddress.trim(),
+            createdAt: new Date().toISOString(),
+          };
+          await addCustomer(newCustomer, businessId);
+          resolvedCustomerId = newCustomerId;
+        }
+      }
+
+      // Compute the order date - use today or selected date
+      const orderDateValue = orderDateType === 'today' ? new Date() : selectedDate;
+
+      const order = {
         id: Math.random().toString(36).substring(2, 15),
-        fullName: customerName.trim(),
-        email: customerEmail.trim(),
-        phone: customerPhone.trim(),
-        defaultState: deliveryState,
-        defaultAddress: deliveryAddress.trim(),
-        createdAt: new Date().toISOString(),
+        orderNumber: generateOrderNumber(),
+        websiteOrderReference: websiteOrderRef.trim() || undefined,
+        customerId: resolvedCustomerId,
+        customerName: customerName.trim(),
+        customerEmail: customerEmail.trim(),
+        customerPhone: customerPhone.trim(),
+        deliveryState,
+        deliveryAddress: deliveryAddress.trim(),
+        items,
+        services,
+        additionalCharges: additionalChargesNum,
+        additionalChargesNote: additionalChargesNote.trim(),
+        deliveryFee: deliveryFeeNum,
+        discountCode: discountCode.trim() || undefined,
+        discountAmount: discountAmountNum || undefined,
+        paymentMethod,
+        status: 'Processing',
+        source,
+        subtotal,
+        totalAmount,
+        orderDate: orderDateValue.toISOString(),
+        createdAt: orderDateValue.toISOString(),
+        updatedAt: new Date().toISOString(),
+        createdBy: currentUser?.name,
       };
-      addCustomer(newCustomer);
+
+      await addOrder(order, businessId);
+
+      // Deduct stock after order is persisted
+      items.forEach((item) => {
+        updateVariantStock(item.productId, item.variantId, -item.quantity);
+      });
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      if (params.aiParsed === 'true') {
+        showToast('success', 'Draft order created successfully.');
+        setTimeout(() => router.replace('/orders'), 900);
+      } else {
+        showToast('success', 'Order saved successfully.');
+        setTimeout(() => router.back(), 900);
+      }
+    } catch (error) {
+      console.warn('Order save failed:', error);
+      showToast('error', 'Could not save this order. Please try again.');
+    } finally {
+      submitGuard.current = false;
+      setIsSubmitting(false);
     }
-
-    // Compute the order date - use today or selected date
-    const orderDateValue = orderDateType === 'today' ? new Date() : selectedDate;
-
-    const order = {
-      id: Math.random().toString(36).substring(2, 15),
-      orderNumber: generateOrderNumber(),
-      websiteOrderReference: websiteOrderRef.trim() || undefined,
-      customerId: selectedCustomerId ?? undefined,
-      customerName: customerName.trim(),
-      customerEmail: customerEmail.trim(),
-      customerPhone: customerPhone.trim(),
-      deliveryState,
-      deliveryAddress: deliveryAddress.trim(),
-      items,
-      services,
-      additionalCharges: additionalChargesNum,
-      additionalChargesNote: additionalChargesNote.trim(),
-      deliveryFee: deliveryFeeNum,
-      discountCode: discountCode.trim() || undefined,
-      discountAmount: discountAmountNum || undefined,
-      paymentMethod,
-      status: 'Processing',
-      source,
-      subtotal,
-      totalAmount,
-      orderDate: orderDateValue.toISOString(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      createdBy: currentUser?.name,
-    };
-
-    // Deduct stock
-    items.forEach((item) => {
-      updateVariantStock(item.productId, item.variantId, -item.quantity);
-    });
-
-    addOrder(order);
-    router.back();
   };
 
   const getItemDetails = (item: OrderItem) => {
@@ -283,6 +430,10 @@ export default function NewOrderScreen() {
     const variantName = variant ? Object.values(variant.variableValues).join(' / ') : '';
     return { productName: product?.name || 'Unknown', variantName, stock: variant?.stock || 0 };
   };
+
+  const contentWrapperStyle = isDesktop
+    ? { maxWidth: 760, alignSelf: 'center', width: '100%' }
+    : undefined;
 
   return (
     <SafeAreaView className="flex-1 bg-gray-50">
@@ -300,7 +451,23 @@ export default function NewOrderScreen() {
           <View className="w-10 h-10" />
         </View>
 
+        {/* AI-Parsed Banner */}
+        {params.aiParsed === 'true' && (
+          <View className="bg-purple-50 mx-4 mt-4 rounded-2xl p-4 flex-row items-center border border-purple-200">
+            <View className="w-10 h-10 rounded-full bg-purple-500 items-center justify-center mr-3">
+              <Sparkles size={20} color="#FFFFFF" strokeWidth={2} />
+            </View>
+            <View className="flex-1">
+              <Text className="text-purple-900 font-bold text-sm mb-1">AI-Parsed Order Draft</Text>
+              <Text className="text-purple-700 text-xs leading-5">
+                Review and edit the information below. {params.notes ? 'Note: ' + params.notes : ''}
+              </Text>
+            </View>
+          </View>
+        )}
+
         <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
+          <View style={contentWrapperStyle}>
           {/* Customer Info Section */}
           <View className="bg-white mx-4 mt-4 rounded-2xl p-4">
             <View className="flex-row items-center justify-between mb-4">
@@ -451,21 +618,6 @@ export default function NewOrderScreen() {
               />
             </View>
 
-            {/* Save to Customer Database Toggle */}
-            {!selectedCustomerId && customerName.trim() && (
-              <View className="flex-row items-center justify-between p-3 rounded-xl bg-gray-50 border border-gray-200">
-                <View className="flex-1 mr-3">
-                  <Text className="text-gray-900 font-medium text-sm">Save to Customer Database</Text>
-                  <Text className="text-gray-500 text-xs mt-0.5">Add this customer for future orders</Text>
-                </View>
-                <Switch
-                  value={saveToDatabase}
-                  onValueChange={setSaveToDatabase}
-                  trackColor={{ false: '#E5E7EB', true: '#10B981' }}
-                  thumbColor="#FFFFFF"
-                />
-              </View>
-            )}
           </View>
 
           {/* Products Section */}
@@ -609,7 +761,19 @@ export default function NewOrderScreen() {
                   <View className="flex-1">
                     <Text className="text-gray-900 font-medium text-sm">{service.name}</Text>
                   </View>
-                  <Text className="text-gray-900 font-bold text-sm mr-3">{formatCurrency(service.price)}</Text>
+                  <Text className="text-gray-900 font-bold text-sm mr-2">{formatCurrency(service.price)}</Text>
+                  <Pressable
+                    onPress={() => openEditServicePrice(index)}
+                    className="px-2 py-1 rounded-lg mr-2 active:opacity-70"
+                    style={{ backgroundColor: service.price > 0 ? 'rgba(59, 130, 246, 0.08)' : 'rgba(234, 179, 8, 0.12)' }}
+                  >
+                    <View className="flex-row items-center">
+                      <Pencil size={14} color={service.price > 0 ? '#3B82F6' : '#CA8A04'} strokeWidth={2} />
+                      <Text className="text-xs font-semibold ml-1" style={{ color: service.price > 0 ? '#3B82F6' : '#CA8A04' }}>
+                        {service.price > 0 ? 'Edit' : 'Set'}
+                      </Text>
+                    </View>
+                  </Pressable>
                   <Pressable onPress={() => handleRemoveService(index)} className="p-1 active:opacity-50">
                     <Trash2 size={16} color="#EF4444" strokeWidth={2} />
                   </Pressable>
@@ -822,6 +986,7 @@ export default function NewOrderScreen() {
 
           {/* Bottom padding for sticky CTA */}
           <View className="h-32" />
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -927,6 +1092,61 @@ export default function NewOrderScreen() {
               ))}
               <View className="h-4" />
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Service Price Modal */}
+      <Modal visible={showServicePriceModal} animationType="fade" transparent onRequestClose={() => setShowServicePriceModal(false)}>
+        <View
+          className="flex-1 items-center justify-center"
+          style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}
+        >
+          <Pressable
+            className="absolute inset-0"
+            onPress={() => setShowServicePriceModal(false)}
+          />
+          <View
+            className="w-[90%] rounded-2xl overflow-hidden"
+            style={{ backgroundColor: '#FFFFFF', maxWidth: 420 }}
+          >
+            <View className="flex-row items-center justify-between px-5 py-4 border-b" style={{ borderBottomColor: '#E5E7EB' }}>
+              <Text className="text-gray-900 font-bold text-lg">Set Service Price</Text>
+              <Pressable
+                onPress={() => setShowServicePriceModal(false)}
+                className="w-8 h-8 rounded-full items-center justify-center active:opacity-50"
+                style={{ backgroundColor: '#F3F4F6' }}
+              >
+                <X size={18} color="#6B7280" strokeWidth={2} />
+              </Pressable>
+            </View>
+            <View className="px-5 py-4">
+              <Text className="text-gray-600 text-sm font-medium mb-2">Service Fee</Text>
+              <TextInput
+                placeholder="0"
+                placeholderTextColor="#9CA3AF"
+                value={servicePriceInput}
+                onChangeText={setServicePriceInput}
+                keyboardType="numeric"
+                className="bg-gray-50 rounded-xl px-4 py-3 text-gray-900 text-base border border-gray-200"
+              />
+              <View className="flex-row gap-3 mt-4">
+                <Pressable
+                  onPress={() => setShowServicePriceModal(false)}
+                  className="flex-1 rounded-xl items-center justify-center"
+                  style={{ height: 48, backgroundColor: '#F3F4F6' }}
+                >
+                  <Text className="text-gray-700 font-semibold">Cancel</Text>
+                </Pressable>
+                <Pressable
+                  onPress={confirmEditServicePrice}
+                  className="flex-1 rounded-xl items-center justify-center"
+                  style={{ height: 48, backgroundColor: '#111111' }}
+                >
+                  <Text className="text-white font-semibold">Save</Text>
+                </Pressable>
+              </View>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1208,15 +1428,34 @@ export default function NewOrderScreen() {
 
       {/* Sticky Bottom CTA */}
       <StickyButtonContainer bottomInset={insets.bottom}>
-        <Button
-          onPress={handleSubmit}
-          disabled={!customerName.trim() || items.length === 0}
-          loading={isSubmitting}
-          loadingText="Creating..."
-        >
-          Create Order
-        </Button>
+        <View style={contentWrapperStyle}>
+          <Button
+            onPress={handleSubmit}
+            disabled={!customerName.trim() || items.length === 0}
+            loading={isSubmitting}
+            loadingText="Creating..."
+          >
+            Create Order
+          </Button>
+        </View>
       </StickyButtonContainer>
+
+      {toast && (
+        <View
+          className="absolute left-5 right-5 items-center"
+          style={{ top: insets.top + 60 }}
+        >
+          <View
+            className="flex-row items-center px-5 py-4 rounded-xl"
+            style={{ backgroundColor: toast.type === 'success' ? '#111111' : '#EF4444' }}
+          >
+            <View className="w-8 h-8 rounded-full items-center justify-center mr-3 bg-white">
+              <Check size={18} color={toast.type === 'success' ? '#111111' : '#EF4444'} strokeWidth={2.5} />
+            </View>
+            <Text className="text-white font-semibold text-sm">{toast.message}</Text>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }

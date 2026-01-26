@@ -2,18 +2,21 @@ import React, { useMemo, useState } from 'react';
 import { View, Text, ScrollView, Pressable, Linking, Alert, Modal, TextInput, KeyboardAvoidingView, Platform, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ArrowLeft, Phone, Mail, MapPin, Calendar, Tag, Package, Trash2, Edit2, X, Check, Truck, CreditCard, ChevronDown, RefreshCcw, Camera, DollarSign, Plus, Minus, Search, Printer, User, Percent, ChevronLeft, ChevronRight } from 'lucide-react-native';
-import useFyllStore, { formatCurrency, NIGERIA_STATES, LogisticsInfo, Refund, OrderItem, PrescriptionInfo } from '@/lib/state/fyll-store';
+import { ArrowLeft, Phone, Mail, MapPin, Calendar, Tag, Package, Trash2, Edit2, X, Check, Truck, CreditCard, ChevronDown, RefreshCcw, Camera, DollarSign, Plus, Minus, Search, Printer, User, Percent, ChevronLeft, ChevronRight, FileText } from 'lucide-react-native';
+import useFyllStore, { formatCurrency, NIGERIA_STATES, LogisticsInfo, Refund, OrderItem, PrescriptionInfo, Case } from '@/lib/state/fyll-store';
 import useAuthStore from '@/lib/state/auth-store';
 import { useThemeColors } from '@/lib/theme';
 import { cn } from '@/lib/cn';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
+import { compressImage } from '@/lib/image-compression';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useBusinessSettings } from '@/hooks/useBusinessSettings';
 import { printOrderLabel, prepareOrderLabelData } from '@/utils/printOrderLabel';
 import { PrescriptionSection } from '@/components/PrescriptionSection';
 import { Button } from '@/components/Button';
+import { CaseForm } from '@/components/CaseForm';
+import { CaseListItem } from '@/components/CaseListItem';
 
 export default function OrderDetailScreen() {
   const router = useRouter();
@@ -26,10 +29,15 @@ export default function OrderDetailScreen() {
   const logisticsCarriers = useFyllStore((s) => s.logisticsCarriers);
   const paymentMethods = useFyllStore((s) => s.paymentMethods);
   const saleSources = useFyllStore((s) => s.saleSources);
+  const cases = useFyllStore((s) => s.cases);
+  const addCase = useFyllStore((s) => s.addCase);
+  const updateCase = useFyllStore((s) => s.updateCase);
+  const deleteCase = useFyllStore((s) => s.deleteCase);
   const updateOrder = useFyllStore((s) => s.updateOrder);
   const deleteOrder = useFyllStore((s) => s.deleteOrder);
   const updateVariantStock = useFyllStore((s) => s.updateVariantStock);
   const currentUser = useAuthStore((s) => s.currentUser);
+  const businessId = useAuthStore((s) => s.businessId ?? s.currentUser?.businessId ?? null);
 
   // Business settings for label printing
   const { businessName, businessLogo, businessPhone, businessWebsite, returnAddress } = useBusinessSettings();
@@ -42,6 +50,8 @@ export default function OrderDetailScreen() {
 
   // Edit modal state
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeletePrompt, setShowDeletePrompt] = useState(false);
+  const [showStatusModal, setShowStatusModal] = useState(false);
   const [editName, setEditName] = useState('');
   const [editPhone, setEditPhone] = useState('');
   const [editEmail, setEditEmail] = useState('');
@@ -78,7 +88,17 @@ export default function OrderDetailScreen() {
   const [refundProofUri, setRefundProofUri] = useState('');
   const [showRefundDatePicker, setShowRefundDatePicker] = useState(false);
 
+  // Cases
+  const [showCaseForm, setShowCaseForm] = useState(false);
+  const [editingCase, setEditingCase] = useState<Case | null>(null);
+
+  const orderCases = useMemo(() => {
+    return cases.filter((caseItem) => caseItem.orderId === order?.id);
+  }, [cases, order?.id]);
+
   // Product search results for editing - must be before early return
+  const hasRefund = order?.refund?.amount != null && order.refund.amount > 0;
+
   const productSearchResults = useMemo(() => {
     if (!productSearchQuery.trim()) return [];
     const query = productSearchQuery.toLowerCase();
@@ -123,7 +143,8 @@ export default function OrderDetailScreen() {
     );
   }
 
-  const orderDate = new Date(order.createdAt).toLocaleDateString('en-US', {
+  const orderDateSource = order.orderDate ?? order.createdAt;
+  const orderDate = new Date(orderDateSource).toLocaleDateString('en-US', {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
@@ -139,29 +160,30 @@ export default function OrderDetailScreen() {
 
   const handleUpdateStatus = (newStatus: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    updateOrder(order.id, { status: newStatus, updatedBy: currentUser?.name, updatedAt: new Date().toISOString() });
+    updateOrder(order.id, { status: newStatus, updatedBy: currentUser?.name, updatedAt: new Date().toISOString() }, businessId);
   };
 
   const handleOpenEdit = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setEditName(order.customerName);
-    setEditPhone(order.customerPhone || '');
-    setEditEmail(order.customerEmail || '');
-    setEditAddress(order.deliveryAddress || '');
-    setEditState(order.deliveryState || '');
-    setEditDeliveryFee(String(order.deliveryFee || 0));
-    setEditPaymentMethod(order.paymentMethod || '');
-    setEditSource(order.source || '');
-    setEditWebsiteOrderRef(order.websiteOrderReference || '');
-    setEditDiscountCode(order.discountCode || '');
-    setEditDiscountAmount(String(order.discountAmount || 0));
-    setEditItems([...order.items]);
-    setShowStateDropdown(false);
-    setShowPaymentDropdown(false);
-    setShowSourceDropdown(false);
-    setShowProductSearch(false);
-    setProductSearchQuery('');
-    setShowEditModal(true);
+    router.push(`/order-edit/${order.id}`);
+  };
+
+  const handleCreateCase = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setEditingCase(null);
+    setShowCaseForm(true);
+  };
+
+  const handleSaveCase = async (caseData: Case) => {
+    if (editingCase) {
+      await updateCase(caseData.id, caseData, businessId);
+    } else {
+      await addCase(caseData, businessId);
+    }
+  };
+
+  const handleDeleteCase = (caseId: string) => {
+    deleteCase(caseId, businessId);
   };
 
   const handleAddEditItem = (result: { productId: string; variantId: string; price: number }) => {
@@ -243,7 +265,7 @@ export default function OrderDetailScreen() {
       totalAmount: editedTotal,
       updatedBy: currentUser?.name,
       updatedAt: new Date().toISOString(),
-    });
+    }, businessId);
     setShowEditModal(false);
   };
 
@@ -280,7 +302,7 @@ export default function OrderDetailScreen() {
       datePickedUp: editDatePickedUp?.toISOString(),
     };
     console.log('[Logistics] Final logistics object:', logistics);
-    updateOrder(order.id, { logistics, updatedBy: currentUser?.name, updatedAt: new Date().toISOString() });
+    updateOrder(order.id, { logistics, updatedBy: currentUser?.name, updatedAt: new Date().toISOString() }, businessId);
     console.log('[Logistics] Save complete');
     setShowLogisticsModal(false);
   };
@@ -315,7 +337,8 @@ export default function OrderDetailScreen() {
     });
 
     if (!result.canceled && result.assets[0]) {
-      setRefundProofUri(result.assets[0].uri);
+      const compressedUri = await compressImage(result.assets[0].uri);
+      setRefundProofUri(compressedUri);
     }
   };
 
@@ -332,27 +355,23 @@ export default function OrderDetailScreen() {
       proofImageUri: refundProofUri || undefined,
       createdAt: order.refund?.createdAt || new Date().toISOString(),
     };
-    updateOrder(order.id, { refund, status: 'Refunded', updatedBy: currentUser?.name, updatedAt: new Date().toISOString() });
+    updateOrder(order.id, { refund, status: 'Refunded', updatedBy: currentUser?.name, updatedAt: new Date().toISOString() }, businessId);
     setShowRefundModal(false);
   };
 
-  const handleDelete = () => {
-    Alert.alert(
-      'Delete Order',
-      `Are you sure you want to delete order ${order.orderNumber}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-            deleteOrder(order.id);
-            router.back();
-          },
-        },
-      ]
-    );
+  const openDeletePrompt = () => {
+    if (Platform.OS === 'web') {
+      const active = document.activeElement as HTMLElement | null;
+      active?.blur();
+    }
+    setShowDeletePrompt(true);
+  };
+
+  const confirmDelete = () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    deleteOrder(order.id, businessId);
+    setShowDeletePrompt(false);
+    router.back();
   };
 
   const handlePrintLabel = async () => {
@@ -367,7 +386,7 @@ export default function OrderDetailScreen() {
   };
 
   const handleUpdatePrescription = (prescription: PrescriptionInfo | undefined) => {
-    updateOrder(order.id, { prescription, updatedBy: currentUser?.name, updatedAt: new Date().toISOString() });
+    updateOrder(order.id, { prescription, updatedBy: currentUser?.name, updatedAt: new Date().toISOString() }, businessId);
   };
 
   const formatDateDisplay = (dateString?: string) => {
@@ -421,14 +440,15 @@ export default function OrderDetailScreen() {
             }
 
             return (
-              <View
-                className="px-3 py-1.5 rounded-full"
+              <Pressable
+                onPress={() => setShowStatusModal(true)}
+                className="px-3 py-1.5 rounded-full active:opacity-80"
                 style={{ backgroundColor: badgeBgColor }}
               >
                 <Text style={{ color: badgeTextColor }} className="font-semibold text-sm">
                   {displayStatus}
                 </Text>
-              </View>
+              </Pressable>
             );
           })()}
         </View>
@@ -633,24 +653,28 @@ export default function OrderDetailScreen() {
 
           {/* Refund Section */}
           <View className="mx-5 mt-4 rounded-2xl p-4" style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light }}>
-            <View className="flex-row items-center justify-between mb-3">
-              <Text style={{ color: colors.text.primary }} className="font-bold text-base">Refund</Text>
-              <Pressable
-                onPress={handleOpenRefund}
-                className="px-3 py-1.5 rounded-lg active:opacity-70"
-                style={{ backgroundColor: order.refund ? 'rgba(239, 68, 68, 0.15)' : colors.bg.secondary }}
-              >
-                <Text style={{ color: order.refund ? '#EF4444' : colors.text.primary }} className="text-sm font-medium">
-                  {order.refund ? 'View Refund' : 'Process Refund'}
-                </Text>
-              </Pressable>
-            </View>
+                <View className="flex-row items-center justify-between mb-3">
+                  <Text style={{ color: colors.text.primary }} className="font-bold text-base">Refund</Text>
+                <Pressable
+                  onPress={handleOpenRefund}
+                  className="px-3 py-1.5 rounded-lg active:opacity-70"
+                  style={{
+                    backgroundColor: hasRefund ? 'rgba(239, 68, 68, 0.15)' : colors.accent.primary,
+                    borderWidth: hasRefund ? 0 : 1,
+                    borderColor: hasRefund ? 'transparent' : colors.border.light,
+                  }}
+                >
+                  <Text style={{ color: hasRefund ? '#EF4444' : '#fff' }} className="text-sm font-medium">
+                    {hasRefund ? 'View Refund' : 'Process Refund'}
+                  </Text>
+                </Pressable>
+                </View>
 
-            {order.refund ? (
-              <View>
-                <View className="flex-row items-center justify-between py-2">
-                  <Text style={{ color: colors.text.tertiary }} className="text-sm">Amount Refunded</Text>
-                  <Text className="text-red-500 font-bold text-lg">{formatCurrency(order.refund.amount)}</Text>
+                {hasRefund ? (
+                  <View>
+                    <View className="flex-row items-center justify-between py-2">
+                      <Text style={{ color: colors.text.tertiary }} className="text-sm">Amount Refunded</Text>
+                      <Text className="text-red-500 font-bold text-lg">{formatCurrency(order.refund.amount)}</Text>
                 </View>
                 <View className="flex-row items-center py-2">
                   <Calendar size={14} color={colors.text.tertiary} strokeWidth={2} />
@@ -669,6 +693,62 @@ export default function OrderDetailScreen() {
               <View className="py-4 items-center">
                 <RefreshCcw size={24} color={colors.text.muted} strokeWidth={1.5} />
                 <Text style={{ color: colors.text.muted }} className="text-sm mt-2">No refund processed</Text>
+              </View>
+            )}
+          </View>
+
+          {/* Cases Section */}
+          <View className="mx-5 mt-4 rounded-2xl p-4" style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light }}>
+            <View className="flex-row items-center justify-between mb-3">
+              <Text style={{ color: colors.text.primary }} className="font-bold text-base">Cases</Text>
+              <Pressable
+                onPress={handleCreateCase}
+                className="px-3 py-1.5 rounded-lg active:opacity-70"
+                style={{ backgroundColor: colors.bg.secondary }}
+              >
+                <Text style={{ color: colors.text.primary }} className="text-sm font-medium">Create Case</Text>
+              </Pressable>
+            </View>
+
+            {orderCases.length > 0 ? (
+              <View className="gap-2">
+                {orderCases.map((caseItem) => (
+                  <View key={caseItem.id} className="flex-row items-center gap-2">
+                    <View className="flex-1">
+                      <CaseListItem
+                        caseItem={caseItem}
+                        compact
+                        onPress={() => router.push(`/case/${caseItem.id}`)}
+                      />
+                    </View>
+                    <Pressable
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setEditingCase(caseItem);
+                        setShowCaseForm(true);
+                      }}
+                      className="w-9 h-9 rounded-lg items-center justify-center active:opacity-70"
+                      style={{ backgroundColor: colors.bg.secondary }}
+                    >
+                      <Edit2 size={16} color={colors.text.primary} strokeWidth={2} />
+                    </Pressable>
+                    <Pressable
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                        handleDeleteCase(caseItem.id);
+                      }}
+                      className="w-9 h-9 rounded-lg items-center justify-center active:opacity-70"
+                      style={{ backgroundColor: 'rgba(239, 68, 68, 0.12)' }}
+                    >
+                      <Trash2 size={16} color="#EF4444" strokeWidth={2} />
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <View className="py-4 items-center">
+                <FileText size={24} color={colors.text.muted} strokeWidth={1.5} />
+                <Text style={{ color: colors.text.muted }} className="text-sm mt-2">No cases yet</Text>
               </View>
             )}
           </View>
@@ -759,7 +839,7 @@ export default function OrderDetailScreen() {
           {/* Delete */}
           <View className="mx-5 mt-4 mb-8">
             <Button
-              onPress={handleDelete}
+              onPress={openDeletePrompt}
               variant="danger-ghost"
               icon={<Trash2 size={18} color="#EF4444" strokeWidth={2} />}
             >
@@ -767,6 +847,94 @@ export default function OrderDetailScreen() {
             </Button>
           </View>
         </ScrollView>
+
+        <Modal
+          visible={showStatusModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowStatusModal(false)}
+        >
+          <Pressable
+            className="flex-1 items-center justify-center"
+            style={{ backgroundColor: 'rgba(0, 0, 0, 0.45)' }}
+            onPress={() => setShowStatusModal(false)}
+          >
+            <Pressable
+              onPress={(event) => event.stopPropagation()}
+              className="w-[90%] rounded-2xl overflow-hidden"
+              style={{ backgroundColor: colors.bg.primary, maxWidth: 420 }}
+            >
+              <View className="px-5 py-4" style={{ borderBottomWidth: 1, borderBottomColor: colors.border.light }}>
+                <Text style={{ color: colors.text.primary }} className="font-bold text-lg">Update Status</Text>
+                <Text style={{ color: colors.text.tertiary }} className="text-sm mt-1">
+                  Tap a status to update this order.
+                </Text>
+              </View>
+              <View className="px-5 py-4">
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {orderStatuses.map((status) => {
+                    const isSelected = order.status === status.name;
+                    return (
+                      <Pressable
+                        key={status.id}
+                        onPress={() => {
+                          handleUpdateStatus(status.name);
+                          setShowStatusModal(false);
+                        }}
+                        className="rounded-full px-3 py-2 active:opacity-80"
+                        style={isSelected ? { backgroundColor: status.color } : { backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.border.light }}
+                      >
+                        <Text style={{ color: isSelected ? '#FFFFFF' : colors.text.secondary }} className="text-sm font-semibold">
+                          {status.name}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        <Modal
+          visible={showDeletePrompt}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowDeletePrompt(false)}
+        >
+          <Pressable
+            className="flex-1 items-center justify-center"
+            style={{ backgroundColor: 'rgba(0, 0, 0, 0.45)' }}
+            onPress={() => setShowDeletePrompt(false)}
+          >
+            <Pressable
+              onPress={(event) => event.stopPropagation()}
+              className="w-[90%] rounded-2xl p-5"
+              style={{ backgroundColor: '#FFFFFF', maxWidth: 420 }}
+            >
+              <Text className="text-lg font-bold text-gray-900 mb-2">Delete order?</Text>
+              <Text className="text-sm text-gray-600 mb-4">
+                This will permanently remove order {order.orderNumber}.
+              </Text>
+              <View className="flex-row gap-3">
+                <Pressable
+                  onPress={() => setShowDeletePrompt(false)}
+                  className="flex-1 rounded-xl items-center justify-center"
+                  style={{ height: 48, backgroundColor: '#F3F4F6' }}
+                >
+                  <Text className="text-gray-700 font-semibold">Cancel</Text>
+                </Pressable>
+                <Pressable
+                  onPress={confirmDelete}
+                  className="flex-1 rounded-xl items-center justify-center"
+                  style={{ height: 48, backgroundColor: '#EF4444' }}
+                >
+                  <Text className="text-white font-semibold">Delete</Text>
+                </Pressable>
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
 
         {/* Edit Order Modal */}
         <Modal
@@ -1682,6 +1850,18 @@ export default function OrderDetailScreen() {
             </Pressable>
           </Modal>
         )}
+
+        <CaseForm
+          visible={showCaseForm}
+          onClose={() => setShowCaseForm(false)}
+          onSave={handleSaveCase}
+          orderId={order.id}
+          orderNumber={order.orderNumber}
+          customerId={order.customerId}
+          customerName={order.customerName}
+          existingCase={editingCase ?? undefined}
+          createdBy={currentUser?.name}
+        />
       </SafeAreaView>
     </View>
   );

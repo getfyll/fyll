@@ -10,6 +10,7 @@ import useAuthStore from '@/lib/state/auth-store';
 import useFyllStore from '@/lib/state/fyll-store';
 import { useEffect, useState } from 'react';
 import { useSupabaseSync } from '@/hooks/useSupabaseSync';
+import { SyncOverlay } from '@/components/SyncOverlay';
 import { Platform } from 'react-native';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 
@@ -115,15 +116,21 @@ function RootLayoutNav({ colorScheme }: { colorScheme: 'light' | 'dark' | null |
         <Stack.Screen name="new-procurement" options={{ presentation: 'modal', headerShown: false }} />
         <Stack.Screen name="scan" options={{ presentation: 'fullScreenModal', headerShown: false }} />
         <Stack.Screen name="order/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="order-edit/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="case/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="cases" options={{ headerShown: false }} />
         <Stack.Screen name="product/[id]" options={{ headerShown: false }} />
-        <Stack.Screen name="customers" options={{ headerShown: false }} />
+        <Stack.Screen name="customer/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="product-variables" options={{ headerShown: false }} />
         <Stack.Screen name="inventory-audit" options={{ headerShown: false }} />
         <Stack.Screen name="category-manager" options={{ headerShown: false }} />
         <Stack.Screen name="label-print" options={{ headerShown: false }} />
+        <Stack.Screen name="ai-order" options={{ headerShown: false }} />
         <Stack.Screen name="team" options={{ headerShown: false }} />
         <Stack.Screen name="restock" options={{ headerShown: false }} />
         <Stack.Screen name="add-team-member" options={{ headerShown: false }} />
+        <Stack.Screen name="import-products" options={{ headerShown: false }} />
+        <Stack.Screen name="import-customers" options={{ headerShown: false }} />
         <Stack.Screen name="insights/today" options={{ headerShown: false }} />
         <Stack.Screen name="insights/sales" options={{ headerShown: false }} />
         <Stack.Screen name="insights/orders" options={{ headerShown: false }} />
@@ -137,6 +144,8 @@ function RootLayoutNav({ colorScheme }: { colorScheme: 'light' | 'dark' | null |
         <Stack.Screen name="account-settings" options={{ headerShown: false }} />
         <Stack.Screen name="pdf-viewer" options={{ headerShown: false, presentation: 'fullScreenModal' }} />
         <Stack.Screen name="debug-env" options={{ headerShown: false }} />
+        <Stack.Screen name="debug-info" options={{ headerShown: false }} />
+        <Stack.Screen name="debug-business" options={{ headerShown: false }} />
         <Stack.Screen name="supabase-check" options={{ headerShown: false }} />
       </Stack>
     </ThemeProvider>
@@ -148,7 +157,8 @@ function RootLayoutNav({ colorScheme }: { colorScheme: 'light' | 'dark' | null |
 export default function RootLayout() {
   const colorScheme = useColorScheme();
 
-  useSupabaseSync();
+  const { isInitialized } = useSupabaseSync();
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -157,6 +167,7 @@ export default function RootLayout() {
           <KeyboardProvider>
             <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
             <RootLayoutNav colorScheme={colorScheme} />
+            <SyncOverlay visible={isAuthenticated && !isInitialized} />
           </KeyboardProvider>
         </GestureHandlerRootView>
       </SafeAreaProvider>

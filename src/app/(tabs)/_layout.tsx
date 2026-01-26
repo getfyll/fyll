@@ -1,7 +1,7 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
 import { View, Platform } from 'react-native';
-import { LayoutDashboard, Package, ShoppingCart, Settings, BarChart3 } from 'lucide-react-native';
+import { LayoutDashboard, Package, ShoppingCart, MoreHorizontal, BarChart3, Users } from 'lucide-react-native';
 import useFyllStore from '@/lib/state/fyll-store';
 import { useThemeColors } from '@/lib/theme';
 import { useBreakpoint } from '@/lib/useBreakpoint';
@@ -40,7 +40,7 @@ function TabBarIcon({
 
 export default function TabLayout() {
   const colors = useThemeColors();
-  const { isDesktop } = useBreakpoint();
+  const { isDesktop, isMobile } = useBreakpoint();
   const currentUser = useAuthStore((s) => s.currentUser);
   const userRole = currentUser?.role ?? 'staff';
   const canViewInsights = ROLE_PERMISSIONS[userRole]?.canViewInsights ?? false;
@@ -81,12 +81,21 @@ export default function TabLayout() {
               marginTop: isWeb ? 2 : 2,
               lineHeight: isWeb ? 12 : 13,
               paddingBottom: isWeb ? 0 : 0,
+              height: isWeb ? 12 : undefined,
             },
             tabBarItemStyle: {
-              paddingVertical: isWeb ? 4 : 0,
+              paddingVertical: isWeb ? 0 : 0,
+              paddingTop: isWeb ? 0 : 0,
+              paddingBottom: isWeb ? 0 : 0,
+              height: isWeb ? 55 : undefined,
+              maxHeight: isWeb ? 55 : undefined,
+              justifyContent: 'center',
+              alignItems: 'center',
             },
             tabBarIconStyle: {
               marginTop: 0,
+              marginBottom: 0,
+              height: isWeb ? 32 : undefined,
             },
             headerStyle: {
               backgroundColor: colors.bg.primary,
@@ -124,10 +133,19 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="customers"
+        options={{
+          title: 'Customers',
+          tabBarIcon: ({ color, focused }) => <TabBarIcon Icon={Users} color={color} focused={focused} />,
+          headerShown: false,
+          href: isMobile ? null : undefined,
+        }}
+      />
+      <Tabs.Screen
         name="insights"
         options={{
           title: 'Insights',
-          tabBarIcon: ({ color, focused }) => <TabBarIcon Icon={BarChart3} color={color} focused={focused} offsetY={2} />,
+          tabBarIcon: ({ color, focused }) => <TabBarIcon Icon={BarChart3} color={color} focused={focused} />,
           headerShown: false,
           href: canViewInsights ? '/insights' : null,
         }}
@@ -135,8 +153,8 @@ export default function TabLayout() {
       <Tabs.Screen
         name="settings"
         options={{
-          title: 'Settings',
-          tabBarIcon: ({ color, focused }) => <TabBarIcon Icon={Settings} color={color} focused={focused} />,
+          title: 'More',
+          tabBarIcon: ({ color, focused }) => <TabBarIcon Icon={MoreHorizontal} color={color} focused={focused} />,
           headerShown: false,
         }}
       />

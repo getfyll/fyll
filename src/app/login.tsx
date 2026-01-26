@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, Pressable, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Eye, EyeOff, Mail, Lock, UserPlus, ChevronLeft, User, Key } from 'lucide-react-native';
 import { useThemeColors } from '@/lib/theme';
 import useAuthStore from '@/lib/state/auth-store';
@@ -14,6 +14,7 @@ type AuthMode = 'login' | 'invite' | 'signup';
 
 export default function LoginScreen() {
   const router = useRouter();
+  const { invite: inviteParam } = useLocalSearchParams<{ invite?: string }>();
   const colors = useThemeColors();
   const login = useAuthStore((s) => s.login);
   const signup = useAuthStore((s) => s.signup);
@@ -52,6 +53,14 @@ export default function LoginScreen() {
   const [signupPassword, setSignupPassword] = useState('');
   const [signupConfirmPassword, setSignupConfirmPassword] = useState('');
   const [signupError, setSignupError] = useState('');
+
+  useEffect(() => {
+    if (!inviteParam || typeof inviteParam !== 'string') return;
+    const trimmed = inviteParam.trim();
+    if (!trimmed) return;
+    setMode('invite');
+    setInviteCode(trimmed.toUpperCase());
+  }, [inviteParam]);
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -721,28 +730,6 @@ export default function LoginScreen() {
   return (
     <View className="flex-1" style={{ backgroundColor: colors.bg.primary }}>
       <SafeAreaView className="flex-1">
-        <View className="px-6 pt-3">
-          <View
-            className="self-start rounded-lg px-3 py-2"
-            style={{ backgroundColor: 'rgba(239, 68, 68, 0.12)', borderWidth: 1, borderColor: 'rgba(239, 68, 68, 0.2)' }}
-          >
-            <Text style={{ color: '#EF4444' }} className="text-xs font-semibold">
-              Debug
-            </Text>
-            <Text style={{ color: colors.text.secondary }} className="text-xs">
-              Project: {supabaseProjectId || 'unknown'}
-            </Text>
-            <Text style={{ color: colors.text.secondary }} className="text-xs">
-              URL: {supabaseUrl || 'not set'}
-            </Text>
-            <Text style={{ color: colors.text.secondary }} className="text-xs">
-              Business: {businessId || 'none'}
-            </Text>
-            <Text style={{ color: colors.text.secondary }} className="text-xs">
-              Offline: {isOfflineMode ? 'yes' : 'no'}
-            </Text>
-          </View>
-        </View>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           className="flex-1"

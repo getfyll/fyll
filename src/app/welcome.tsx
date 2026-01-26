@@ -5,9 +5,9 @@ import { useRouter } from 'expo-router';
 import { Sparkles, Package, ShoppingCart, BarChart3, ShieldCheck } from 'lucide-react-native';
 import { useThemeColors } from '@/lib/theme';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { useBusinessSettings } from '@/hooks/useBusinessSettings';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { FyllLogo } from '@/components/FyllLogo';
+import useAuthStore from '@/lib/state/auth-store';
 
 const features = [
   {
@@ -35,7 +35,7 @@ const features = [
 export default function WelcomeScreen() {
   const router = useRouter();
   const colors = useThemeColors();
-  const { businessName } = useBusinessSettings();
+  const userName = useAuthStore((s) => s.currentUser?.name ?? '');
 
   const handleGetStarted = async () => {
     await AsyncStorage.setItem('fyll_onboarding_complete', 'true');
@@ -60,7 +60,7 @@ export default function WelcomeScreen() {
             <View className="mt-6 items-center">
               <FyllLogo width={65} color={colors.text.primary} />
               <Text style={{ color: colors.text.primary }} className="text-3xl font-bold text-center mt-4">
-                {businessName ? `Welcome to ${businessName}` : 'Welcome to Fyll'}
+                {userName ? `Welcome, ${userName}` : 'Welcome to Fyll'}
               </Text>
               <Text style={{ color: colors.text.secondary }} className="text-base text-center mt-2">
                 Set up your workspace and start running your store in minutes.

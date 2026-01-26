@@ -8,6 +8,7 @@ import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { useBusinessSettings } from '@/hooks/useBusinessSettings';
+import { compressImage } from '@/lib/image-compression';
 
 export default function BusinessSettingsScreen() {
   const router = useRouter();
@@ -51,7 +52,8 @@ export default function BusinessSettingsScreen() {
 
       if (!result.canceled && result.assets[0]) {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        setLogo(result.assets[0].uri);
+        const compressedUri = await compressImage(result.assets[0].uri);
+        setLogo(compressedUri);
       }
     } catch {
       Alert.alert('Error', 'Failed to pick image');
@@ -64,19 +66,11 @@ export default function BusinessSettingsScreen() {
   };
 
   const handleSave = async () => {
-    // Validate
-    if (!name.trim()) {
-      setError('Business name is required');
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      return;
-    }
-
     setError(null);
     setIsSaving(true);
 
     try {
       const result = await saveSettings({
-        businessName: name.trim(),
         businessLogo: logo,
         businessPhone: phone.trim(),
         businessWebsite: website.trim(),
@@ -98,7 +92,7 @@ export default function BusinessSettingsScreen() {
     }
   };
 
-  const hasChanges = name !== businessName || logo !== businessLogo || phone !== businessPhone || website !== businessWebsite || address !== returnAddress;
+  const hasChanges = logo !== businessLogo || phone !== businessPhone || website !== businessWebsite || address !== returnAddress;
 
   if (isLoading) {
     return (
@@ -202,35 +196,33 @@ export default function BusinessSettingsScreen() {
               <View className="flex-row items-center mb-2">
                 <Building2 size={16} color={colors.text.tertiary} strokeWidth={2} />
                 <Text style={{ color: colors.text.secondary }} className="text-sm font-medium ml-2">Business Name</Text>
-                <Text className="text-red-500 ml-1">*</Text>
+                <Text style={{ color: colors.text.muted }} className="text-xs ml-2">Locked</Text>
               </View>
 
               <View
                 className="rounded-xl px-4"
                 style={{
-                  backgroundColor: colors.input.bg,
+                  backgroundColor: colors.bg.secondary,
                   borderWidth: 1,
-                  borderColor: error ? '#EF4444' : colors.input.border,
+                  borderColor: colors.input.border,
                   height: 50,
                   justifyContent: 'center'
                 }}
               >
                 <TextInput
                   value={name}
-                  onChangeText={(text) => {
-                    setName(text);
-                    if (error) setError(null);
-                  }}
                   placeholder="Enter your business name"
                   placeholderTextColor={colors.input.placeholder}
-                  style={{ color: colors.input.text, fontSize: 14 }}
+                  style={{ color: colors.text.primary, fontSize: 14 }}
                   selectionColor={colors.text.primary}
+                  editable={false}
+                  selectTextOnFocus={false}
                 />
               </View>
 
-              {error && (
-                <Text className="text-red-500 text-xs mt-2">{error}</Text>
-              )}
+              <Text style={{ color: colors.text.muted }} className="text-xs mt-2">
+                Business name is fixed after setup.
+              </Text>
             </View>
 
             {/* Business Phone */}
@@ -327,6 +319,10 @@ export default function BusinessSettingsScreen() {
               This address will appear on shipping labels.
             </Text>
           </View>
+
+          {error ? (
+            <Text className="text-red-500 text-xs text-center mb-4">{error}</Text>
+          ) : null}
 
           {/* Save Button (for bottom of screen) */}
           <Pressable

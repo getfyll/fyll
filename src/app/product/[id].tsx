@@ -3,7 +3,7 @@ import { View, Text, ScrollView, Pressable, TextInput, Alert, Modal, Switch, Key
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { ArrowLeft, Package, Plus, Minus, Trash2, Edit2, X, ChevronDown, Check, Search, Printer, PackagePlus, Clock, Camera, ImageIcon, Loader } from 'lucide-react-native';
-import useFyllStore, { ProductVariant, formatCurrency, RestockLog } from '@/lib/state/fyll-store';
+import useFyllStore, { ProductVariant, formatCurrency } from '@/lib/state/fyll-store';
 import { useThemeColors } from '@/lib/theme';
 import { cn } from '@/lib/cn';
 import * as Haptics from 'expo-haptics';
@@ -76,6 +76,8 @@ export default function ProductDetailScreen() {
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
   const [editImageUrl, setEditImageUrl] = useState<string | undefined>(product?.imageUrl);
   const [showImagePicker, setShowImagePicker] = useState(false);
+  const [isSavingProduct, setIsSavingProduct] = useState(false);
+  const [saveNotice, setSaveNotice] = useState('');
 
   // New Design edit state
   const [editIsNewDesign, setEditIsNewDesign] = useState(product?.isNewDesign || false);
@@ -127,7 +129,7 @@ export default function ProductDetailScreen() {
   }
 
   const totalStock = product.variants.reduce((sum, v) => sum + v.stock, 0);
-  const totalValue = product.variants.reduce((sum, v) => sum + v.stock * v.sellingPrice, 0);
+  const retailValue = product.variants.reduce((sum, v) => sum + v.stock * v.sellingPrice, 0);
   const lowStockCount = product.variants.filter((v) => v.stock <= product.lowStockThreshold).length;
 
   const handleOpenEdit = () => {
@@ -199,7 +201,16 @@ export default function ProductDetailScreen() {
     const nowDiscontinued = editIsDiscontinued;
     const firstTimeDiscontinued = !wasDiscontinued && nowDiscontinued;
 
-    // Update product basic info
+    // FIRST: If using global price, update all variants BEFORE saving product
+    // This ensures the prices are updated in the same transaction
+    if (useGlobalPrice && globalPrice) {
+      const newPrice = parseFloat(globalPrice) || 0;
+      product.variants.forEach(variant => {
+        updateProductVariant(product.id, variant.id, { sellingPrice: newPrice });
+      });
+    }
+
+    // THEN: Update product basic info (this will trigger sync with all the updated variants)
     await updateProduct(product.id, {
       name: editName.trim(),
       description: editDescription.trim(),
@@ -219,16 +230,21 @@ export default function ProductDetailScreen() {
         : (editIsDiscontinued ? product.discontinuedAt : undefined),
     }, businessId);
 
-    // If using global price, update all variants
-    if (useGlobalPrice && globalPrice) {
-      const newPrice = parseFloat(globalPrice) || 0;
-      product.variants.forEach(variant => {
-        updateProductVariant(product.id, variant.id, { sellingPrice: newPrice });
-      });
-    }
-
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setIsEditing(false);
+  };
+
+  const handleSaveProduct = async () => {
+    if (isSavingProduct) return;
+    setIsSavingProduct(true);
+    const latestProduct = useFyllStore.getState().products.find((p) => p.id === product.id);
+    if (latestProduct) {
+      await updateProduct(product.id, latestProduct, businessId);
+    }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setSaveNotice('Saved for all devices.');
+    setTimeout(() => setSaveNotice(''), 2000);
+    setIsSavingProduct(false);
   };
 
   const handleDelete = () => {
@@ -412,7 +428,7 @@ export default function ProductDetailScreen() {
             {isOwner && (
               <View className="flex-1 rounded-2xl p-4" style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light }}>
                 <Text style={{ color: colors.text.tertiary }} className="text-xs font-medium">Stock Value</Text>
-                <Text style={{ color: colors.text.primary }} className="text-2xl font-bold mt-1">{formatCurrency(totalValue)}</Text>
+                <Text style={{ color: colors.text.primary }} className="text-2xl font-bold mt-1">{formatCurrency(retailValue)}</Text>
                 <Text style={{ color: colors.text.muted }} className="text-xs mt-1">at retail price</Text>
               </View>
             )}
@@ -621,6 +637,18 @@ export default function ProductDetailScreen() {
               </View>
             </View>
           )}
+
+          {/* Save Product */}
+          <View className="mx-5 mt-4">
+            <Button onPress={handleSaveProduct} loading={isSavingProduct} loadingText="Saving...">
+              Save Product
+            </Button>
+            {saveNotice ? (
+              <Text style={{ color: colors.text.tertiary }} className="text-xs mt-2 text-center">
+                {saveNotice}
+              </Text>
+            ) : null}
+          </View>
 
           {/* Delete */}
           <View className="mx-5 mt-4 mb-8">

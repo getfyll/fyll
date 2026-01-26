@@ -40,7 +40,7 @@ const deleteByIds = async (table: string, businessId: string, ids: string[]) => 
 const fetchCollection = async <T>(table: string, businessId: string) => {
   const { data, error } = await supabase
     .from(table)
-    .select('id, data, business_id, created_at, updated_at')
+    .select('id, data, business_id')
     .eq('business_id', businessId);
 
   if (error) throw error;

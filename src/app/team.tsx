@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, ScrollView, Pressable, TextInput, Modal, Share, Alert, ActivityIndicator } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, ScrollView, Pressable, TextInput, Modal, Share, Alert, ActivityIndicator, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ChevronLeft, Plus, Trash2, Edit2, User, Shield, X, Mail, Clock, Copy, Send, UserCog } from 'lucide-react-native';
@@ -7,6 +7,7 @@ import { useThemeColors } from '@/lib/theme';
 import useAuthStore, { TeamMember, TeamRole, PendingInvite } from '@/lib/state/auth-store';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
+import * as Linking from 'expo-linking';
 
 const roleLabels: Record<TeamRole, string> = {
   admin: 'Admin',
@@ -44,6 +45,7 @@ export default function TeamManagementScreen() {
   const setUserPassword = useAuthStore((s) => s.setUserPassword);
   const createInvite = useAuthStore((s) => s.createInvite);
   const cancelInvite = useAuthStore((s) => s.cancelInvite);
+  const refreshTeamData = useAuthStore((s) => s.refreshTeamData);
 
   const [showEditModal, setShowEditModal] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -64,6 +66,15 @@ export default function TeamManagementScreen() {
   const [isInviteSubmitting, setIsInviteSubmitting] = useState(false);
 
   const isAdmin = currentUser?.role === 'admin';
+  const pendingInvitesFiltered = pendingInvites.filter(
+    (invite) => !teamMembers.some(
+      (member) => member.email.toLowerCase() === invite.email.toLowerCase()
+    )
+  );
+
+  useEffect(() => {
+    refreshTeamData().catch(() => {});
+  }, [refreshTeamData]);
 
   const resetEditForm = () => {
     setFormName('');
@@ -147,7 +158,7 @@ export default function TeamManagementScreen() {
     }
 
     // Check for existing pending invite
-    const existingInvite = pendingInvites.find(
+    const existingInvite = pendingInvitesFiltered.find(
       (i) => i.email.toLowerCase() === inviteEmail.toLowerCase()
     );
     if (existingInvite) {
@@ -160,6 +171,7 @@ export default function TeamManagementScreen() {
       const invite = await createInvite(inviteEmail.trim(), inviteRole, currentUser?.name || 'Admin');
       setLastCreatedInvite(invite);
       setInviteEmail(''); // Clear the email field
+      refreshTeamData().catch(() => {});
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       setInviteError(error instanceof Error ? error.message : 'Failed to create invite. Please try again.');
@@ -176,8 +188,13 @@ export default function TeamManagementScreen() {
 
   const handleShareInvite = async (invite: PendingInvite) => {
     try {
+      const baseUrl = process.env.EXPO_PUBLIC_APP_URL?.replace(/\/$/, '');
+      const joinLink = baseUrl
+        ? `${baseUrl}/login?invite=${invite.inviteCode}`
+        : Linking.createURL(`/login?invite=${invite.inviteCode}`);
+
       await Share.share({
-        message: `You've been invited to join Fyll ERP as ${roleLabels[invite.role]}!\n\nUse this invite code to create your account: ${invite.inviteCode}\n\nThis code expires in 7 days.`,
+        message: `You've been invited to join Fyll ERP as ${roleLabels[invite.role]}!\n\nJoin here: ${joinLink}\n\nInvite code: ${invite.inviteCode}\n\nThis code expires in 7 days.`,
       });
     } catch (error) {
       // User cancelled share
@@ -215,6 +232,20 @@ export default function TeamManagementScreen() {
   };
 
   const handleCancelInvite = (invite: PendingInvite) => {
+    const executeCancel = () => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      cancelInvite(invite.id)
+        .then(() => refreshTeamData())
+        .catch(() => {
+          Alert.alert('Delete failed', 'Could not delete this invite. Please try again.');
+        });
+    };
+
+    if (Platform.OS === 'web') {
+      executeCancel();
+      return;
+    }
+
     Alert.alert(
       'Cancel Invite',
       `Cancel invitation for ${invite.email}?`,
@@ -223,10 +254,7 @@ export default function TeamManagementScreen() {
         {
           text: 'Cancel Invite',
           style: 'destructive',
-          onPress: () => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            cancelInvite(invite.id);
-          },
+          onPress: executeCancel,
         },
       ]
     );
@@ -303,8 +331,8 @@ export default function TeamManagementScreen() {
               resetInviteForm();
               setShowInviteModal(true);
             }}
-            className="flex-row items-center px-4 py-2 rounded-xl active:opacity-80"
-            style={{ backgroundColor: '#111111' }}
+            className="flex-row items-center px-4 rounded-xl active:opacity-80"
+            style={{ backgroundColor: '#111111', height: 42 }}
           >
             <Mail size={16} color="#FFFFFF" strokeWidth={2} />
             <Text className="text-white font-semibold ml-2 text-sm">Invite</Text>
@@ -313,23 +341,23 @@ export default function TeamManagementScreen() {
 
         <ScrollView className="flex-1 px-5 pt-4" showsVerticalScrollIndicator={false}>
           {/* Pending Invites Section */}
-          {pendingInvites.length > 0 && (
+          {pendingInvitesFiltered.length > 0 && (
             <View className="mb-6">
               <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mb-3 tracking-wider">
-                Pending Invites ({pendingInvites.length})
+                Pending Invites ({pendingInvitesFiltered.length})
               </Text>
-              {pendingInvites.map((invite) => (
+              {pendingInvitesFiltered.map((invite) => (
                 <View
                   key={invite.id}
                   className="rounded-xl p-4 mb-3"
-                  style={{ backgroundColor: 'rgba(245, 158, 11, 0.08)', borderWidth: 1, borderColor: 'rgba(245, 158, 11, 0.2)' }}
+                  style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light }}
                 >
                   <View className="flex-row items-center">
                     <View
                       className="w-10 h-10 rounded-full items-center justify-center mr-3"
-                      style={{ backgroundColor: 'rgba(245, 158, 11, 0.15)' }}
+                      style={{ backgroundColor: colors.bg.secondary }}
                     >
-                      <Mail size={18} color="#F59E0B" strokeWidth={2} />
+                      <Mail size={18} color={colors.text.tertiary} strokeWidth={2} />
                     </View>
                     <View className="flex-1">
                       <Text style={{ color: colors.text.primary }} className="font-medium text-sm">
@@ -344,6 +372,14 @@ export default function TeamManagementScreen() {
                             {roleLabels[invite.role]}
                           </Text>
                         </View>
+                        <View
+                          className="flex-row items-center px-2 py-0.5 rounded-full mr-2"
+                          style={{ backgroundColor: '#FEF3C7' }}
+                        >
+                          <Text style={{ color: '#92400E' }} className="text-xs font-medium">
+                            Pending
+                          </Text>
+                        </View>
                         <Clock size={12} color={colors.text.muted} strokeWidth={2} />
                         <Text style={{ color: colors.text.muted }} className="text-xs ml-1">
                           {getTimeRemaining(invite.expiresAt)}
@@ -352,7 +388,7 @@ export default function TeamManagementScreen() {
                     </View>
                   </View>
 
-                  <View className="flex-row items-center mt-3 pt-3" style={{ borderTopWidth: 1, borderTopColor: 'rgba(245, 158, 11, 0.15)' }}>
+                  <View className="flex-row items-center mt-3 pt-3" style={{ borderTopWidth: 1, borderTopColor: colors.border.light }}>
                     <View className="flex-1 flex-row items-center mr-2 px-3 py-2 rounded-lg" style={{ backgroundColor: colors.bg.secondary }}>
                       <Text style={{ color: colors.text.secondary }} className="text-xs font-mono flex-1">
                         {invite.inviteCode}
@@ -364,17 +400,20 @@ export default function TeamManagementScreen() {
                     <Pressable
                       onPress={() => handleShareInvite(invite)}
                       className="p-2 rounded-lg mr-1 active:opacity-50"
-                      style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)' }}
+                      style={{ backgroundColor: colors.bg.secondary }}
                     >
-                      <Send size={16} color="#3B82F6" strokeWidth={2} />
+                      <Send size={16} color={colors.text.tertiary} strokeWidth={2} />
                     </Pressable>
                     <Pressable
                       onPress={() => handleCancelInvite(invite)}
                       className="p-2 rounded-lg active:opacity-50"
-                      style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)' }}
+                      style={{ backgroundColor: colors.bg.secondary }}
                     >
                       <Trash2 size={16} color="#EF4444" strokeWidth={2} />
                     </Pressable>
+                    <Text style={{ color: colors.text.muted }} className="text-xs ml-2">
+                      Delete
+                    </Text>
                   </View>
                 </View>
               ))}

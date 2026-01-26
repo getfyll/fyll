@@ -20,6 +20,7 @@
     "@expo/metro-runtime": "~5.0.5",
     "@expo/react-native-action-sheet": "^4.1.1",
     "@expo/vector-icons": "^14.1.0",
+    "@google/generative-ai": "^0.24.1",
     "@gorhom/bottom-sheet": "^5",
     "@kolking/react-native-avatar": "^2.1.6",
     "@nandorojo/galeria": "2.0.0-rc.4",

@@ -439,7 +439,7 @@ export function calculateStockCoverDays(
   cutoffDate.setDate(cutoffDate.getDate() - daysForAverage);
 
   const recentOrders = orders.filter((order) => {
-    const orderDate = new Date(order.createdAt);
+    const orderDate = new Date(order.orderDate ?? order.createdAt);
     return orderDate >= cutoffDate && order.status !== 'Refunded';
   });
 
@@ -658,12 +658,13 @@ export function calculateDiscontinueCandidates(
   orders
     .filter((order) => order.status !== 'Refunded')
     .forEach((order) => {
-      const orderDate = new Date(order.createdAt);
+      const orderDate = new Date(order.orderDate ?? order.createdAt);
       order.items.forEach((item) => {
+        const orderDateSource = order.orderDate ?? order.createdAt;
         // Track last sold date (all time)
         const currentLastSold = productLastSold.get(item.productId);
-        if (!currentLastSold || order.createdAt > currentLastSold) {
-          productLastSold.set(item.productId, order.createdAt);
+        if (!currentLastSold || orderDateSource > currentLastSold) {
+          productLastSold.set(item.productId, orderDateSource);
         }
 
         // Count sales in period
@@ -750,7 +751,7 @@ export function computeInventoryAnalytics(
 
   // Filter data by time range
   const ordersInRange = orders.filter((order) => {
-    const orderDate = new Date(order.createdAt);
+    const orderDate = new Date(order.orderDate ?? order.createdAt);
     return orderDate >= start && orderDate <= end && order.status !== 'Refunded';
   });
 

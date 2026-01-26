@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, Pressable, TextInput, Alert } from 'react-native';
+import { View, Text, Pressable, TextInput, Alert, Modal, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ArrowLeft, Plus, Trash2, Tag } from 'lucide-react-native';
+import { ArrowLeft, Pencil, Tag, Trash2 } from 'lucide-react-native';
 import useFyllStore from '@/lib/state/fyll-store';
+import useAuthStore from '@/lib/state/auth-store';
 import { useThemeColors } from '@/lib/theme';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import * as Haptics from 'expo-haptics';
@@ -11,7 +12,6 @@ import * as Haptics from 'expo-haptics';
 // Hairline separator colors
 const SEPARATOR_LIGHT = '#EEEEEE';
 const SEPARATOR_DARK = '#333333';
-
 export default function CategoryManagerScreen() {
   const router = useRouter();
   const colors = useThemeColors();
@@ -20,41 +20,91 @@ export default function CategoryManagerScreen() {
 
   const categories = useFyllStore((s) => s.categories);
   const addCategory = useFyllStore((s) => s.addCategory);
+  const updateCategory = useFyllStore((s) => s.updateCategory);
   const deleteCategory = useFyllStore((s) => s.deleteCategory);
+  const saveGlobalSettings = useFyllStore((s) => s.saveGlobalSettings);
+  const businessId = useAuthStore((s) => s.businessId ?? s.currentUser?.businessId ?? null);
 
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [pendingDeleteCategory, setPendingDeleteCategory] = useState<string | null>(null);
+  const [pendingEditCategory, setPendingEditCategory] = useState<string | null>(null);
+  const [editedCategoryName, setEditedCategoryName] = useState('');
 
-  const handleAddCategory = () => {
+  const handleAddCategory = async () => {
     const trimmed = newCategoryName.trim();
     if (!trimmed) return;
 
-    if (categories.includes(trimmed)) {
+    if (categories.some((category) => category.trim().toLowerCase() === trimmed.toLowerCase())) {
       Alert.alert('Duplicate', 'This category already exists.');
       return;
     }
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     addCategory(trimmed);
+    if (businessId) {
+      const result = await saveGlobalSettings(businessId);
+      if (!result.success) {
+        Alert.alert('Save failed', result.error ?? 'Could not save this change.');
+      }
+    }
     setNewCategoryName('');
   };
 
-  const handleDeleteCategory = (category: string) => {
+  const openDeleteCategory = (category: string) => {
+    if (Platform.OS === 'web') {
+      const active = document.activeElement as HTMLElement | null;
+      active?.blur();
+    }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    Alert.alert(
-      'Delete Category',
-      `Are you sure you want to delete "${category}"?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-            deleteCategory(category);
-          },
-        },
-      ]
+    setPendingDeleteCategory(category);
+  };
+
+  const confirmDeleteCategory = async () => {
+    if (!pendingDeleteCategory) return;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    deleteCategory(pendingDeleteCategory, businessId);
+    setPendingDeleteCategory(null);
+    if (businessId) {
+      const result = await saveGlobalSettings(businessId);
+      if (!result.success) {
+        Alert.alert('Delete failed', result.error ?? 'Could not delete this category.');
+      }
+    }
+  };
+
+  const openEditCategory = (category: string) => {
+    if (Platform.OS === 'web') {
+      const active = document.activeElement as HTMLElement | null;
+      active?.blur();
+    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setPendingEditCategory(category);
+    setEditedCategoryName(category);
+  };
+
+  const confirmEditCategory = async () => {
+    if (!pendingEditCategory) return;
+    const trimmed = editedCategoryName.trim();
+    if (!trimmed) {
+      Alert.alert('Invalid name', 'Category name cannot be empty.');
+      return;
+    }
+    const duplicate = categories.some((category) =>
+      category.trim().toLowerCase() === trimmed.toLowerCase() &&
+      category !== pendingEditCategory
     );
+    if (duplicate) {
+      Alert.alert('Duplicate', 'This category already exists.');
+      return;
+    }
+    updateCategory(pendingEditCategory, trimmed);
+    setPendingEditCategory(null);
+    if (businessId) {
+      const result = await saveGlobalSettings(businessId);
+      if (!result.success) {
+        Alert.alert('Save failed', result.error ?? 'Could not save this change.');
+      }
+    }
   };
 
   return (
@@ -77,27 +127,27 @@ export default function CategoryManagerScreen() {
           {/* Add New Category */}
           <View className="rounded-xl p-4 mt-4" style={{ backgroundColor: colors.bg.card, borderWidth: 0.5, borderColor: separatorColor }}>
             <Text style={{ color: colors.text.primary }} className="font-bold text-sm mb-3">Add New Category</Text>
-            <View className="flex-row gap-3">
-              <View className="flex-1 rounded-xl px-4" style={{ backgroundColor: colors.input.bg, borderWidth: 1, borderColor: colors.input.border, height: 52, justifyContent: 'center' }}>
-                <TextInput
-                  placeholder="Category name"
-                  placeholderTextColor={colors.input.placeholder}
-                  value={newCategoryName}
-                  onChangeText={setNewCategoryName}
-                  onSubmitEditing={handleAddCategory}
-                  style={{ color: colors.input.text, fontSize: 14 }}
-                  selectionColor={colors.text.primary}
-                />
-              </View>
-              <Pressable
-                onPress={handleAddCategory}
-                disabled={!newCategoryName.trim()}
-                className="w-14 rounded-xl items-center justify-center active:opacity-80"
-                style={{ backgroundColor: newCategoryName.trim() ? colors.accent.primary : colors.border.light, height: 52 }}
-              >
-                <Plus size={22} color={newCategoryName.trim() ? (isDark ? '#000000' : '#FFFFFF') : colors.text.muted} strokeWidth={2.5} />
-              </Pressable>
+            <View className="rounded-xl px-4" style={{ backgroundColor: colors.input.bg, borderWidth: 1, borderColor: colors.input.border, height: 52, justifyContent: 'center' }}>
+              <TextInput
+                placeholder="Category name"
+                placeholderTextColor={colors.input.placeholder}
+                value={newCategoryName}
+                onChangeText={setNewCategoryName}
+                onSubmitEditing={handleAddCategory}
+                style={{ color: colors.input.text, fontSize: 14 }}
+                selectionColor={colors.text.primary}
+              />
             </View>
+            <Pressable
+              onPress={handleAddCategory}
+              disabled={!newCategoryName.trim()}
+              className="mt-3 rounded-xl items-center justify-center active:opacity-80"
+              style={{ backgroundColor: newCategoryName.trim() ? '#111111' : colors.border.light, height: 48 }}
+            >
+              <Text style={{ color: newCategoryName.trim() ? '#FFFFFF' : colors.text.muted }} className="font-semibold text-sm">
+                Add Category
+              </Text>
+            </Pressable>
           </View>
 
           {/* Info Card */}
@@ -144,13 +194,22 @@ export default function CategoryManagerScreen() {
                     </View>
                     <Text style={{ color: colors.text.primary }} className="font-medium text-sm">{category}</Text>
                   </View>
-                  <Pressable
-                    onPress={() => handleDeleteCategory(category)}
-                    className="w-10 h-10 rounded-lg items-center justify-center active:opacity-50"
-                    style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)' }}
-                  >
-                    <Trash2 size={18} color="#EF4444" strokeWidth={2} />
-                  </Pressable>
+                  <View className="flex-row items-center">
+                    <Pressable
+                      onPress={() => openEditCategory(category)}
+                      className="w-10 h-10 rounded-lg items-center justify-center active:opacity-50 mr-2"
+                      style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)' }}
+                    >
+                      <Pencil size={18} color="#3B82F6" strokeWidth={2} />
+                    </Pressable>
+                    <Pressable
+                      onPress={() => openDeleteCategory(category)}
+                      className="w-10 h-10 rounded-lg items-center justify-center active:opacity-50"
+                      style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)' }}
+                    >
+                      <Trash2 size={18} color="#EF4444" strokeWidth={2} />
+                    </Pressable>
+                  </View>
                 </View>
               </View>
             ))
@@ -159,6 +218,90 @@ export default function CategoryManagerScreen() {
           <View className="h-24" />
         </KeyboardAwareScrollView>
       </SafeAreaView>
+
+      <Modal
+        visible={!!pendingDeleteCategory}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPendingDeleteCategory(null)}
+      >
+        <Pressable
+          className="flex-1 items-center justify-center"
+          style={{ backgroundColor: 'rgba(0, 0, 0, 0.45)' }}
+          onPress={() => setPendingDeleteCategory(null)}
+        >
+          <Pressable
+            onPress={(event) => event.stopPropagation()}
+            className="w-[90%] rounded-2xl p-5"
+            style={{ backgroundColor: '#FFFFFF', maxWidth: 420 }}
+          >
+            <Text className="text-lg font-bold text-gray-900 mb-2">Delete category?</Text>
+            <Text className="text-sm text-gray-600 mb-4">
+              This will remove "{pendingDeleteCategory}" from all products.
+            </Text>
+            <View className="flex-row gap-3">
+              <Pressable
+                onPress={() => setPendingDeleteCategory(null)}
+                className="flex-1 rounded-xl items-center justify-center"
+                style={{ height: 48, backgroundColor: '#F3F4F6' }}
+              >
+                <Text className="text-gray-700 font-semibold">Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={confirmDeleteCategory}
+                className="flex-1 rounded-xl items-center justify-center"
+                style={{ height: 48, backgroundColor: '#EF4444' }}
+              >
+                <Text className="text-white font-semibold">Delete</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={!!pendingEditCategory}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPendingEditCategory(null)}
+      >
+        <Pressable
+          className="flex-1 items-center justify-center"
+          style={{ backgroundColor: 'rgba(0, 0, 0, 0.45)' }}
+          onPress={() => setPendingEditCategory(null)}
+        >
+          <Pressable
+            onPress={(event) => event.stopPropagation()}
+            className="w-[90%] rounded-2xl p-5"
+            style={{ backgroundColor: '#FFFFFF', maxWidth: 420 }}
+          >
+            <Text className="text-lg font-bold text-gray-900 mb-2">Edit category</Text>
+            <TextInput
+              placeholder="Category name"
+              placeholderTextColor="#9CA3AF"
+              value={editedCategoryName}
+              onChangeText={setEditedCategoryName}
+              className="bg-gray-50 rounded-xl px-4 py-3 text-gray-900 text-base border border-gray-200 mb-4"
+            />
+            <View className="flex-row gap-3">
+              <Pressable
+                onPress={() => setPendingEditCategory(null)}
+                className="flex-1 rounded-xl items-center justify-center"
+                style={{ height: 48, backgroundColor: '#F3F4F6' }}
+              >
+                <Text className="text-gray-700 font-semibold">Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={confirmEditCategory}
+                className="flex-1 rounded-xl items-center justify-center"
+                style={{ height: 48, backgroundColor: '#111111' }}
+              >
+                <Text className="text-white font-semibold">Save</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }

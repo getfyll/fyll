@@ -397,33 +397,25 @@ export default function InsightsScreen() {
             {/* Sync Button */}
             <Pressable
               onPress={handleSyncPress}
-              className="flex-row items-center px-3 py-2 rounded-full"
-              style={colors.getCardStyle()}
+              className="flex-row items-center px-4 rounded-xl active:opacity-80"
+              style={{ backgroundColor: '#111111', height: 42 }}
             >
               {teamSync.status === 'syncing' ? (
                 <RefreshCcw
                   size={16}
-                  color={colors.text.secondary}
+                  color="#FFFFFF"
                   strokeWidth={2}
                 />
               ) : (
                 <Cloud
                   size={16}
-                  color={
-                    teamSync.isConfigured
-                      ? colors.success
-                      : colors.text.tertiary
-                  }
+                  color="#FFFFFF"
                   strokeWidth={2}
                 />
               )}
               <Text
-                style={{
-                  color: teamSync.isConfigured
-                    ? colors.text.secondary
-                    : colors.text.tertiary,
-                }}
-                className="text-xs font-medium ml-1.5"
+                style={{ color: '#FFFFFF' }}
+                className="text-sm font-semibold ml-1.5"
               >
                 {teamSync.status === 'syncing'
                   ? 'Syncing...'

@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import useAuthStore from '@/lib/state/auth-store';
 import useFyllStore from '@/lib/state/fyll-store';
+import { useBusinessSettings } from '@/hooks/useBusinessSettings';
 import { Copy, ArrowLeft } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 
@@ -12,7 +13,15 @@ export default function DebugBusinessScreen() {
   const currentUser = useAuthStore((s) => s.currentUser);
   const businessId = useAuthStore((s) => s.businessId);
   const products = useFyllStore((s) => s.products);
-  const businessName = useFyllStore((s) => s.businessName);
+  const { businessName } = useBusinessSettings();
+  const isAdmin = currentUser?.role === 'admin';
+
+  useEffect(() => {
+    if (!currentUser) return;
+    if (!isAdmin) {
+      router.replace('/(tabs)');
+    }
+  }, [currentUser, isAdmin, router]);
 
   const copyToClipboard = async (text: string) => {
     await Clipboard.setStringAsync(text);
@@ -70,7 +79,7 @@ export default function DebugBusinessScreen() {
               BUSINESS NAME
             </Text>
             <Text style={{ fontSize: 16, color: '#000', marginBottom: 4 }}>
-              {businessName || 'Not set'}
+              {businessName || 'Syncing...'}
             </Text>
           </View>
 

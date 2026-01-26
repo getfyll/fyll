@@ -39,7 +39,7 @@ export default function OrdersInsightScreen() {
     .map((order) => ({
       label: order.customerName,
       value: formatCurrency(order.totalAmount),
-      subValue: new Date(order.createdAt).toLocaleDateString(),
+      subValue: new Date(order.orderDate ?? order.createdAt).toLocaleDateString(),
       percentage: undefined,
     }));
 

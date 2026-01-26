@@ -1,9 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, ScrollView, Pressable, TextInput, Modal, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
-import { Plus, Search, ShoppingCart, ChevronRight, MapPin, Calendar, Clock, User, Filter, Check, X, ArrowDownAZ, ArrowUpAZ, DollarSign } from 'lucide-react-native';
+import { Plus, Search, ShoppingCart, ChevronRight, MapPin, Calendar, User, Filter, Check, X, ArrowDownAZ, ArrowUpAZ, DollarSign, Sparkles, Clock } from 'lucide-react-native';
 import useFyllStore, { Order, formatCurrency } from '@/lib/state/fyll-store';
 import { useThemeColors } from '@/lib/theme';
 import { useBreakpoint } from '@/lib/useBreakpoint';
@@ -27,25 +27,11 @@ interface OrderCardProps {
 
 function OrderCard({ order, statusColor, onPress, isSelected, showSplitView, separatorColor }: OrderCardProps) {
   const colors = useThemeColors();
-  const products = useFyllStore((s) => s.products);
 
-  const itemsSummary = useMemo(() => {
-    return order.items.map((item) => {
-      const product = products.find((p) => p.id === item.productId);
-      const variant = product?.variants.find((v) => v.id === item.variantId);
-      const variantName = variant ? Object.values(variant.variableValues).join(' ') : '';
-      return `${product?.name || 'Unknown'} (${variantName}) x${item.quantity}`;
-    }).join(', ');
-  }, [order.items, products]);
-
-  const orderDate = new Date(order.createdAt).toLocaleDateString('en-US', {
+  const orderDateSource = order.orderDate ?? order.createdAt;
+  const orderDate = new Date(orderDateSource).toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
-  });
-
-  const orderTime = new Date(order.createdAt).toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
   });
 
   // Determine if status is Refunded for red color
@@ -59,7 +45,7 @@ function OrderCard({ order, statusColor, onPress, isSelected, showSplitView, sep
         }
         onPress();
       }}
-      className="mb-3 active:opacity-80"
+      className="mb-2 active:opacity-80"
     >
       <View
         style={{
@@ -69,10 +55,10 @@ function OrderCard({ order, statusColor, onPress, isSelected, showSplitView, sep
           borderLeftWidth: isSelected && showSplitView ? 3 : 0.5,
           borderLeftColor: isSelected && showSplitView ? colors.accent.primary : separatorColor,
         }}
-        className="rounded-2xl p-4"
+        className="rounded-xl p-3"
       >
         {/* Header */}
-        <View className="flex-row items-start justify-between mb-3">
+        <View className="flex-row items-start justify-between mb-2">
           <View className="flex-1">
             <View className="flex-row items-center">
               <Text style={{ color: colors.text.primary }} className="font-bold text-base">{order.orderNumber}</Text>
@@ -91,7 +77,7 @@ function OrderCard({ order, statusColor, onPress, isSelected, showSplitView, sep
             </View>
           </View>
           <View className="items-end">
-            <Text style={{ color: colors.text.primary }} className="font-bold text-xl">{formatCurrency(order.totalAmount)}</Text>
+            <Text style={{ color: colors.text.primary, fontSize: 16 }} className="font-bold">{formatCurrency(order.totalAmount)}</Text>
             <View className="flex-row items-center mt-0.5">
               <View className="px-1.5 py-0.5 rounded" style={{ backgroundColor: colors.bg.secondary }}>
                 <Text style={{ color: colors.text.muted }} className="text-xs">{order.source}</Text>
@@ -100,20 +86,11 @@ function OrderCard({ order, statusColor, onPress, isSelected, showSplitView, sep
           </View>
         </View>
 
-        {/* Items */}
-        <Text style={{ color: colors.text.muted }} className="text-sm mb-3" numberOfLines={2}>
-          {itemsSummary}
-        </Text>
-
         {/* Footer */}
-        <View className="flex-row items-center pt-3" style={{ borderTopWidth: 0.5, borderTopColor: separatorColor }}>
+        <View className="flex-row items-center pt-2" style={{ borderTopWidth: 0.5, borderTopColor: separatorColor }}>
           <View className="flex-row items-center mr-4">
             <Calendar size={12} color={colors.text.muted} strokeWidth={2} />
             <Text style={{ color: colors.text.muted }} className="text-xs ml-1">{orderDate}</Text>
-          </View>
-          <View className="flex-row items-center mr-4">
-            <Clock size={12} color={colors.text.muted} strokeWidth={2} />
-            <Text style={{ color: colors.text.muted }} className="text-xs ml-1">{orderTime}</Text>
           </View>
           <View className="flex-row items-center">
             <MapPin size={12} color={colors.text.muted} strokeWidth={2} />
@@ -200,6 +177,14 @@ export default function OrdersScreen() {
     return result;
   }, [orders, searchQuery, selectedStatus, sortBy]);
 
+  useEffect(() => {
+    if (!showSplitView) return;
+    if (selectedOrderId && filteredOrders.some((order) => order.id === selectedOrderId)) return;
+    if (filteredOrders.length > 0) {
+      setSelectedOrderId(filteredOrders[0].id);
+    }
+  }, [showSplitView, filteredOrders, selectedOrderId]);
+
   const stats = useMemo(() => {
     const total = orders.length;
     return { total };
@@ -232,14 +217,29 @@ export default function OrdersScreen() {
               <Text style={{ color: colors.text.tertiary }} className="text-xs font-medium uppercase tracking-wider">Sales</Text>
               <Text style={{ color: colors.text.primary }} className="text-2xl font-bold">Orders</Text>
             </View>
-            <Pressable
-              onPress={handleNewOrder}
-              className="rounded-xl active:opacity-80 px-4 py-2.5 flex-row items-center"
-              style={{ backgroundColor: colors.accent.primary }}
-            >
-              <Plus size={18} color={isDark ? '#000000' : '#FFFFFF'} strokeWidth={2.5} />
-              <Text style={{ color: isDark ? '#000000' : '#FFFFFF' }} className="font-semibold ml-1.5 text-sm">New Order</Text>
-            </Pressable>
+            <View className="flex-row gap-2">
+              <Pressable
+                onPress={() => {
+                  if (Platform.OS !== 'web') {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  }
+                  router.push('/ai-order');
+                }}
+                className="rounded-xl active:opacity-80 px-3 flex-row items-center"
+                style={{ backgroundColor: '#8B5CF6', height: 42 }}
+              >
+                <Sparkles size={16} color="#FFFFFF" strokeWidth={2.5} />
+                <Text style={{ color: '#FFFFFF' }} className="font-semibold ml-1.5 text-sm">AI</Text>
+              </Pressable>
+              <Pressable
+                onPress={handleNewOrder}
+                className="rounded-xl active:opacity-80 px-4 flex-row items-center"
+                style={{ backgroundColor: '#111111', height: 42 }}
+              >
+                <Plus size={18} color="#FFFFFF" strokeWidth={2.5} />
+                <Text style={{ color: '#FFFFFF' }} className="font-semibold ml-1.5 text-sm">New Order</Text>
+              </Pressable>
+            </View>
           </View>
 
           {/* Search + Filter Row */}

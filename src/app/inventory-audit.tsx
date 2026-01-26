@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ChevronLeft, ClipboardCheck, Package, AlertTriangle, History, Eye, Search } from 'lucide-react-native';
-import useFyllStore, { formatCurrency } from '@/lib/state/fyll-store';
+import useFyllStore from '@/lib/state/fyll-store';
+import useAuthStore from '@/lib/state/auth-store';
 import Animated, { FadeInDown, FadeInRight, Layout } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 
@@ -58,8 +59,9 @@ interface AuditLogDisplay {
 export default function InventoryAuditScreen() {
   const router = useRouter();
   const products = useFyllStore((s) => s.products);
-  const updateVariantStock = useFyllStore((s) => s.updateVariantStock);
+  const updateProduct = useFyllStore((s) => s.updateProduct);
   const addAuditLog = useFyllStore((s) => s.addAuditLog);
+  const businessId = useAuthStore((s) => s.businessId);
 
   const [auditItems, setAuditItems] = useState<AuditItem[]>([]);
   const [isAuditing, setIsAuditing] = useState(false);
@@ -67,6 +69,12 @@ export default function InventoryAuditScreen() {
   const [showHistory, setShowHistory] = useState(false);
   const [showCurrentInventory, setShowCurrentInventory] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showExitPrompt, setShowExitPrompt] = useState(false);
+  const [showIncompletePrompt, setShowIncompletePrompt] = useState(false);
+  const [showSavedPrompt, setShowSavedPrompt] = useState(false);
+  const [pendingExitLeave, setPendingExitLeave] = useState(false);
+  const [uncountedTotal, setUncountedTotal] = useState(0);
+  const [savedDiscrepancies, setSavedDiscrepancies] = useState(0);
 
   // Filter audit items based on search
   const filteredAuditItems = useMemo(() => {
@@ -80,7 +88,9 @@ export default function InventoryAuditScreen() {
 
   // Initialize audit items from current inventory
   const startAudit = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
     const items: AuditItem[] = [];
     products.forEach((product) => {
       product.variants.forEach((variant) => {
@@ -121,21 +131,17 @@ export default function InventoryAuditScreen() {
     // Check if all items have been counted
     const uncounted = auditItems.filter((item) => item.physicalCount === '');
     if (uncounted.length > 0) {
-      Alert.alert(
-        'Incomplete Audit',
-        `${uncounted.length} items haven't been counted. Do you want to continue anyway?`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Continue', onPress: processAudit },
-        ]
-      );
-    } else {
-      processAudit();
+      setUncountedTotal(uncounted.length);
+      setShowIncompletePrompt(true);
+      return;
     }
+    void processAudit();
   };
 
-  const processAudit = () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  const processAudit = async () => {
+    if (Platform.OS !== 'web') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
 
     // Create audit log
     const logItems = auditItems
@@ -173,38 +179,184 @@ export default function InventoryAuditScreen() {
       completedAt: now.toISOString(),
     });
 
-    // Update stock levels to match physical count
+    // Update stock levels to match physical count and sync to Supabase
+    const productChanges = new Map<string, Map<string, number>>();
+
     auditItems.forEach((item) => {
-      if (item.physicalCount !== '') {
-        const actual = parseInt(item.physicalCount, 10);
-        const delta = actual - item.expectedStock;
-        if (delta !== 0) {
-          updateVariantStock(item.productId, item.variantId, delta);
-        }
+      if (item.physicalCount === '') return;
+      const actual = parseInt(item.physicalCount, 10);
+      if (isNaN(actual) || actual === item.expectedStock) return;
+      if (!productChanges.has(item.productId)) {
+        productChanges.set(item.productId, new Map());
       }
+      productChanges.get(item.productId)?.set(item.variantId, actual);
     });
 
-    Alert.alert(
-      'Audit Complete',
-      `Stock levels have been updated. ${discrepancies.length} discrepancies found.`,
-      [{ text: 'OK', onPress: () => setIsAuditing(false) }]
-    );
+    if (productChanges.size > 0) {
+      await Promise.all(
+        products
+          .filter((product) => productChanges.has(product.id))
+          .map((product) => {
+            const variantMap = productChanges.get(product.id);
+            if (!variantMap) return Promise.resolve();
+            const updatedVariants = product.variants.map((variant) => {
+              const actual = variantMap.get(variant.id);
+              return actual !== undefined ? { ...variant, stock: actual } : variant;
+            });
+            return updateProduct(product.id, { variants: updatedVariants }, businessId ?? undefined);
+          })
+      );
+    }
+
+    setSavedDiscrepancies(discrepancies.length);
+    setShowSavedPrompt(true);
   };
 
-  const cancelAudit = () => {
-    Alert.alert('Cancel Audit', 'Are you sure you want to cancel this audit?', [
-      { text: 'No', style: 'cancel' },
-      {
-        text: 'Yes',
-        style: 'destructive',
-        onPress: () => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          setIsAuditing(false);
-          setAuditItems([]);
-        },
-      },
-    ]);
+  const requestExit = (leaveScreen: boolean) => {
+    setPendingExitLeave(leaveScreen);
+    setShowExitPrompt(true);
   };
+
+  const confirmExit = () => {
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    setIsAuditing(false);
+    setAuditItems([]);
+    setShowExitPrompt(false);
+    if (pendingExitLeave) {
+      router.replace('/(tabs)/inventory');
+    }
+  };
+
+  const renderAuditModals = () => (
+    <>
+      <Modal
+        visible={showExitPrompt}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowExitPrompt(false)}
+      >
+        <Pressable
+          className="flex-1 items-center justify-center"
+          style={{ backgroundColor: 'rgba(0, 0, 0, 0.45)' }}
+          onPress={() => setShowExitPrompt(false)}
+        >
+          <Pressable
+            onPress={(event) => event.stopPropagation()}
+            className="w-[90%] rounded-2xl p-5"
+            style={{ backgroundColor: '#FFFFFF', maxWidth: 420 }}
+          >
+            <Text className="text-lg font-bold text-gray-900 mb-2">Exit audit?</Text>
+            <Text className="text-sm text-gray-600 mb-4">
+              Your progress will be lost if you leave this audit.
+            </Text>
+            <View className="flex-row gap-3">
+              <Pressable
+                onPress={() => setShowExitPrompt(false)}
+                className="flex-1 rounded-xl items-center justify-center"
+                style={{ height: 48, backgroundColor: '#F3F4F6' }}
+              >
+                <Text className="text-gray-700 font-semibold">Stay</Text>
+              </Pressable>
+              <Pressable
+                onPress={confirmExit}
+                className="flex-1 rounded-xl items-center justify-center"
+                style={{ height: 48, backgroundColor: '#111111' }}
+              >
+                <Text className="text-white font-semibold">Exit</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+      <Modal
+        visible={showIncompletePrompt}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowIncompletePrompt(false)}
+      >
+        <Pressable
+          className="flex-1 items-center justify-center"
+          style={{ backgroundColor: 'rgba(0, 0, 0, 0.45)' }}
+          onPress={() => setShowIncompletePrompt(false)}
+        >
+          <Pressable
+            onPress={(event) => event.stopPropagation()}
+            className="w-[90%] rounded-2xl p-5"
+            style={{ backgroundColor: '#FFFFFF', maxWidth: 420 }}
+          >
+            <Text className="text-lg font-bold text-gray-900 mb-2">Audit not complete</Text>
+            <Text className="text-sm text-gray-600 mb-4">
+              {uncountedTotal} items haven&apos;t been counted yet. Do you want to continue anyway?
+            </Text>
+            <View className="flex-row gap-3">
+              <Pressable
+                onPress={() => setShowIncompletePrompt(false)}
+                className="flex-1 rounded-xl items-center justify-center"
+                style={{ height: 48, backgroundColor: '#F3F4F6' }}
+              >
+                <Text className="text-gray-700 font-semibold">Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setShowIncompletePrompt(false);
+                  void processAudit();
+                }}
+                className="flex-1 rounded-xl items-center justify-center"
+                style={{ height: 48, backgroundColor: '#111111' }}
+              >
+                <Text className="text-white font-semibold">Continue</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+      <Modal
+        visible={showSavedPrompt}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSavedPrompt(false)}
+      >
+        <Pressable
+          className="flex-1 items-center justify-center"
+          style={{ backgroundColor: 'rgba(0, 0, 0, 0.45)' }}
+          onPress={() => setShowSavedPrompt(false)}
+        >
+          <Pressable
+            onPress={(event) => event.stopPropagation()}
+            className="w-[90%] rounded-2xl p-5"
+            style={{ backgroundColor: '#FFFFFF', maxWidth: 420 }}
+          >
+            <Text className="text-lg font-bold text-gray-900 mb-2">Audit saved</Text>
+            <Text className="text-sm text-gray-600 mb-4">
+              Stock levels were updated. {savedDiscrepancies} discrepancies found.
+            </Text>
+            <View className="flex-row gap-3">
+              <Pressable
+                onPress={() => setShowSavedPrompt(false)}
+                className="flex-1 rounded-xl items-center justify-center"
+                style={{ height: 48, backgroundColor: '#F3F4F6' }}
+              >
+                <Text className="text-gray-700 font-semibold">Stay Here</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setShowSavedPrompt(false);
+                  setIsAuditing(false);
+                  setAuditItems([]);
+                }}
+                className="flex-1 rounded-xl items-center justify-center"
+                style={{ height: 48, backgroundColor: '#111111' }}
+              >
+                <Text className="text-white font-semibold">Back to Home</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </>
+  );
 
   // Current Inventory View
   if (showCurrentInventory) {
@@ -214,7 +366,9 @@ export default function InventoryAuditScreen() {
           <View className="px-5 pt-4 pb-3 flex-row items-center bg-white border-b border-gray-200">
             <Pressable
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                if (Platform.OS !== 'web') {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }
                 setShowCurrentInventory(false);
               }}
               className="w-10 h-10 rounded-xl items-center justify-center mr-3 active:opacity-50 bg-gray-100"
@@ -299,7 +453,9 @@ export default function InventoryAuditScreen() {
           <View className="px-5 pt-4 pb-3 flex-row items-center bg-white border-b border-gray-200">
             <Pressable
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                if (Platform.OS !== 'web') {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }
                 setShowHistory(false);
               }}
               className="w-10 h-10 rounded-xl items-center justify-center mr-3 active:opacity-50 bg-gray-100"
@@ -390,7 +546,7 @@ export default function InventoryAuditScreen() {
               <View className="flex-row items-center justify-between mb-3">
                 <View className="flex-row items-center">
                   <Pressable
-                    onPress={cancelAudit}
+                    onPress={() => requestExit(true)}
                     className="w-10 h-10 rounded-xl items-center justify-center mr-3 active:opacity-50"
                     style={{ backgroundColor: colors.bg.secondary }}
                   >
@@ -518,6 +674,7 @@ export default function InventoryAuditScreen() {
             </View>
           </KeyboardAvoidingView>
         </SafeAreaView>
+        {renderAuditModals()}
       </View>
     );
   }
@@ -531,8 +688,10 @@ export default function InventoryAuditScreen() {
           <View className="flex-row items-center">
             <Pressable
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.back();
+                if (Platform.OS !== 'web') {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }
+                router.replace('/(tabs)/inventory');
               }}
               className="w-10 h-10 rounded-xl items-center justify-center mr-3 active:opacity-50"
               style={{ backgroundColor: colors.bg.secondary }}
@@ -635,6 +794,7 @@ export default function InventoryAuditScreen() {
           <View className="h-24" />
         </ScrollView>
       </SafeAreaView>
+      {renderAuditModals()}
     </View>
   );
 }

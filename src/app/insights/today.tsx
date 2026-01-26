@@ -28,7 +28,7 @@ export default function TodayInsightScreen() {
   today.setHours(0, 0, 0, 0);
 
   const todayOrders = orders.filter((order) => {
-    const orderDate = new Date(order.createdAt);
+    const orderDate = new Date(order.orderDate ?? order.createdAt);
     return orderDate >= today;
   });
 

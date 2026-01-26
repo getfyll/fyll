@@ -107,7 +107,7 @@ interface AuthStore {
   getInviteByCode: (inviteCode: string) => Promise<PendingInvite | undefined>;
 
   // Legacy (no-op for now)
-  setUserPassword: (email: string, password: string) => void;
+  setUserPassword: (email?: string, password?: string) => void;
 }
 
 const generateId = () => Math.random().toString(36).substring(2, 12);
@@ -204,7 +204,7 @@ const useAuthStore = create<AuthStore>()(
 
           const { data: profile, error: profileError } = await supabase
             .from('profiles')
-            .select('id, email, name, role, business_id, businessId')
+            .select('id, email, name, role, business_id')
             .eq('id', authData.user.id)
             .maybeSingle();
 
@@ -212,7 +212,7 @@ const useAuthStore = create<AuthStore>()(
             console.warn('Auth successful, but profile lookup failed:', profileError);
           }
 
-          const businessId = profile?.business_id ?? profile?.businessId ?? null;
+          const businessId = profile?.business_id ?? null;
 
           if (!businessId) {
             await supabase.auth.signOut();
@@ -236,8 +236,8 @@ const useAuthStore = create<AuthStore>()(
             .update({ last_login: new Date().toISOString() })
             .eq('user_id', authData.user.id)
             .eq('business_id', businessId)
-            .then(() => {})
-            .catch(() => {});
+            .then(() => { })
+            .catch(() => { });
 
           set({
             isAuthenticated: true,
@@ -247,10 +247,10 @@ const useAuthStore = create<AuthStore>()(
             isAuthLoading: false,
           });
 
-          storage.setItem(
+          void storage.setItem(
             profileKey,
             JSON.stringify({ businessId, name: userData.name })
-          ).catch(() => {});
+          );
 
           supabase
             .from('businesses')
@@ -259,12 +259,12 @@ const useAuthStore = create<AuthStore>()(
             .maybeSingle()
             .then(({ data, error }) => {
               if (error || !data?.name) return;
-              storage.setItem(
+              void storage.setItem(
                 `fyll_business_settings:${businessId}`,
                 JSON.stringify({ businessName: data.name })
-              ).catch(() => {});
+              );
             })
-            .catch(() => {});
+            .catch(() => { });
 
           get()
             .refreshTeamData()
@@ -281,14 +281,13 @@ const useAuthStore = create<AuthStore>()(
       },
 
       signup: async ({ businessName, name, email, password }) => {
-        let createdUserId: string | null = null;
         try {
           set({ isAuthLoading: true });
 
           const normalizedEmail = email.trim().toLowerCase();
           const { data: existingProfile } = await supabase
             .from('profiles')
-            .select('id, business_id, businessId')
+            .select('id, business_id')
             .eq('email', normalizedEmail)
             .maybeSingle();
 
@@ -304,7 +303,10 @@ const useAuthStore = create<AuthStore>()(
             email: normalizedEmail,
             password,
             options: {
-              data: { name: name.trim() },
+              data: {
+                name: name.trim(),
+                businessName: businessName.trim(),
+              },
             },
           });
 
@@ -312,68 +314,34 @@ const useAuthStore = create<AuthStore>()(
             throw signupError ?? new Error('Unable to create account');
           }
 
-          createdUserId = signupData.user.id;
-          const businessId = createBusinessId(businessName);
-          const createdAt = new Date().toISOString();
+          const createdUserId = signupData.user.id;
 
-          console.log('🆕 Creating new account:', {
-            email: normalizedEmail,
-            businessId,
-            uid: createdUserId,
-          });
+          const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+          let profile: { business_id?: string | null; name?: string | null; role?: string | null } | null = null;
 
-          // Insert business (use insert, not upsert, to ensure unique businesses)
-          const { error: businessError } = await supabase
-            .from('businesses')
-            .insert({
-              id: businessId,
-              name: businessName.trim(),
-              owner_id: createdUserId,
-              created_at: createdAt,
-            });
+          for (let attempt = 0; attempt < 6; attempt += 1) {
+            const { data: profileData } = await supabase
+              .from('profiles')
+              .select('business_id, name, role')
+              .eq('id', createdUserId)
+              .maybeSingle();
 
-          if (businessError) {
-            throw businessError;
-          }
-
-          const { error: profileError } = await supabase
-            .from('profiles')
-            .upsert({
-              id: createdUserId,
-              email: normalizedEmail,
-              name: name.trim(),
-              role: 'admin',
-              business_id: businessId,
-              created_at: createdAt,
-            }, {
-              onConflict: 'id'
-            });
-
-          if (profileError) {
-            throw profileError;
-          }
-
-          // Try to insert team member, but don't fail if table doesn't exist
-          try {
-            const { error: teamError } = await supabase
-              .from('team_members')
-              .upsert({
-                user_id: createdUserId,
-                email: normalizedEmail,
-                name: name.trim(),
-                role: 'admin',
-                business_id: businessId,
-                created_at: createdAt,
-                last_login: createdAt,
-              }, {
-                onConflict: 'user_id,business_id'
-              });
-
-            if (teamError) {
-              console.warn('Could not upsert team member:', teamError);
+            if (profileData) {
+              profile = profileData;
+              break;
             }
-          } catch (teamInsertError) {
-            console.warn('team_members table may not exist:', teamInsertError);
+
+            await wait(500);
+          }
+
+          const businessId = profile?.business_id ?? null;
+
+          if (!businessId) {
+            set({ isAuthLoading: false });
+            return {
+              success: false,
+              error: 'Account created, but profile is not ready yet. Please try logging in.',
+            };
           }
 
           set({
@@ -381,8 +349,8 @@ const useAuthStore = create<AuthStore>()(
             currentUser: {
               id: createdUserId,
               email: normalizedEmail,
-              name: name.trim(),
-              role: 'admin',
+              name: profile?.name ?? name.trim(),
+              role: normalizeRole(profile?.role),
               businessId,
             },
             businessId,
@@ -520,14 +488,14 @@ const useAuthStore = create<AuthStore>()(
         const newProfileKey = `fyll_user_profile:${normalizedEmail}`;
 
         if (currentUser.businessId) {
-          storage.setItem(
+          void storage.setItem(
             newProfileKey,
             JSON.stringify({ businessId: currentUser.businessId, name: updatedUser.name })
-          ).catch(() => {});
+          );
         }
 
         if (oldProfileKey !== newProfileKey) {
-          storage.removeItem(oldProfileKey).catch(() => {});
+          void storage.removeItem(oldProfileKey);
         }
       },
 
@@ -597,7 +565,7 @@ const useAuthStore = create<AuthStore>()(
             businessWebsite: '',
             returnAddress: '',
           })
-        ).catch(() => {});
+        ).catch(() => { });
       },
 
       refreshTeamData: async () => {
@@ -641,7 +609,7 @@ const useAuthStore = create<AuthStore>()(
             invitedBy: row.invited_by ?? row.invitedBy,
             invitedAt: row.invited_at ?? row.invitedAt ?? new Date().toISOString(),
             expiresAt: row.expires_at ?? row.expiresAt ?? new Date().toISOString(),
-            businessId: row.business_id ?? row.businessId,
+            businessId: row.business_id,
           }))
           .filter((invite) => new Date(invite.expiresAt) > now) as PendingInvite[];
 
@@ -769,13 +737,18 @@ const useAuthStore = create<AuthStore>()(
       },
 
       cancelInvite: async (inviteId) => {
-        const { error: inviteError } = await supabase
-          .from('invites')
-          .delete()
-          .eq('id', inviteId);
+        const { data, error: inviteError } = await supabase
+          .rpc('delete_invite', { invite_id_input: inviteId });
 
-        if (inviteError) {
-          throw inviteError;
+        if (inviteError || !data) {
+          const { error: fallbackError } = await supabase
+            .from('invites')
+            .delete()
+            .eq('id', inviteId);
+
+          if (fallbackError) {
+            throw inviteError ?? fallbackError ?? new Error('Invite could not be deleted.');
+          }
         }
         set({
           pendingInvites: get().pendingInvites.filter((invite) => invite.id !== inviteId),
@@ -784,16 +757,13 @@ const useAuthStore = create<AuthStore>()(
 
       getInviteByCode: async (inviteCode) => {
         const { data: inviteRows, error: inviteError } = await supabase
-          .from('invites')
-          .select('*')
-          .eq('invite_code', inviteCode)
-          .limit(1);
+          .rpc('get_invite_by_code', { invite_code_input: inviteCode });
 
         if (inviteError) {
           throw inviteError;
         }
 
-        const row = inviteRows?.[0];
+        const row = Array.isArray(inviteRows) ? inviteRows[0] : inviteRows;
         const invite = row
           ? {
             id: row.id,
@@ -803,7 +773,7 @@ const useAuthStore = create<AuthStore>()(
             invitedBy: row.invited_by ?? row.invitedBy,
             invitedAt: row.invited_at ?? row.invitedAt ?? new Date().toISOString(),
             expiresAt: row.expires_at ?? row.expiresAt ?? new Date().toISOString(),
-            businessId: row.business_id ?? row.businessId,
+            businessId: row.business_id,
           }
           : undefined;
         if (!invite) return undefined;
@@ -836,20 +806,20 @@ const useAuthStore = create<AuthStore>()(
           const createdUserId = signupData.user.id;
           const createdAt = new Date().toISOString();
 
-          const { error: profileError } = await supabase.from('profiles').insert({
+          const { error: profileError } = await supabase.from('profiles').upsert({
             id: createdUserId,
             email: invite.email,
             name: name.trim(),
             role: invite.role,
             business_id: invite.businessId,
             created_at: createdAt,
-          });
+          }, { onConflict: 'id' });
 
           if (profileError) {
             throw profileError;
           }
 
-          const { error: teamError } = await supabase.from('team_members').insert({
+          const { error: teamInsertError } = await supabase.from('team_members').insert({
             user_id: createdUserId,
             email: invite.email,
             name: name.trim(),
@@ -859,8 +829,21 @@ const useAuthStore = create<AuthStore>()(
             last_login: createdAt,
           });
 
-          if (teamError) {
-            throw teamError;
+          if (teamInsertError) {
+            const { error: teamUpdateError } = await supabase
+              .from('team_members')
+              .update({
+                email: invite.email,
+                name: name.trim(),
+                role: invite.role,
+                business_id: invite.businessId,
+                last_login: createdAt,
+              })
+              .eq('user_id', createdUserId);
+
+            if (teamUpdateError) {
+              throw teamUpdateError;
+            }
           }
 
           const { error: inviteError } = await supabase
@@ -894,7 +877,7 @@ const useAuthStore = create<AuthStore>()(
         }
       },
 
-      setUserPassword: () => {
+      setUserPassword: (_email?: string, _password?: string) => {
         // Password changes are handled through Supabase Auth.
       },
     }),

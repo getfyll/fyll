@@ -62,6 +62,7 @@ export default function NewProductScreen() {
   const [addingValueToVariable, setAddingValueToVariable] = useState<string | null>(null);
   const [newValueInput, setNewValueInput] = useState('');
   const [variants, setVariants] = useState<VariantFormData[]>([]);
+  const [hasVariants, setHasVariants] = useState(true);
   const [productImageUrl, setProductImageUrl] = useState<string | null>(null);
   const [showImagePicker, setShowImagePicker] = useState(false);
 
@@ -97,21 +98,46 @@ export default function NewProductScreen() {
     );
   }, [globalCategories, categoryInput, categories]);
 
+  const handleToggleVariants = (value: boolean) => {
+    setHasVariants(value);
+    if (value) {
+      setVariants((prev) => {
+        if (prev.length === 0) return [createVariant(true)];
+        return prev.map((variant) => ({
+          ...variant,
+          variableValues: productVariables.reduce((acc, v) => {
+            acc[v.name] = variant.variableValues[v.name] ?? v.values[0] ?? '';
+            return acc;
+          }, {} as Record<string, string>),
+        }));
+      });
+    } else {
+      setVariants((prev) => {
+        if (prev.length === 0) return [createVariant(false)];
+        return [{ ...prev[0], variableValues: {} }];
+      });
+    }
+  };
+
+  const createVariant = useCallback((includeVariables: boolean) => ({
+    id: Math.random().toString(36).substring(2, 10),
+    variableValues: includeVariables
+      ? productVariables.reduce((acc, v) => {
+        acc[v.name] = v.values[0] || '';
+        return acc;
+      }, {} as Record<string, string>)
+      : {},
+    stock: '0',
+    sellingPrice: '',
+  }), [productVariables]);
+
   const handleAddVariant = useCallback(() => {
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
-    const newVariant: VariantFormData = {
-      id: Math.random().toString(36).substring(2, 10),
-      variableValues: productVariables.reduce((acc, v) => {
-        acc[v.name] = v.values[0] || '';
-        return acc;
-      }, {} as Record<string, string>),
-      stock: '0',
-      sellingPrice: '',
-    };
+    const newVariant: VariantFormData = createVariant(true);
     setVariants(prev => [...prev, newVariant]);
-  }, [productVariables]);
+  }, [createVariant]);
 
   const handleUpdateVariant = useCallback((index: number, updates: Partial<VariantFormData>) => {
     setVariants(prev => {
@@ -628,16 +654,31 @@ export default function NewProductScreen() {
               <View className="flex-row items-center justify-between mb-3">
                 <View>
                   <Text className="text-gray-900 font-bold text-base">Product Variants</Text>
-                  <Text className="text-gray-500 text-xs">Add variants with pricing</Text>
+                  <Text className="text-gray-500 text-xs">
+                    {hasVariants ? 'Add variants with pricing' : 'Single product (no variants)'}
+                  </Text>
                 </View>
-                <Pressable
-                  onPress={handleAddVariant}
-                  className="rounded-xl overflow-hidden active:opacity-80 bg-[#111111] px-3 py-2 flex-row items-center"
-                >
-                  <Plus size={16} color="#FFFFFF" strokeWidth={2.5} />
-                  <Text className="text-white font-semibold text-xs ml-1">Add</Text>
-                </Pressable>
+                <View className="flex-row items-center">
+                  <Text className="text-gray-500 text-xs mr-2">Has variants</Text>
+                  <Switch
+                    value={hasVariants}
+                    onValueChange={handleToggleVariants}
+                    trackColor={{ false: '#D1D5DB', true: '#111111' }}
+                    thumbColor="#FFFFFF"
+                  />
+                </View>
               </View>
+              {hasVariants && (
+                <View className="flex-row justify-end mb-3">
+                  <Pressable
+                    onPress={handleAddVariant}
+                    className="rounded-xl overflow-hidden active:opacity-80 bg-[#111111] px-3 py-2 flex-row items-center"
+                  >
+                    <Plus size={16} color="#FFFFFF" strokeWidth={2.5} />
+                    <Text className="text-white font-semibold text-xs ml-1">Add</Text>
+                  </Pressable>
+                </View>
+              )}
 
               {/* Variant image error toast */}
               {variantImageError && (
@@ -646,7 +687,7 @@ export default function NewProductScreen() {
                 </View>
               )}
 
-              {variants.length === 0 && (
+              {hasVariants && variants.length === 0 && (
                 <Pressable
                   onPress={handleAddVariant}
                   className="active:opacity-70"
@@ -660,7 +701,7 @@ export default function NewProductScreen() {
                   </View>
                 </Pressable>
               )}
-              {variants.map((variant, index) => (
+              {(hasVariants ? variants : variants.slice(0, 1)).map((variant, index) => (
                   <View
                     key={variant.id}
                     className="mb-3"
@@ -671,14 +712,18 @@ export default function NewProductScreen() {
                           <View className="w-8 h-8 rounded-lg items-center justify-center mr-2 bg-gray-100">
                             <Text className="text-gray-700 font-bold text-sm">{index + 1}</Text>
                           </View>
-                          <Text className="text-gray-900 font-semibold">Variant {index + 1}</Text>
+                          <Text className="text-gray-900 font-semibold">
+                            {hasVariants ? `Variant ${index + 1}` : 'Single Product'}
+                          </Text>
                         </View>
-                        <Pressable
-                          onPress={() => handleRemoveVariant(index)}
-                          className="w-8 h-8 rounded-lg items-center justify-center active:opacity-50 bg-red-50"
-                        >
-                          <Trash2 size={16} color="#EF4444" strokeWidth={2} />
-                        </Pressable>
+                        {hasVariants && (
+                          <Pressable
+                            onPress={() => handleRemoveVariant(index)}
+                            className="w-8 h-8 rounded-lg items-center justify-center active:opacity-50 bg-red-50"
+                          >
+                            <Trash2 size={16} color="#EF4444" strokeWidth={2} />
+                          </Pressable>
+                        )}
                       </View>
 
                       {/* Variant Image - Required */}
@@ -748,7 +793,7 @@ export default function NewProductScreen() {
                       </View>
 
                       {/* Variable Values - Searchable Dropdown */}
-                      {productVariables.map((variable) => {
+                      {hasVariants && productVariables.map((variable) => {
                         const selectedValue = variant.variableValues[variable.name];
                         return (
                           <View key={variable.id} className="mb-3" style={{ zIndex: 5 }}>

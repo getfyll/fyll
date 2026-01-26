@@ -26,7 +26,7 @@ export default function RefundsInsightScreen() {
   // Get refunded orders in range
   const { start, end } = getDateRange(timeRange);
   const refundedOrders = orders.filter((order) => {
-    const orderDate = new Date(order.createdAt);
+    const orderDate = new Date(order.orderDate ?? order.createdAt);
     return orderDate >= start && orderDate <= end && hasRefund(order);
   });
 
@@ -37,7 +37,7 @@ export default function RefundsInsightScreen() {
     return {
       label: order.customerName,
       value: formatCurrency(refundAmount),
-      subValue: `${isPartial ? 'Partial' : 'Full'} · ${new Date(order.createdAt).toLocaleDateString()}`,
+      subValue: `${isPartial ? 'Partial' : 'Full'} · ${new Date(order.orderDate ?? order.createdAt).toLocaleDateString()}`,
       percentage: undefined,
     };
   });

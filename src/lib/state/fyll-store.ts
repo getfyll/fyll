@@ -268,7 +268,15 @@ export interface CaseStatusOption {
   description?: string;
   order?: number;
 }
-export type ResolutionType = 'Refund Issued' | 'Credit Applied' | 'Replacement Sent' | 'Repair Completed' | 'No Action Required' | 'Other';
+
+export interface ResolutionTypeOption {
+  id: string;
+  name: string;
+  description?: string;
+  order?: number;
+}
+
+export type ResolutionType = string;
 
 export interface CaseResolution {
   type: ResolutionType;
@@ -498,6 +506,12 @@ interface FyllStore {
   addCaseStatus: (status: CaseStatusOption) => void;
   updateCaseStatus: (id: string, updates: Partial<CaseStatusOption>) => void;
   deleteCaseStatus: (id: string, businessId?: string | null) => void;
+
+  // Resolution Types
+  resolutionTypes: ResolutionTypeOption[];
+  addResolutionType: (type: ResolutionTypeOption) => void;
+  updateResolutionType: (id: string, updates: Partial<ResolutionTypeOption>) => void;
+  deleteResolutionType: (id: string, businessId?: string | null) => void;
 
   // Reset
   resetStore: () => void;
@@ -1184,6 +1198,52 @@ const useFyllStore = create<FyllStore>()(
         supabaseSettings
           .deleteSettings('case_statuses', businessId, [id])
           .catch((error) => console.warn('Supabase case status delete failed:', error));
+      },
+
+      // Resolution Types
+      resolutionTypes: [
+        { id: 'rt-1', name: 'Refund Issued', order: 1 },
+        { id: 'rt-2', name: 'Credit Applied', order: 2 },
+        { id: 'rt-3', name: 'Replacement Sent', order: 3 },
+        { id: 'rt-4', name: 'Repair Completed', order: 4 },
+        { id: 'rt-5', name: 'No Action Required', order: 5 },
+        { id: 'rt-6', name: 'Other', order: 6 },
+      ],
+      addResolutionType: (type) => {
+        set({ resolutionTypes: [...get().resolutionTypes, type] });
+      },
+      updateResolutionType: (id, updates) => {
+        set({
+          resolutionTypes: get().resolutionTypes.map((rt) =>
+            rt.id === id
+              ? {
+                  ...rt,
+                  ...updates,
+                  name: updates.name?.trim() ?? rt.name,
+                  description: updates.description ?? rt.description,
+                }
+              : rt
+          ),
+        });
+      },
+      deleteResolutionType: (id, businessId) => {
+        const current = get().resolutionTypes;
+        const removed = current.find((rt) => rt.id === id);
+        if (!removed) return;
+        const remaining = current.filter((rt) => rt.id !== id);
+        const fallback = remaining[0]?.name ?? 'Other';
+        set({
+          resolutionTypes: remaining,
+          cases: get().cases.map((c) =>
+            c.resolution?.type === removed.name
+              ? { ...c, resolution: { ...c.resolution, type: fallback } }
+              : c
+          ),
+        });
+        if (!businessId) return;
+        supabaseSettings
+          .deleteSettings('resolution_types', businessId, [id])
+          .catch((error) => console.warn('Supabase resolution type delete failed:', error));
       },
 
       // Cases

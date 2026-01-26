@@ -32,7 +32,6 @@ import useFyllStore, {
   CASE_SOURCES,
   CaseAttachment,
   CaseStatusOption,
-  RESOLUTION_TYPES,
   generateCaseNumber,
   generateCaseId,
   formatCurrency,
@@ -118,6 +117,8 @@ export function CaseForm({
   const [attachments, setAttachments] = useState<CaseAttachment[]>(existingCase?.attachments ?? []);
   const [forceCompression, setForceCompression] = useState(true);
   const caseStatuses = useFyllStore((s) => s.caseStatuses);
+  const resolutionTypes = useFyllStore((s) => s.resolutionTypes);
+  const resolutionTypeOptions = resolutionTypes.map((rt) => rt.name);
   const statusOptions = caseStatuses.length > 0
     ? caseStatuses.map((option) => option.name)
     : Object.keys(CASE_STATUS_COLORS);
@@ -141,6 +142,7 @@ export function CaseForm({
 
   useEffect(() => {
     const defaultStatus = caseStatuses[0]?.name ?? 'Open';
+    const defaultResolutionType = resolutionTypes[0]?.name ?? 'No Action Required';
     if (existingCase) {
       setCaseType(existingCase.type);
       setStatus(existingCase.status);
@@ -165,11 +167,11 @@ export function CaseForm({
       setOriginalMessage('');
       setAttachments([]);
       setShowResolution(false);
-      setResolutionType('No Action Required');
+      setResolutionType(defaultResolutionType);
       setResolutionNotes('');
       setResolutionValue('');
     }
-  }, [existingCase, visible, caseStatuses]);
+  }, [existingCase, visible, caseStatuses, resolutionTypes]);
 
   // Show resolution section when status is Resolved or Closed
   useEffect(() => {
@@ -386,8 +388,8 @@ export function CaseForm({
           </View>
           <Pressable
             onPress={handleSave}
-            className="px-4 py-2 rounded-lg active:opacity-70"
-            style={{ backgroundColor: colors.accent.primary }}
+            className="px-5 py-2.5 rounded-xl active:opacity-80"
+            style={{ backgroundColor: '#111111' }}
           >
             <Text className="text-white font-semibold">
               {isEditing ? 'Update' : 'Create'}
@@ -687,7 +689,7 @@ export function CaseForm({
                   Resolution Type
                 </Text>
                 {renderDropdown(
-                  RESOLUTION_TYPES,
+                  resolutionTypeOptions,
                   resolutionType,
                   setResolutionType,
                   showResolutionTypeDropdown,

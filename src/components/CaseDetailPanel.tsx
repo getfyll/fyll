@@ -621,10 +621,10 @@ export function CaseDetailPanel({
                   Haptics.selectionAsync();
                   setShowNoteModal(true);
                 }}
-                className="flex-1 flex-row items-center justify-center py-4 rounded-xl active:opacity-70"
-                style={{ backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.border.light }}
+                className="flex-1 flex-row items-center justify-center py-4 rounded-2xl active:opacity-80"
+                style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light }}
               >
-                <Plus size={18} color={colors.text.primary} strokeWidth={1.5} />
+                <Plus size={18} color={colors.text.primary} strokeWidth={2} />
                 <Text style={{ color: colors.text.primary }} className="font-semibold ml-2">Add Note</Text>
               </Pressable>
               <Pressable
@@ -632,10 +632,10 @@ export function CaseDetailPanel({
                   Haptics.selectionAsync();
                   setShowStatusModal(true);
                 }}
-                className="flex-1 flex-row items-center justify-center py-4 rounded-xl active:opacity-70"
-                style={{ backgroundColor: colors.bg.tertiary }}
+                className="flex-1 flex-row items-center justify-center py-4 rounded-2xl active:opacity-80"
+                style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light }}
               >
-                <RefreshCcw size={18} color={colors.text.primary} strokeWidth={1.5} />
+                <RefreshCcw size={18} color={colors.text.primary} strokeWidth={2} />
                 <Text style={{ color: colors.text.primary }} className="font-semibold ml-2">Status</Text>
               </Pressable>
             </View>
@@ -645,10 +645,10 @@ export function CaseDetailPanel({
                 Haptics.selectionAsync();
                 setShowEditForm(true);
               }}
-              className="flex-row items-center justify-center py-4 rounded-xl active:opacity-70"
-              style={{ backgroundColor: colors.accent.primary }}
+              className="flex-row items-center justify-center py-4 rounded-2xl active:opacity-80"
+              style={{ backgroundColor: '#111111' }}
             >
-              <Edit2 size={20} color="#fff" strokeWidth={1.5} />
+              <Edit2 size={18} color="#fff" strokeWidth={2} />
               <Text className="text-white font-semibold ml-2">Edit Case</Text>
             </Pressable>
 
@@ -657,10 +657,10 @@ export function CaseDetailPanel({
                 Haptics.selectionAsync();
                 setShowDeleteModal(true);
               }}
-              className="flex-row items-center justify-center py-4 rounded-xl active:opacity-70"
-              style={{ backgroundColor: '#EF4444' + '15' }}
+              className="flex-row items-center justify-center py-4 rounded-2xl active:opacity-80"
+              style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: '#EF4444' + '40' }}
             >
-              <Trash2 size={20} color="#EF4444" strokeWidth={1.5} />
+              <Trash2 size={18} color="#EF4444" strokeWidth={2} />
               <Text style={{ color: '#EF4444' }} className="font-semibold ml-2">
                 Delete Case
               </Text>
@@ -734,16 +734,16 @@ export function CaseDetailPanel({
             <View className="flex-row gap-3">
               <Pressable
                 onPress={() => setShowDeleteModal(false)}
-                className="flex-1 py-3 rounded-xl active:opacity-70"
-                style={{ backgroundColor: colors.bg.secondary }}
+                className="flex-1 py-4 rounded-2xl active:opacity-80"
+                style={{ backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.border.light }}
               >
-                <Text style={{ color: colors.text.primary }} className="text-center font-semibold">
+                <Text style={{ color: colors.text.secondary }} className="text-center font-semibold">
                   Cancel
                 </Text>
               </Pressable>
               <Pressable
                 onPress={handleDelete}
-                className="flex-1 py-3 rounded-xl active:opacity-70"
+                className="flex-1 py-4 rounded-2xl active:opacity-80"
                 style={{ backgroundColor: '#EF4444' }}
               >
                 <Text className="text-white text-center font-semibold">Delete</Text>
@@ -798,19 +798,19 @@ export function CaseDetailPanel({
                   setShowNoteModal(false);
                   setNoteText('');
                 }}
-                className="flex-1 py-4 rounded-xl active:opacity-70"
-                style={{ backgroundColor: colors.bg.secondary }}
+                className="flex-1 py-4 rounded-2xl active:opacity-80"
+                style={{ backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.border.light }}
               >
-                <Text style={{ color: colors.text.muted }} className="text-center font-bold text-xs uppercase tracking-widest">
+                <Text style={{ color: colors.text.secondary }} className="text-center font-semibold">
                   Cancel
                 </Text>
               </Pressable>
               <Pressable
                 onPress={handleAddNote}
-                className="flex-1 py-4 rounded-xl active:opacity-70"
-                style={{ backgroundColor: colors.bg.tertiary }}
+                className="flex-1 py-4 rounded-2xl active:opacity-80"
+                style={{ backgroundColor: '#111111' }}
               >
-                <Text style={{ color: colors.text.primary }} className="text-center font-bold text-xs uppercase tracking-widest">
+                <Text className="text-white text-center font-semibold">
                   Post Note
                 </Text>
               </Pressable>

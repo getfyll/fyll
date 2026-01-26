@@ -16,7 +16,8 @@ type SettingsSection =
   | 'custom-services'
   | 'payment-methods'
   | 'logistics-carriers'
-  | 'case-statuses';
+  | 'case-statuses'
+  | 'resolution-types';
 
 const SETTINGS_SECTIONS: SettingsSection[] = [
   'order-statuses',
@@ -25,6 +26,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   'payment-methods',
   'logistics-carriers',
   'case-statuses',
+  'resolution-types',
 ];
 
 interface EditableItemProps {
@@ -335,6 +337,11 @@ export default function SettingsScreen() {
   const updateCaseStatus = useFyllStore((s) => s.updateCaseStatus);
   const deleteCaseStatus = useFyllStore((s) => s.deleteCaseStatus);
 
+  const resolutionTypes = useFyllStore((s) => s.resolutionTypes);
+  const addResolutionType = useFyllStore((s) => s.addResolutionType);
+  const updateResolutionType = useFyllStore((s) => s.updateResolutionType);
+  const deleteResolutionType = useFyllStore((s) => s.deleteResolutionType);
+
   const openDeleteSetting = (type: SettingsSection, setting: { id: string; name: string }) => {
     if (Platform.OS === 'web') {
       const active = typeof document !== 'undefined' ? document.activeElement : null;
@@ -365,6 +372,9 @@ export default function SettingsScreen() {
         break;
       case 'logistics-carriers':
         deleteLogisticsCarrier(pendingDeleteSetting.id, businessId);
+        break;
+      case 'resolution-types':
+        deleteResolutionType(pendingDeleteSetting.id, businessId);
         break;
       default:
         break;
@@ -605,6 +615,20 @@ export default function SettingsScreen() {
         }
         addLogisticsCarrier({ id, name: newItemName.trim() });
         didAdd = true;
+        break;
+      case 'resolution-types':
+        if (nameExists(resolutionTypes)) {
+          Alert.alert('Duplicate', 'This resolution type already exists.');
+          return;
+        }
+        addResolutionType({
+          id,
+          name: newItemName.trim(),
+          description: newItemDescription.trim(),
+          order: resolutionTypes.length + 1,
+        });
+        didAdd = true;
+        setNewItemDescription('');
         break;
     }
 
@@ -921,6 +945,57 @@ export default function SettingsScreen() {
           </View>
         );
 
+      case 'resolution-types':
+        return (
+          <View className="px-5 pt-4">
+            <View className="rounded-xl p-4 mb-4" style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light }}>
+              <Text style={{ color: colors.text.primary }} className="font-bold text-sm mb-3">Add Resolution Type</Text>
+              <View className="rounded-xl px-4 mb-3" style={{ backgroundColor: colors.input.bg, borderWidth: 1, borderColor: colors.input.border, height: 50, justifyContent: 'center' }}>
+                <TextInput
+                  placeholder="Resolution type name"
+                  placeholderTextColor={colors.input.placeholder}
+                  value={newItemName}
+                  onChangeText={setNewItemName}
+                  style={{ color: colors.input.text, fontSize: 14 }}
+                  selectionColor={colors.text.primary}
+                />
+              </View>
+              <View className="rounded-xl px-4 mb-3" style={{ backgroundColor: colors.input.bg, borderWidth: 1, borderColor: colors.input.border, minHeight: 50, justifyContent: 'center' }}>
+                <TextInput
+                  placeholder="Description (optional)"
+                  placeholderTextColor={colors.input.placeholder}
+                  value={newItemDescription}
+                  onChangeText={setNewItemDescription}
+                  style={{ color: colors.input.text, fontSize: 14 }}
+                  selectionColor={colors.text.primary}
+                />
+              </View>
+              <Pressable
+                onPress={handleAddItem}
+                className="rounded-xl items-center active:opacity-80"
+                style={{ backgroundColor: '#111111', height: 50, justifyContent: 'center' }}
+              >
+                <Text className="text-white font-semibold">Add Resolution Type</Text>
+              </Pressable>
+            </View>
+
+            {resolutionTypes.map((type) => (
+              <EditableItem
+                key={type.id}
+                item={type}
+                showDescription
+                onUpdate={(name, _, __, description) => {
+                  updateResolutionType(type.id, { name, description });
+                  triggerGlobalSave();
+                }}
+                onDelete={() => {
+                  openDeleteSetting('resolution-types', type);
+                }}
+              />
+            ))}
+          </View>
+        );
+
       default:
         return null;
     }
@@ -934,6 +1009,7 @@ export default function SettingsScreen() {
       'payment-methods': 'Payment Methods',
       'logistics-carriers': 'Logistics Carriers',
       'case-statuses': 'Case Statuses',
+      'resolution-types': 'Resolution Types',
     };
 
     return (
@@ -1090,6 +1166,13 @@ export default function SettingsScreen() {
               icon={<FileText size={18} color="#F59E0B" strokeWidth={2} />}
               rightText={`${caseStatuses.length}`}
               onPress={() => setActiveSection('case-statuses')}
+            />
+            <SettingsRow
+              title="Resolution Types"
+              description="How cases are resolved"
+              icon={<Check size={18} color="#10B981" strokeWidth={2} />}
+              rightText={`${resolutionTypes.length}`}
+              onPress={() => setActiveSection('resolution-types')}
             />
           </View>
 

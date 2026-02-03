@@ -9,6 +9,7 @@ import { cn } from '@/lib/cn';
 import * as Haptics from 'expo-haptics';
 import { Button, StickyButtonContainer } from '@/components/Button';
 import { useBreakpoint } from '@/lib/useBreakpoint';
+import { sendOrderNotification } from '@/hooks/useWebPushNotifications';
 
 interface SearchResult {
   productId: string;
@@ -430,6 +431,17 @@ export default function NewOrderScreen() {
       items.forEach((item) => {
         updateVariantStock(item.productId, item.variantId, -item.quantity);
       });
+
+      // Send push notification to team
+      if (businessId) {
+        sendOrderNotification({
+          businessId,
+          orderNumber: order.orderNumber,
+          customerName: order.customerName || 'Walk-in',
+          totalAmount: formatCurrency(totalAmount),
+          createdBy: currentUser?.name,
+        }).catch(() => {});
+      }
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 

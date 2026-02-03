@@ -161,12 +161,16 @@ export default function RootLayout() {
 
   const { isInitialized } = useSupabaseSync();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  const { promptForPermission } = useWebPushNotifications();
+  const businessId = useAuthStore((s) => s.businessId);
+  const { promptForPermission, tagWithBusinessId } = useWebPushNotifications();
 
   useEffect(() => {
     if (!isAuthenticated) return;
     promptForPermission();
-  }, [isAuthenticated, promptForPermission]);
+    if (businessId) {
+      tagWithBusinessId(businessId);
+    }
+  }, [isAuthenticated, businessId, promptForPermission, tagWithBusinessId]);
 
   return (
     <QueryClientProvider client={queryClient}>

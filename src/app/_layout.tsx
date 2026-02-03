@@ -13,6 +13,7 @@ import { useSupabaseSync } from '@/hooks/useSupabaseSync';
 import { SyncOverlay } from '@/components/SyncOverlay';
 import { Platform } from 'react-native';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
+import { useWebPushNotifications } from '@/hooks/useWebPushNotifications';
 
 export const unstable_settings = {
   // Ensure that reloading on `/modal` keeps a back button present.
@@ -125,6 +126,7 @@ function RootLayoutNav({ colorScheme }: { colorScheme: 'light' | 'dark' | null |
         <Stack.Screen name="inventory-audit" options={{ headerShown: false }} />
         <Stack.Screen name="category-manager" options={{ headerShown: false }} />
         <Stack.Screen name="label-print" options={{ headerShown: false }} />
+        <Stack.Screen name="order-label-preview" options={{ headerShown: false }} />
         <Stack.Screen name="ai-order" options={{ headerShown: false }} />
         <Stack.Screen name="team" options={{ headerShown: false }} />
         <Stack.Screen name="restock" options={{ headerShown: false }} />
@@ -159,6 +161,12 @@ export default function RootLayout() {
 
   const { isInitialized } = useSupabaseSync();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const { promptForPermission } = useWebPushNotifications();
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    promptForPermission();
+  }, [isAuthenticated, promptForPermission]);
 
   return (
     <QueryClientProvider client={queryClient}>

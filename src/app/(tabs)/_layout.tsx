@@ -2,7 +2,6 @@ import React from 'react';
 import { Tabs } from 'expo-router';
 import { View, Platform } from 'react-native';
 import { LayoutDashboard, Package, ShoppingCart, MoreHorizontal, BarChart3, Users } from 'lucide-react-native';
-import useFyllStore from '@/lib/state/fyll-store';
 import { useThemeColors } from '@/lib/theme';
 import { useBreakpoint } from '@/lib/useBreakpoint';
 import { DesktopSidebar } from '@/components/DesktopSidebar';
@@ -72,9 +71,6 @@ export default function TabLayout() {
             tabBarActiveTintColor: colors.tabBar.active,
             tabBarInactiveTintColor: colors.tabBar.inactive,
             tabBarStyle,
-            sceneContainerStyle: {
-              paddingBottom: isDesktop ? 0 : tabBarHeight,
-            },
             tabBarLabelStyle: {
               fontSize: isWeb ? 10 : 11,
               fontWeight: '600',

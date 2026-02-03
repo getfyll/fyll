@@ -1,4 +1,4 @@
-import { Image, Platform } from 'react-native';
+import { Image as RNImage, Platform } from 'react-native';
 import * as ImageManipulator from 'expo-image-manipulator';
 
 const DEFAULT_MAX_DIMENSION = 1600;
@@ -6,7 +6,7 @@ const DEFAULT_QUALITY = 0.7;
 
 const getImageSize = (uri: string) =>
   new Promise<{ width: number; height: number }>((resolve, reject) => {
-    Image.getSize(
+  RNImage.getSize(
       uri,
       (width, height) => resolve({ width, height }),
       (error) => reject(error)
@@ -22,7 +22,15 @@ const compressWebDataUrl = async (
   if (!dataUrl.startsWith('data:image/')) return dataUrl;
 
   const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const image = new Image();
+    const ImageConstructor =
+      (typeof window !== 'undefined' && window.Image) ||
+      (typeof globalThis !== 'undefined' && globalThis.Image);
+
+    if (!ImageConstructor) {
+      return reject(new Error('Image constructor not available'));
+    }
+
+    const image = new ImageConstructor();
     image.onload = () => resolve(image);
     image.onerror = () => reject(new Error('Failed to load image'));
     image.src = dataUrl;

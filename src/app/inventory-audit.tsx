@@ -2,8 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ChevronLeft, ClipboardCheck, Package, AlertTriangle, History, Eye, Search } from 'lucide-react-native';
-import useFyllStore from '@/lib/state/fyll-store';
+import { ChevronLeft, ClipboardCheck, Package, AlertTriangle, History, Eye, Search, ChevronDown, ChevronRight, Check } from 'lucide-react-native';
+import useFyllStore, { AuditLogItem } from '@/lib/state/fyll-store';
 import useAuthStore from '@/lib/state/auth-store';
 import Animated, { FadeInDown, FadeInRight, Layout } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
@@ -65,8 +65,8 @@ export default function InventoryAuditScreen() {
 
   const [auditItems, setAuditItems] = useState<AuditItem[]>([]);
   const [isAuditing, setIsAuditing] = useState(false);
-  const [auditLogs, setAuditLogs] = useState<AuditLogDisplay[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [expandedAuditId, setExpandedAuditId] = useState<string | null>(null);
   const [showCurrentInventory, setShowCurrentInventory] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showExitPrompt, setShowExitPrompt] = useState(false);
@@ -75,6 +75,8 @@ export default function InventoryAuditScreen() {
   const [pendingExitLeave, setPendingExitLeave] = useState(false);
   const [uncountedTotal, setUncountedTotal] = useState(0);
   const [savedDiscrepancies, setSavedDiscrepancies] = useState(0);
+  const storeAuditLogs = useFyllStore((s) => s.auditLogs);
+  const performedBy = useAuthStore((s) => s.currentUser?.name ?? s.currentUser?.email ?? 'Team');
 
   // Filter audit items based on search
   const filteredAuditItems = useMemo(() => {
@@ -127,6 +129,10 @@ export default function InventoryAuditScreen() {
     });
   }, [auditItems]);
 
+  const sortedAuditLogs = useMemo(() => {
+    return [...storeAuditLogs].sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
+  }, [storeAuditLogs]);
+
   const submitAudit = () => {
     // Check if all items have been counted
     const uncounted = auditItems.filter((item) => item.physicalCount === '');
@@ -144,39 +150,37 @@ export default function InventoryAuditScreen() {
     }
 
     // Create audit log
-    const logItems = auditItems
+    const logItems: AuditLogItem[] = auditItems
       .filter((item) => item.physicalCount !== '')
       .map((item) => {
         const actual = parseInt(item.physicalCount, 10);
         return {
+          productId: item.productId,
+          variantId: item.variantId,
           productName: item.productName,
           variantName: item.variantName,
-          expected: item.expectedStock,
-          actual,
+          sku: item.sku,
+          expectedStock: item.expectedStock,
+          actualStock: actual,
           discrepancy: actual - item.expectedStock,
         };
       });
 
     const totalDiscrepancy = logItems.reduce((sum, item) => sum + Math.abs(item.discrepancy), 0);
 
-    const newLog: AuditLogDisplay = {
-      id: Date.now().toString(),
-      date: new Date().toISOString(),
-      items: logItems,
-      totalDiscrepancy,
-    };
-
-    setAuditLogs((prev) => [newLog, ...prev]);
+    const logId = Date.now().toString();
 
     // Also log to global store (for audit banner tracking)
     const now = new Date();
     addAuditLog({
-      id: Date.now().toString(),
+      id: logId,
       month: now.getMonth(),
       year: now.getFullYear(),
       itemsAudited: logItems.length,
       discrepancies: totalDiscrepancy,
       completedAt: now.toISOString(),
+      performedBy,
+      items: logItems,
     });
 
     // Update stock levels to match physical count and sync to Supabase
@@ -466,7 +470,7 @@ export default function InventoryAuditScreen() {
           </View>
 
           <ScrollView className="flex-1 px-5 pt-4 bg-gray-50" showsVerticalScrollIndicator={false}>
-            {auditLogs.length === 0 ? (
+            {sortedAuditLogs.length === 0 ? (
               <View className="items-center justify-center py-20">
                 <View className="w-20 h-20 rounded-2xl items-center justify-center mb-4 bg-gray-100">
                   <History size={40} color="#999999" strokeWidth={1.5} />
@@ -475,55 +479,103 @@ export default function InventoryAuditScreen() {
                 <Text className="text-gray-400 text-sm">Complete your first audit to see history</Text>
               </View>
             ) : (
-              auditLogs.map((log, index) => (
-                <Animated.View
-                  key={log.id}
-                  entering={FadeInDown.delay(index * 50).springify()}
-                  className="mb-3"
-                >
-                  <View className="bg-white rounded-xl border border-gray-200 p-4">
-                    <View className="flex-row items-center justify-between mb-3">
-                      <Text className="text-gray-900 font-bold">
-                        {new Date(log.date).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric',
-                        })}
-                      </Text>
-                      <View
-                        className="px-2 py-1 rounded-md"
-                        style={{
-                          backgroundColor:
-                            log.totalDiscrepancy === 0 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
-                        }}
-                      >
-                        <Text
-                          style={{ color: log.totalDiscrepancy === 0 ? '#10B981' : '#F59E0B' }}
-                          className="text-xs font-semibold"
+              sortedAuditLogs.map((log, index) => {
+                const isExpanded = expandedAuditId === log.id;
+                return (
+                  <Animated.View
+                    key={log.id}
+                    entering={FadeInDown.delay(index * 50).springify()}
+                    layout={Layout.springify()}
+                    className="mb-3"
+                  >
+                    <Pressable
+                      onPress={() => setExpandedAuditId(isExpanded ? null : log.id)}
+                      className="bg-white rounded-xl border border-gray-200 overflow-hidden"
+                    >
+                      <View className="p-4 flex-row items-center justify-between">
+                        <View className="flex-row items-center flex-1">
+                          {isExpanded ? (
+                            <ChevronDown size={18} color="#666666" strokeWidth={2} />
+                          ) : (
+                            <ChevronRight size={18} color="#666666" strokeWidth={2} />
+                          )}
+                          <View className="ml-2 flex-1">
+                            <Text className="text-gray-900 font-bold">
+                              {new Date(log.completedAt).toLocaleDateString('en-US', {
+                                weekday: 'short',
+                                month: 'short',
+                                day: 'numeric',
+                                year: 'numeric',
+                              })}
+                            </Text>
+                            <Text className="text-gray-400 text-xs mt-0.5">
+                              {log.performedBy ? `By ${log.performedBy}` : 'By team'} • {log.itemsAudited} items
+                            </Text>
+                          </View>
+                        </View>
+                        <View
+                          className="px-2 py-1 rounded-md ml-2"
+                          style={{
+                            backgroundColor:
+                              log.discrepancies === 0 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                          }}
                         >
-                          {log.totalDiscrepancy === 0 ? 'No Discrepancies' : `${log.totalDiscrepancy} units off`}
-                        </Text>
+                          <Text
+                            style={{ color: log.discrepancies === 0 ? '#10B981' : '#F59E0B' }}
+                            className="text-xs font-semibold"
+                          >
+                            {log.discrepancies === 0 ? 'Accurate' : `${log.discrepancies} off`}
+                          </Text>
+                        </View>
                       </View>
-                    </View>
-                    <Text className="text-gray-500 text-sm">
-                      {log.items.length} items audited
-                    </Text>
-                    {log.items.filter((i) => i.discrepancy !== 0).slice(0, 3).map((item, i) => (
-                      <View key={i} className="flex-row items-center mt-2 pt-2 border-t border-gray-100">
-                        <Text className="text-gray-600 text-sm flex-1" numberOfLines={1}>
-                          {item.productName} — {item.variantName}
-                        </Text>
-                        <Text
-                          className="text-sm font-semibold"
-                          style={{ color: item.discrepancy > 0 ? '#10B981' : '#EF4444' }}
-                        >
-                          {item.discrepancy > 0 ? '+' : ''}{item.discrepancy}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                </Animated.View>
-              ))
+
+                      {isExpanded && (
+                        <View className="border-t border-gray-100 bg-gray-50 px-4 pb-4 pt-2">
+                          {(log.items ?? []).length === 0 ? (
+                            <Text className="text-gray-500 text-sm">No discrepancies recorded.</Text>
+                          ) : (
+                            (log.items ?? []).map((item) => (
+                              <View
+                                key={`${log.id}-${item.variantId}`}
+                                className="flex-row items-center justify-between py-3"
+                              >
+                                <View className="flex-1 pr-3">
+                                  <Text className="text-gray-800 text-sm font-semibold" numberOfLines={1}>
+                                    {item.productName}
+                                  </Text>
+                                  <Text className="text-gray-400 text-xs" numberOfLines={1}>
+                                    {item.variantName} • SKU {item.sku}
+                                  </Text>
+                                </View>
+                                <View className="items-end">
+                                  <Text className="text-gray-500 text-xs">Counted / Expected</Text>
+                                  <Text className="text-sm font-bold">
+                                    {item.actualStock} / {item.expectedStock}
+                                  </Text>
+                                  <View
+                                    className="px-2 py-1 mt-1 rounded-full"
+                                    style={{
+                                      backgroundColor:
+                                        item.discrepancy >= 0 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                                    }}
+                                  >
+                                    <Text
+                                      className="text-xs font-semibold"
+                                      style={{ color: item.discrepancy >= 0 ? '#10B981' : '#EF4444' }}
+                                    >
+                                      {item.discrepancy >= 0 ? '+' : ''}{item.discrepancy}
+                                    </Text>
+                                  </View>
+                                </View>
+                              </View>
+                            ))
+                          )}
+                        </View>
+                      )}
+                    </Pressable>
+                  </Animated.View>
+                );
+              })
             )}
             <View className="h-24" />
           </ScrollView>

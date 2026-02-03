@@ -1,9 +1,9 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { View, Text, ScrollView, Pressable, TextInput, Platform, Switch, Modal, KeyboardAvoidingView, Keyboard, Image } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ArrowLeft, X, Plus, Trash2, Package, Hash, Check, ChevronDown, Search, Camera, ImageIcon } from 'lucide-react-native';
-import useFyllStore, { ProductVariant, generateProductId, generateVariantBarcode, formatCurrency } from '@/lib/state/fyll-store';
+import { ArrowLeft, X, Plus, Trash2, Package, Hash, Check, ChevronDown, Search, Camera, ImageIcon, Briefcase } from 'lucide-react-native';
+import useFyllStore, { ProductVariant, generateProductId, generateVariantBarcode, formatCurrency, ProductType } from '@/lib/state/fyll-store';
 import useAuthStore from '@/lib/state/auth-store';
 import { cn } from '@/lib/cn';
 import * as Haptics from 'expo-haptics';
@@ -53,6 +53,8 @@ export default function NewProductScreen() {
   const currentUser = useAuthStore((s) => s.currentUser);
   const businessId = useAuthStore((s) => s.businessId);
 
+  const [productType, setProductType] = useState<ProductType>('product');
+  const isService = productType === 'service';
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [categories, setCategories] = useState<string[]>([]);
@@ -89,6 +91,25 @@ export default function NewProductScreen() {
   const [useGlobalPrice, setUseGlobalPrice] = useState(true);
   const [globalPrice, setGlobalPrice] = useState('');
 
+  useEffect(() => {
+    if (!isService) return;
+    setHasVariants(false);
+    setUseGlobalPrice(true);
+    setVariants([
+      {
+        id: Math.random().toString(36).substring(2, 10),
+        variableValues: {},
+        stock: '0',
+        sellingPrice: '',
+      },
+    ]);
+  }, [isService]);
+
+  const handleGlobalPriceToggle = (value: boolean) => {
+    if (isService) return;
+    setUseGlobalPrice(value);
+  };
+
   // Filter categories based on search
   const filteredCategories = useMemo(() => {
     if (!categoryInput.trim()) return globalCategories.filter(cat => !categories.includes(cat));
@@ -99,6 +120,7 @@ export default function NewProductScreen() {
   }, [globalCategories, categoryInput, categories]);
 
   const handleToggleVariants = (value: boolean) => {
+    if (isService) return;
     setHasVariants(value);
     if (value) {
       setVariants((prev) => {
@@ -318,6 +340,7 @@ export default function NewProductScreen() {
           variants: productVariants,
           lowStockThreshold: parseInt(lowStockThreshold, 10) || 5,
           createdAt: new Date().toISOString(),
+          productType,
           imageUrl: productImageUrl || undefined,
           createdBy: currentUser?.name,
           // New Design fields
@@ -352,7 +375,8 @@ export default function NewProductScreen() {
 
   // Check if all variants have images
   const allVariantsHaveImages = variants.length > 0 && variants.every(v => !!v.imageUrl);
-  const isValid = name.trim() && variants.length > 0 && allVariantsHaveImages;
+  const hasServicePrice = isService ? globalPrice.trim().length > 0 : true;
+  const isValid = name.trim() && variants.length > 0 && allVariantsHaveImages && hasServicePrice;
 
   return (
     <View className="flex-1 bg-gray-50">
@@ -365,13 +389,69 @@ export default function NewProductScreen() {
           >
             <ArrowLeft size={20} color="#111111" strokeWidth={2} />
           </Pressable>
-          <Text className="text-gray-900 text-lg font-bold">New Product</Text>
-          {/* Empty spacer for layout balance */}
+          <View className="items-center">
+            <Text className="text-gray-900 text-lg font-semibold">
+              New {isService ? 'Service' : 'Product'}
+            </Text>
+            <Text className="text-xs text-gray-500">
+              {isService ? 'Capture service offerings without inventory' : 'Track inventory, variants, and pricing'}
+            </Text>
+          </View>
           <View className="w-10 h-10" />
+        </View>
+        <View className="px-5 pb-4 pt-2 bg-white border-b border-gray-200">
+          <View
+            className="rounded-full border border-gray-200 bg-white flex-row overflow-hidden"
+            style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 3 }}
+          >
+            {[
+              {
+                key: 'product',
+                title: 'Inventory',
+                subtitle: 'Products',
+                icon: Package,
+              },
+              {
+                key: 'service',
+                title: 'Services',
+                subtitle: 'Experiences',
+                icon: Briefcase,
+              },
+            ].map((tab) => {
+              const active = productType === tab.key;
+              const IconComponent = tab.icon;
+              return (
+                <Pressable
+                  key={tab.key}
+                  onPress={() => setProductType(tab.key as ProductType)}
+                  className="flex-1 px-4 py-3 items-center justify-center"
+                  style={{
+                    backgroundColor: active ? '#111111' : '#F5F5F5',
+                    borderRadius: 999,
+                  }}
+                >
+                  <IconComponent size={18} color={active ? '#FFFFFF' : '#A3A3A3'} strokeWidth={1.8} />
+                  <Text className={cn('text-sm font-semibold mt-1', active ? 'text-white' : 'text-gray-600')}>
+                    {tab.title}
+                  </Text>
+                  <Text className="text-[11px] uppercase tracking-[0.2em]" style={{ color: active ? '#E5E7EB' : '#9CA3AF' }}>
+                    {tab.subtitle}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <View className="mt-3 px-2">
+            <Text className="text-center text-[11px] text-gray-500">
+              {isService
+                ? 'Services skip inventory tracking, variants, and low stock warnings.'
+                : 'Products include rich variant controls, inventory math, and pricing settings.'}
+            </Text>
+          </View>
         </View>
 
         <KeyboardAwareScrollView
-          className="flex-1 px-5"
+          className="flex-1 px-5 pb-6"
           showsVerticalScrollIndicator={false}
           extraScrollHeight={100}
           enableOnAndroid={true}
@@ -385,14 +465,16 @@ export default function NewProductScreen() {
                   <Package size={20} color="#111111" strokeWidth={2} />
                 </View>
                 <View>
-                  <Text className="text-gray-900 font-bold text-base">Product Details</Text>
-                  <Text className="text-gray-500 text-xs">Basic product information</Text>
+                  <Text className="text-gray-900 font-bold text-base">{isService ? 'Service Details' : 'Product Details'}</Text>
+                  <Text className="text-gray-500 text-xs">{isService ? 'Define the service you offer' : 'Basic product information'}</Text>
                 </View>
               </View>
 
               {/* Product Image */}
               <View className="mb-3">
-                <Text className="text-gray-500 text-xs font-medium mb-1.5 uppercase tracking-wider">Product Image</Text>
+                <Text className="text-gray-500 text-xs font-medium mb-1.5 uppercase tracking-wider">
+                  {isService ? 'Service Image' : 'Product Image'}
+                </Text>
                 {/* Error Toast */}
                 {imagePicker.error && (
                   <View className="mb-2 p-3 rounded-xl" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)' }}>
@@ -457,7 +539,9 @@ export default function NewProductScreen() {
 
               {/* Product Name */}
               <View className="mb-3">
-                <Text className="text-gray-500 text-xs font-medium mb-1.5 uppercase tracking-wider">Product Name *</Text>
+                <Text className="text-gray-500 text-xs font-medium mb-1.5 uppercase tracking-wider">
+                  {isService ? 'Service Name *' : 'Product Name *'}
+                </Text>
                 <View className="rounded-xl px-4 py-3 border border-gray-300 bg-white">
                   <TextInput
                     placeholder="e.g. Classic Aviator Sunglasses"
@@ -561,20 +645,22 @@ export default function NewProductScreen() {
               </View>
 
               {/* Low Stock Threshold */}
-              <View className="mb-3">
-                <Text className="text-gray-500 text-xs font-medium mb-1.5 uppercase tracking-wider">Low Stock Alert Threshold</Text>
-                <View className="rounded-xl px-4 flex-row items-center" style={{ height: 52, backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.input.border }}>
-                  <TextInput
-                    placeholder="5"
-                    placeholderTextColor={colors.text.muted}
-                    value={lowStockThreshold}
-                    onChangeText={setLowStockThreshold}
-                    keyboardType="number-pad"
-                    style={{ color: colors.text.primary, fontSize: 14, flex: 1 }}
-                    selectionColor={colors.text.primary}
-                  />
+              {!isService && (
+                <View className="mb-3">
+                  <Text className="text-gray-500 text-xs font-medium mb-1.5 uppercase tracking-wider">Low Stock Alert Threshold</Text>
+                  <View className="rounded-xl px-4 flex-row items-center" style={{ height: 52, backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.input.border }}>
+                    <TextInput
+                      placeholder="5"
+                      placeholderTextColor={colors.text.muted}
+                      value={lowStockThreshold}
+                      onChangeText={setLowStockThreshold}
+                      keyboardType="number-pad"
+                      style={{ color: colors.text.primary, fontSize: 14, flex: 1 }}
+                      selectionColor={colors.text.primary}
+                    />
+                  </View>
                 </View>
-              </View>
+              )}
 
               {/* New Design Toggle */}
               <View className="mb-3">
@@ -611,97 +697,118 @@ export default function NewProductScreen() {
             </View>
           </View>
 
-            {/* Global Pricing Section */}
-            <View className="mt-4">
-              <View className="bg-white rounded-2xl p-4 border border-gray-200">
-                <View className="flex-row items-center justify-between mb-3">
-                  <View className="flex-1">
-                    <Text className="text-gray-900 font-bold text-base">Global Pricing</Text>
-                    <Text className="text-gray-500 text-xs">Set one price for all variants</Text>
-                  </View>
-                  <Switch
-                    value={useGlobalPrice}
-                    onValueChange={setUseGlobalPrice}
-                    trackColor={{ false: '#767577', true: '#111111' }}
-                    thumbColor="#FFFFFF"
-                  />
-                </View>
-                {useGlobalPrice && (
-                  <View>
-                    <Text className="text-gray-500 text-xs font-medium mb-1.5 uppercase tracking-wider">Sale Price (All Variants)</Text>
-                    <View className="flex-row items-center rounded-xl px-4 bg-white border border-gray-400" style={{ height: 52, justifyContent: 'center' }}>
-                      <Text className="text-gray-500 text-sm mr-2">₦</Text>
-                      <TextInput
-                        placeholder="Enter price for all variants"
-                        placeholderTextColor="#9CA3AF"
-                        value={globalPrice}
-                        onChangeText={setGlobalPrice}
-                        keyboardType="decimal-pad"
-                        className="flex-1 text-gray-900 text-sm"
-                        selectionColor="#111111"
-                      />
+            {!isService ? (
+              <View className="mt-4">
+                <View className="bg-white rounded-2xl p-4 border border-gray-200">
+                  <View className="flex-row items-center justify-between mb-3">
+                    <View className="flex-1">
+                      <Text className="text-gray-900 font-bold text-base">Global Pricing</Text>
+                      <Text className="text-gray-500 text-xs">Set one price for all variants</Text>
                     </View>
+                    <Switch
+                      value={useGlobalPrice}
+                      onValueChange={handleGlobalPriceToggle}
+                      trackColor={{ false: '#767577', true: '#111111' }}
+                      thumbColor="#FFFFFF"
+                    />
                   </View>
-                )}
-                {!useGlobalPrice && (
-                  <Text className="text-gray-500 text-xs italic">Set individual prices per variant below</Text>
-                )}
+                  {useGlobalPrice && (
+                    <View>
+                      <Text className="text-gray-500 text-xs font-medium mb-1.5 uppercase tracking-wider">Sale Price (All Variants)</Text>
+                      <View className="flex-row items-center rounded-xl px-4 bg-white border border-gray-400" style={{ height: 52, justifyContent: 'center' }}>
+                        <Text className="text-gray-500 text-sm mr-2">₦</Text>
+                        <TextInput
+                          placeholder="Enter price for all variants"
+                          placeholderTextColor="#9CA3AF"
+                          value={globalPrice}
+                          onChangeText={setGlobalPrice}
+                          keyboardType="decimal-pad"
+                          className="flex-1 text-gray-900 text-sm"
+                          selectionColor="#111111"
+                        />
+                      </View>
+                    </View>
+                  )}
+                  {!useGlobalPrice && (
+                    <Text className="text-gray-500 text-xs italic">Set individual prices per variant below</Text>
+                  )}
+                </View>
               </View>
-            </View>
+            ) : (
+              <View className="mt-4">
+                <View className="bg-white rounded-2xl p-4 border border-gray-200">
+                  <Text className="text-gray-900 font-bold text-base">Service Pricing</Text>
+                  <Text className="text-gray-500 text-xs mb-3">Define the default charge for this service</Text>
+                  <View className="flex-row items-center rounded-xl px-4 bg-white border border-gray-400" style={{ height: 52, justifyContent: 'center' }}>
+                    <Text className="text-gray-500 text-sm mr-2">₦</Text>
+                    <TextInput
+                      placeholder="Enter your service price"
+                      placeholderTextColor="#9CA3AF"
+                      value={globalPrice}
+                      onChangeText={setGlobalPrice}
+                      keyboardType="decimal-pad"
+                      className="flex-1 text-gray-900 text-sm"
+                      selectionColor="#111111"
+                    />
+                  </View>
+                </View>
+              </View>
+            )}
 
             {/* Variants Section */}
-            <View className="mt-4">
-              <View className="flex-row items-center justify-between mb-3">
-                <View>
-                  <Text className="text-gray-900 font-bold text-base">Product Variants</Text>
-                  <Text className="text-gray-500 text-xs">
-                    {hasVariants ? 'Add variants with pricing' : 'Single product (no variants)'}
-                  </Text>
+            {!isService && (
+              <View className="mt-4">
+                <View className="flex-row items-center justify-between mb-3">
+                  <View>
+                    <Text className="text-gray-900 font-bold text-base">Product Variants</Text>
+                    <Text className="text-gray-500 text-xs">
+                      {hasVariants ? 'Add variants with pricing' : 'Single product (no variants)'}
+                    </Text>
+                  </View>
+                  <View className="flex-row items-center">
+                    <Text className="text-gray-500 text-xs mr-2">Has variants</Text>
+                    <Switch
+                      value={hasVariants}
+                      onValueChange={handleToggleVariants}
+                      trackColor={{ false: '#D1D5DB', true: '#111111' }}
+                      thumbColor="#FFFFFF"
+                    />
+                  </View>
                 </View>
-                <View className="flex-row items-center">
-                  <Text className="text-gray-500 text-xs mr-2">Has variants</Text>
-                  <Switch
-                    value={hasVariants}
-                    onValueChange={handleToggleVariants}
-                    trackColor={{ false: '#D1D5DB', true: '#111111' }}
-                    thumbColor="#FFFFFF"
-                  />
-                </View>
-              </View>
-              {hasVariants && (
-                <View className="flex-row justify-end mb-3">
+                {hasVariants && (
+                  <View className="flex-row justify-end mb-3">
+                    <Pressable
+                      onPress={handleAddVariant}
+                      className="rounded-xl overflow-hidden active:opacity-80 bg-[#111111] px-3 py-2 flex-row items-center"
+                    >
+                      <Plus size={16} color="#FFFFFF" strokeWidth={2.5} />
+                      <Text className="text-white font-semibold text-xs ml-1">Add</Text>
+                    </Pressable>
+                  </View>
+                )}
+
+                {/* Variant image error toast */}
+                {variantImageError && (
+                  <View className="mb-3 p-3 rounded-xl" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)' }}>
+                    <Text className="text-red-500 text-sm text-center">{variantImageError}</Text>
+                  </View>
+                )}
+
+                {hasVariants && variants.length === 0 && (
                   <Pressable
                     onPress={handleAddVariant}
-                    className="rounded-xl overflow-hidden active:opacity-80 bg-[#111111] px-3 py-2 flex-row items-center"
+                    className="active:opacity-70"
                   >
-                    <Plus size={16} color="#FFFFFF" strokeWidth={2.5} />
-                    <Text className="text-white font-semibold text-xs ml-1">Add</Text>
-                  </Pressable>
-                </View>
-              )}
-
-              {/* Variant image error toast */}
-              {variantImageError && (
-                <View className="mb-3 p-3 rounded-xl" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)' }}>
-                  <Text className="text-red-500 text-sm text-center">{variantImageError}</Text>
-                </View>
-              )}
-
-              {hasVariants && variants.length === 0 && (
-                <Pressable
-                  onPress={handleAddVariant}
-                  className="active:opacity-70"
-                >
-                  <View className="bg-white rounded-2xl p-4 border border-gray-200 items-center py-8">
-                    <View className="w-14 h-14 rounded-2xl items-center justify-center mb-3 bg-gray-100">
-                      <Package size={28} color="#9CA3AF" strokeWidth={1.5} />
+                    <View className="bg-white rounded-2xl p-4 border border-gray-200 items-center py-8">
+                      <View className="w-14 h-14 rounded-2xl items-center justify-center mb-3 bg-gray-100">
+                        <Package size={28} color="#9CA3AF" strokeWidth={1.5} />
+                      </View>
+                      <Text className="text-gray-500 text-sm mb-1">No variants yet</Text>
+                      <Text className="text-gray-400 text-xs">Tap to add your first variant</Text>
                     </View>
-                    <Text className="text-gray-500 text-sm mb-1">No variants yet</Text>
-                    <Text className="text-gray-400 text-xs">Tap to add your first variant</Text>
-                  </View>
-                </Pressable>
-              )}
-              {(hasVariants ? variants : variants.slice(0, 1)).map((variant, index) => (
+                  </Pressable>
+                )}
+                {(hasVariants ? variants : variants.slice(0, 1)).map((variant, index) => (
                   <View
                     key={variant.id}
                     className="mb-3"
@@ -866,11 +973,12 @@ export default function NewProductScreen() {
                       )}
                     </View>
                   </View>
-              ))}
-            </View>
+                ))}
+              </View>
+            )}
 
             {/* Summary */}
-            {variants.length > 0 && (
+            {!isService && variants.length > 0 && (
               <View className="mb-8 mt-2">
                 <View className="bg-white rounded-2xl p-4 border border-gray-200">
                   <Text className="text-gray-500 text-xs font-medium mb-3 uppercase tracking-wider">Summary</Text>

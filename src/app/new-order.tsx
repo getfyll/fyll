@@ -1,13 +1,12 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Modal, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Modal, Platform, StyleProp, ViewStyle } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { X, Plus, Minus, Trash2, ChevronDown, Check, Search, Package, MapPin, User, Users, Calendar, ChevronLeft, ChevronRight, Sparkles, Pencil } from 'lucide-react-native';
+import { X, Plus, Minus, Trash2, ChevronDown, Check, Search, Package, User as UserIcon, Users, Calendar, ChevronLeft, ChevronRight, Sparkles, Pencil } from 'lucide-react-native';
 import useFyllStore, { OrderItem, OrderService, generateOrderNumber, formatCurrency, NIGERIA_STATES, Customer } from '@/lib/state/fyll-store';
 import useAuthStore from '@/lib/state/auth-store';
 import { cn } from '@/lib/cn';
 import * as Haptics from 'expo-haptics';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import { Button, StickyButtonContainer } from '@/components/Button';
 import { useBreakpoint } from '@/lib/useBreakpoint';
 
@@ -33,12 +32,13 @@ export default function NewOrderScreen() {
     websiteOrderReference?: string;
     notes?: string;
     items?: string;
+    prefillProductId?: string;
+    prefillVariantId?: string;
   }>();
   const insets = useSafeAreaInsets();
   const { isDesktop } = useBreakpoint();
   const products = useFyllStore((s) => s.products);
   const saleSources = useFyllStore((s) => s.saleSources);
-  const orderStatuses = useFyllStore((s) => s.orderStatuses);
   const customServices = useFyllStore((s) => s.customServices);
   const paymentMethods = useFyllStore((s) => s.paymentMethods);
   const customers = useFyllStore((s) => s.customers);
@@ -86,6 +86,30 @@ export default function NewOrderScreen() {
   const [discountAmount, setDiscountAmount] = useState('');
   const [websiteOrderRef, setWebsiteOrderRef] = useState(params.websiteOrderReference || '');
 
+  const prefillProductId = params.prefillProductId;
+  const prefillVariantId = params.prefillVariantId;
+
+  useEffect(() => {
+    if (!prefillProductId || !prefillVariantId) return;
+    const normalizedProductId = prefillProductId.toString();
+    const normalizedVariantId = prefillVariantId.toString();
+
+    if (items.some((item) => item.productId === normalizedProductId && item.variantId === normalizedVariantId)) return;
+
+    const product = products.find((p) => String(p.id) === normalizedProductId);
+    const variant = product?.variants.find((v) => String(v.id) === normalizedVariantId);
+    if (!product || !variant) return;
+
+    setItems([
+      {
+        productId: product.id,
+        variantId: variant.id,
+        quantity: 1,
+        unitPrice: variant.sellingPrice || 0,
+      },
+    ]);
+  }, [prefillProductId, prefillVariantId, products, items]);
+
   // UI state
   const [searchQuery, setSearchQuery] = useState('');
   const [showProductSearch, setShowProductSearch] = useState(false);
@@ -103,11 +127,12 @@ export default function NewOrderScreen() {
   useEffect(() => {
     if (params.aiParsed === 'true' && params.items) {
       try {
-        const parsedItems: Array<{
+        const parsedItems: {
           productName: string;
           variantInfo: string;
           quantity: number;
-        }> = JSON.parse(params.items);
+          unitPrice?: number;
+        }[] = JSON.parse(params.items);
 
         // Try to match AI-parsed products to actual products in inventory
         const matchedItems: OrderItem[] = [];
@@ -431,7 +456,7 @@ export default function NewOrderScreen() {
     return { productName: product?.name || 'Unknown', variantName, stock: variant?.stock || 0 };
   };
 
-  const contentWrapperStyle = isDesktop
+  const contentWrapperStyle: StyleProp<ViewStyle> = isDesktop
     ? { maxWidth: 760, alignSelf: 'center', width: '100%' }
     : undefined;
 
@@ -508,7 +533,7 @@ export default function NewOrderScreen() {
                         className="flex-row items-center p-3 border-b border-gray-200 active:bg-gray-100"
                       >
                         <View className="w-10 h-10 rounded-full bg-emerald-100 items-center justify-center mr-3">
-                          <User size={18} color="#059669" strokeWidth={2} />
+                          <UserIcon size={18} color="#059669" strokeWidth={2} />
                         </View>
                         <View className="flex-1">
                           <Text className="text-gray-900 font-semibold text-sm">{customer.fullName}</Text>

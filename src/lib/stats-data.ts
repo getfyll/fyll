@@ -1,5 +1,4 @@
 // Stats screen mock data types and generator
-import { formatCurrency } from '@/lib/state/fyll-store';
 
 export interface TodaySummary {
   sales: number;

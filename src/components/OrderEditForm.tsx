@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Modal, ActivityIndicator, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { X, Plus, Minus, Trash2, ChevronDown, Check, Search, Package, MapPin, User, Users, Calendar, ChevronLeft, ChevronRight, Pencil } from 'lucide-react-native';
+import { X, Plus, Minus, Trash2, ChevronDown, Check, Search, Package, MapPin, User as UserIcon, Users, Calendar, ChevronLeft, ChevronRight, Pencil } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import useFyllStore, { OrderItem, OrderService, formatCurrency, NIGERIA_STATES, Customer } from '@/lib/state/fyll-store';
 import useAuthStore from '@/lib/state/auth-store';
@@ -487,7 +487,7 @@ export function OrderEditForm({ orderId, showHeader = true, onClose }: OrderEdit
                         className="flex-row items-center p-3 border-b border-gray-200 active:bg-gray-100"
                       >
                         <View className="w-10 h-10 rounded-full bg-emerald-100 items-center justify-center mr-3">
-                          <User size={18} color="#059669" strokeWidth={2} />
+                          <UserIcon size={18} color="#059669" strokeWidth={2} />
                         </View>
                         <View className="flex-1">
                           <Text className="text-gray-900 font-semibold text-sm">{customer.fullName}</Text>

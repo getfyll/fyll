@@ -231,13 +231,15 @@ const useAuthStore = create<AuthStore>()(
             businessId,
           };
 
-          supabase
-            .from('team_members')
-            .update({ last_login: new Date().toISOString() })
-            .eq('user_id', authData.user.id)
-            .eq('business_id', businessId)
-            .then(() => { })
-            .catch(() => { });
+          try {
+            await supabase
+              .from('team_members')
+              .update({ last_login: new Date().toISOString() })
+              .eq('user_id', authData.user.id)
+              .eq('business_id', businessId);
+          } catch (error) {
+            console.warn('Failed to update team member login timestamp:', error);
+          }
 
           set({
             isAuthenticated: true,
@@ -252,19 +254,21 @@ const useAuthStore = create<AuthStore>()(
             JSON.stringify({ businessId, name: userData.name })
           );
 
-          supabase
-            .from('businesses')
-            .select('name')
-            .eq('id', businessId)
-            .maybeSingle()
-            .then(({ data, error }) => {
-              if (error || !data?.name) return;
+          try {
+            const { data, error: businessError } = await supabase
+              .from('businesses')
+              .select('name')
+              .eq('id', businessId)
+              .maybeSingle();
+            if (!businessError && data?.name) {
               void storage.setItem(
                 `fyll_business_settings:${businessId}`,
                 JSON.stringify({ businessName: data.name })
               );
-            })
-            .catch(() => { });
+            }
+          } catch (error) {
+            console.warn('Failed to cache business settings:', error);
+          }
 
           get()
             .refreshTeamData()

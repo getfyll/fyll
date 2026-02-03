@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import {
   FileText,
   Calendar,
-  User,
+  User as UserIcon,
   Package,
   Tag,
   MessageSquare,
@@ -313,7 +313,7 @@ export function CaseDetailPanel({
             {/* Created By */}
             {caseItem.createdBy && (
               <View className="flex-row items-center gap-1.5 mt-3">
-                <User size={12} color={colors.text.muted} strokeWidth={1.5} />
+                <UserIcon size={12} color={colors.text.muted} strokeWidth={1.5} />
                 <Text style={{ color: colors.text.muted }} className="text-xs">
                   Created by {caseItem.createdBy}
                 </Text>
@@ -351,7 +351,7 @@ export function CaseDetailPanel({
                   {caseItem.orderNumber}
                 </Text>
                 <View className="flex-row items-center gap-1 mt-0.5">
-                  <User size={12} color={colors.text.muted} strokeWidth={1.5} />
+                  <UserIcon size={12} color={colors.text.muted} strokeWidth={1.5} />
                   <Text style={{ color: colors.text.secondary }} className="text-sm">
                     {caseItem.customerName}
                   </Text>

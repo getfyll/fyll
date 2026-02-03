@@ -7,6 +7,7 @@ import useAuthStore from '@/lib/state/auth-store';
 import { useThemeColors } from '@/lib/theme';
 import { DetailSection, DetailImagePreview, DetailActionButton, DetailKeyValue } from './SplitViewLayout';
 import * as Haptics from 'expo-haptics';
+import { normalizeProductType } from '@/lib/product-utils';
 
 interface ProductDetailPanelProps {
   productId: string;
@@ -57,9 +58,15 @@ export function ProductDetailPanel({ productId, onClose }: ProductDetailPanelPro
     );
   }
 
-  const totalStock = product.variants.reduce((sum, v) => sum + v.stock, 0);
+  const productType = normalizeProductType(product.productType);
+  const isService = productType === 'service';
+  const totalStock = isService ? 0 : product.variants.reduce((sum, v) => sum + v.stock, 0);
   const totalValue = product.variants.reduce((sum, v) => sum + v.stock * v.sellingPrice, 0);
-  const lowStockCount = product.variants.filter((v) => v.stock <= effectiveThreshold).length;
+  const lowStockCount = isService
+    ? 0
+    : product.variants.filter((v) => v.stock > 0 && v.stock <= effectiveThreshold).length;
+  const servicePrice = product.variants[0]?.sellingPrice ?? 0;
+  const showStockControls = isOwner && !isService;
 
   const handleAdjustStock = (variantId: string, delta: number) => {
     if (Platform.OS !== 'web') {
@@ -136,13 +143,20 @@ export function ProductDetailPanel({ productId, onClose }: ProductDetailPanelPro
             borderColor: colors.border.light,
           }}
         >
-          <Text style={{ color: colors.text.tertiary, fontSize: 12, fontWeight: '500' }}>Total Stock</Text>
-          <Text style={{ color: colors.text.primary, fontSize: 24, fontWeight: '700', marginTop: 4 }}>
-            {totalStock}
+          <Text style={{ color: colors.text.tertiary, fontSize: 12, fontWeight: '500' }}>
+            {isService ? 'Service Type' : 'Total Stock'}
           </Text>
-          {lowStockCount > 0 && (
+          <Text style={{ color: colors.text.primary, fontSize: 24, fontWeight: '700', marginTop: 4 }}>
+            {isService ? 'Service' : totalStock}
+          </Text>
+          {!isService && lowStockCount > 0 && (
             <View style={{ backgroundColor: 'rgba(245, 158, 11, 0.15)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, marginTop: 6, alignSelf: 'flex-start' }}>
               <Text style={{ color: '#F59E0B', fontSize: 12, fontWeight: '600' }}>{lowStockCount} low</Text>
+            </View>
+          )}
+          {!isService && lowStockCount === 0 && totalStock === 0 && (
+            <View style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, marginTop: 6, alignSelf: 'flex-start' }}>
+              <Text style={{ color: '#EF4444', fontSize: 12, fontWeight: '600' }}>Out of stock</Text>
             </View>
           )}
         </View>
@@ -157,11 +171,15 @@ export function ProductDetailPanel({ productId, onClose }: ProductDetailPanelPro
               borderColor: colors.border.light,
             }}
           >
-            <Text style={{ color: colors.text.tertiary, fontSize: 12, fontWeight: '500' }}>Stock Value</Text>
-            <Text style={{ color: '#10B981', fontSize: 24, fontWeight: '700', marginTop: 4 }}>
-              {formatCurrency(totalValue)}
-            </Text>
-            <Text style={{ color: colors.text.muted, fontSize: 11, marginTop: 6 }}>at retail price</Text>
+          <Text style={{ color: colors.text.tertiary, fontSize: 12, fontWeight: '500' }}>
+            {isService ? 'Service Price' : 'Stock Value'}
+          </Text>
+          <Text style={{ color: '#10B981', fontSize: 24, fontWeight: '700', marginTop: 4 }}>
+            {formatCurrency(isService ? servicePrice : totalValue)}
+          </Text>
+          <Text style={{ color: colors.text.muted, fontSize: 11, marginTop: 6 }}>
+            {isService ? 'default charge' : 'at retail price'}
+          </Text>
           </View>
         )}
       </View>
@@ -203,61 +221,73 @@ export function ProductDetailPanel({ productId, onClose }: ProductDetailPanelPro
               </View>
 
               {/* Stock Controls */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Pressable
-                    onPress={() => router.push(`/restock?productId=${product.id}&variantId=${variant.id}`)}
+              {showStockControls && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Pressable
+                      onPress={() =>
+                        router.push({
+                          pathname: '/restock',
+                          params: { productId: product.id, variantId: variant.id },
+                        })
+                      }
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        paddingHorizontal: 10,
+                        paddingVertical: 6,
+                        borderRadius: 8,
+                        backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                      }}
+                    >
+                      <PackagePlus size={14} color="#10B981" strokeWidth={2} />
+                      <Text style={{ color: '#10B981', fontSize: 12, fontWeight: '600', marginLeft: 4 }}>Restock</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() =>
+                        router.push({
+                          pathname: '/label-print',
+                          params: { productId: product.id, variantId: variant.id },
+                        })
+                      }
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 6,
+                        borderRadius: 8,
+                        backgroundColor: colors.bg.secondary,
+                      }}
+                    >
+                      <Printer size={14} color={colors.text.tertiary} strokeWidth={2} />
+                    </Pressable>
+                  </View>
+
+                  <View
                     style={{
                       flexDirection: 'row',
                       alignItems: 'center',
-                      paddingHorizontal: 10,
-                      paddingVertical: 6,
-                      borderRadius: 8,
-                      backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                      borderRadius: 10,
+                      backgroundColor: colors.border.light,
                     }}
                   >
-                    <PackagePlus size={14} color="#10B981" strokeWidth={2} />
-                    <Text style={{ color: '#10B981', fontSize: 12, fontWeight: '600', marginLeft: 4 }}>Restock</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => router.push(`/label-print?productId=${product.id}&variantId=${variant.id}`)}
-                    style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 6,
-                      borderRadius: 8,
-                      backgroundColor: colors.bg.secondary,
-                    }}
-                  >
-                    <Printer size={14} color={colors.text.tertiary} strokeWidth={2} />
-                  </Pressable>
-                </View>
-
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    borderRadius: 10,
-                    backgroundColor: colors.border.light,
-                  }}
-                >
-                  <Pressable
-                    onPress={() => handleAdjustStock(variant.id, -1)}
-                    disabled={variant.stock === 0}
-                    style={{ padding: 8, opacity: variant.stock === 0 ? 0.4 : 1 }}
-                  >
-                    <Minus size={16} color={colors.text.primary} strokeWidth={2} />
-                  </Pressable>
-                  <View style={{ width: 32, alignItems: 'center' }}>
-                    <Text style={{ color: colors.text.primary, fontSize: 14, fontWeight: '600' }}>{variant.stock}</Text>
+                    <Pressable
+                      onPress={() => handleAdjustStock(variant.id, -1)}
+                      disabled={variant.stock === 0}
+                      style={{ padding: 8, opacity: variant.stock === 0 ? 0.4 : 1 }}
+                    >
+                      <Minus size={16} color={colors.text.primary} strokeWidth={2} />
+                    </Pressable>
+                    <View style={{ width: 32, alignItems: 'center' }}>
+                      <Text style={{ color: colors.text.primary, fontSize: 14, fontWeight: '600' }}>{variant.stock}</Text>
+                    </View>
+                    <Pressable
+                      onPress={() => handleAdjustStock(variant.id, 1)}
+                      style={{ padding: 8 }}
+                    >
+                      <Plus size={16} color={colors.text.primary} strokeWidth={2} />
+                    </Pressable>
                   </View>
-                  <Pressable
-                    onPress={() => handleAdjustStock(variant.id, 1)}
-                    style={{ padding: 8 }}
-                  >
-                    <Plus size={16} color={colors.text.primary} strokeWidth={2} />
-                  </Pressable>
                 </View>
-              </View>
+              )}
 
               {isOwner && (
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: colors.border.light }}>

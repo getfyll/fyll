@@ -13,6 +13,7 @@ export default function DebugBusinessScreen() {
   const currentUser = useAuthStore((s) => s.currentUser);
   const businessId = useAuthStore((s) => s.businessId);
   const products = useFyllStore((s) => s.products);
+  const orders = useFyllStore((s) => s.orders);
   const { businessName } = useBusinessSettings();
   const isAdmin = currentUser?.role === 'admin';
 
@@ -102,6 +103,38 @@ export default function DebugBusinessScreen() {
                   </Text>
                 ))}
               </View>
+            )}
+          </View>
+
+          {/* Orders Count */}
+          <View style={{ marginBottom: 24, padding: 16, backgroundColor: orders.length > 0 ? '#D1FAE5' : '#FEE2E2', borderRadius: 12 }}>
+            <Text style={{ fontSize: 14, fontWeight: '600', color: orders.length > 0 ? '#065F46' : '#991B1B', marginBottom: 8 }}>
+              LOCAL ORDERS
+            </Text>
+            <Text style={{ fontSize: 32, color: orders.length > 0 ? '#065F46' : '#991B1B', fontWeight: 'bold', marginBottom: 8 }}>
+              {orders.length}
+            </Text>
+            {orders.length > 0 && (
+              <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: orders.length > 0 ? '#A7F3D0' : '#FECACA' }}>
+                <Text style={{ fontSize: 12, fontWeight: '600', color: '#065F46', marginBottom: 8 }}>
+                  Recent Orders:
+                </Text>
+                {orders.slice(0, 5).map((o) => (
+                  <Text key={o.id} style={{ fontSize: 12, color: '#065F46', marginBottom: 4 }}>
+                    • {o.orderNumber} - {o.customerName || 'No name'}
+                  </Text>
+                ))}
+                {orders.length > 5 && (
+                  <Text style={{ fontSize: 12, color: '#065F46', fontStyle: 'italic' }}>
+                    ...and {orders.length - 5} more
+                  </Text>
+                )}
+              </View>
+            )}
+            {orders.length === 0 && (
+              <Text style={{ fontSize: 12, color: '#991B1B', marginTop: 8 }}>
+                No orders found in local state. Check console logs for sync details.
+              </Text>
             )}
           </View>
 

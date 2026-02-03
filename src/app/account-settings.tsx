@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, Pressable, TextInput, Alert, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ChevronLeft, User, Mail, Lock, Save } from 'lucide-react-native';
+import { ChevronLeft, User as UserIcon, Mail, Lock, Save } from 'lucide-react-native';
 import { useThemeColors } from '@/lib/theme';
 import useAuthStore from '@/lib/state/auth-store';
 import * as Haptics from 'expo-haptics';
@@ -146,7 +146,7 @@ export default function AccountSettingsScreen() {
                 height: 56,
               }}
             >
-              <User size={20} color={colors.text.tertiary} strokeWidth={1.5} />
+              <UserIcon size={20} color={colors.text.tertiary} strokeWidth={1.5} />
               <TextInput
                 value={name}
                 onChangeText={(text) => {

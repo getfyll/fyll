@@ -180,6 +180,7 @@ export default function ImportProductsScreen() {
           variants,
           lowStockThreshold: 5,
           createdAt: new Date().toISOString(),
+          productType: 'product',
         });
 
         categories.forEach((category) => addCategory(category));

@@ -1,6 +1,7 @@
 // Analytics utility functions for computing real stats from orders
 
-import type { Order } from './state/fyll-store';
+import type { Order, Product, ProductVariant } from './state/fyll-store';
+import { normalizeProductType } from './product-utils';
 
 export type TimeRange = '7d' | '30d' | 'year';
 export type TabKey = 'sales' | 'orders' | 'customers' | 'inventory';
@@ -29,6 +30,67 @@ export interface TopCustomer {
   totalSpent: number;
   orderCount: number;
 }
+
+export interface ServiceMetrics {
+  revenue: number;
+  ordersWithServices: number;
+  serviceItems: number;
+}
+
+export interface ServiceBreakdownItem {
+  name: string;
+  revenue: number;
+  orders: number;
+  quantity: number;
+}
+
+interface ServiceLineItem {
+  name: string;
+  revenue: number;
+  quantity: number;
+}
+
+const getVariantDisplayName = (productName: string, variant?: ProductVariant): string => {
+  if (!variant) return productName;
+  const variantLabel = Object.values(variant.variableValues || {})
+    .filter(Boolean)
+    .join(' / ');
+  return variantLabel ? `${productName} — ${variantLabel}` : productName;
+};
+
+const collectServiceLineItems = (order: Order, products: Product[]): ServiceLineItem[] => {
+  const items: ServiceLineItem[] = [];
+
+  (order.services ?? []).forEach((service) => {
+    const price = typeof service.price === 'number' && Number.isFinite(service.price) ? service.price : 0;
+    if (price <= 0) return;
+    items.push({
+      name: service.name,
+      revenue: price,
+      quantity: 1,
+    });
+  });
+
+  const productMap = new Map(products.map((product) => [product.id, product]));
+
+  for (const orderItem of order.items ?? []) {
+    const product = productMap.get(orderItem.productId);
+    if (!product) continue;
+    if (normalizeProductType(product.productType) !== 'service') continue;
+    const variant = product.variants.find((v) => v.id === orderItem.variantId);
+    const quantity = orderItem.quantity ?? 0;
+    if (quantity <= 0) continue;
+    const revenue = Math.max(0, quantity * (orderItem.unitPrice ?? 0));
+    if (revenue === 0) continue;
+    items.push({
+      name: getVariantDisplayName(product.name, variant),
+      revenue,
+      quantity,
+    });
+  }
+
+  return items;
+};
 
 export interface AnalyticsResult {
   // Core metrics
@@ -87,6 +149,14 @@ export interface AnalyticsResult {
   topCustomers: TopCustomer[];
   customersByLocation: { label: string; value: number; percentage: number }[];
   customersByPlatform: { label: string; value: number; percentage: number }[];
+
+  // ====== SERVICE METRICS ======
+  serviceMetrics: ServiceMetrics;
+  previousServiceMetrics: ServiceMetrics;
+  serviceRevenueChange: number;
+  todayServiceMetrics: ServiceMetrics;
+  serviceBreakdown: ServiceBreakdownItem[];
+  serviceByPeriod: ChartDataPoint[];
 }
 
 /**
@@ -509,13 +579,14 @@ export function getLogisticsBreakdown(
 /**
  * Get today's statistics
  */
-export function getTodayStats(orders: Order[]): {
+export function getTodayStats(orders: Order[], products: Product[]): {
   sales: number;
   orders: number;
   units: number;
   customers: number;
   refunds: number;
   refundsAmount: number;
+  serviceMetrics: ServiceMetrics;
 } {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -529,6 +600,7 @@ export function getTodayStats(orders: Order[]): {
 
   // Use getRefundStats to properly count refunds (including partial)
   const refundStats = getRefundStats(todayOrders);
+  const serviceMetrics = getServiceMetrics(paidOrders, products);
 
   return {
     sales: paidOrders.reduce((sum, o) => sum + o.totalAmount, 0),
@@ -537,6 +609,7 @@ export function getTodayStats(orders: Order[]): {
     customers: countUniqueCustomers(paidOrders),
     refunds: refundStats.count,
     refundsAmount: refundStats.total,
+    serviceMetrics,
   };
 }
 
@@ -565,6 +638,151 @@ export function getTopAddOns(orders: Order[]): TopAddOn[] {
       revenue: data.revenue,
       count: data.count,
     }));
+}
+
+const getServiceRevenueForOrder = (order: Order, products: Product[]): number => {
+  return collectServiceLineItems(order, products).reduce((sum, item) => sum + item.revenue, 0);
+};
+
+export function groupServiceByDay(
+  orders: Order[],
+  products: Product[],
+  start: Date,
+  end: Date
+): ChartDataPoint[] {
+  const dayMap = new Map<string, number>();
+  const dayLabels: string[] = [];
+
+  const current = new Date(start);
+  while (current <= end) {
+    const dateKey = current.toISOString().split('T')[0];
+    const label = current.toLocaleDateString('en-US', { weekday: 'short' });
+    dayMap.set(dateKey, 0);
+    dayLabels.push(label);
+    current.setDate(current.getDate() + 1);
+  }
+
+  orders.forEach((order) => {
+    const dateKey = getOrderDate(order).toISOString().split('T')[0];
+    if (!dayMap.has(dateKey)) return;
+    const existing = dayMap.get(dateKey) ?? 0;
+    dayMap.set(dateKey, existing + getServiceRevenueForOrder(order, products));
+  });
+
+  const result: ChartDataPoint[] = [];
+  let index = 0;
+  dayMap.forEach((value) => {
+    result.push({
+      label: dayLabels[index] || '',
+      value,
+    });
+    index++;
+  });
+
+  return result;
+}
+
+export function groupServiceByWeek(
+  orders: Order[],
+  products: Product[],
+  start: Date,
+  end: Date
+): ChartDataPoint[] {
+  const weekMap = new Map<number, number>();
+  const totalDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+  const numWeeks = Math.ceil(totalDays / 7);
+
+  for (let i = 1; i <= numWeeks; i++) {
+    weekMap.set(i, 0);
+  }
+
+  orders.forEach((order) => {
+    const orderDate = getOrderDate(order);
+    const daysSinceStart = Math.floor(
+      (orderDate.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
+    );
+    const weekNum = Math.min(Math.floor(daysSinceStart / 7) + 1, numWeeks);
+    const existing = weekMap.get(weekNum) ?? 0;
+    weekMap.set(weekNum, existing + getServiceRevenueForOrder(order, products));
+  });
+
+  return Array.from(weekMap.entries()).map(([week, value]) => ({
+    label: `W${week}`,
+    value,
+  }));
+}
+
+export function groupServiceByMonth(orders: Order[], products: Product[]): ChartDataPoint[] {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const monthRevenue = new Array(12).fill(0);
+
+  orders.forEach((order) => {
+    const orderDate = getOrderDate(order);
+    const month = orderDate.getMonth();
+    monthRevenue[month] += getServiceRevenueForOrder(order, products);
+  });
+
+  return months.map((label, index) => ({
+    label,
+    value: monthRevenue[index],
+  }));
+}
+
+export function getServiceRevenueByPeriod(
+  range: TimeRange,
+  orders: Order[],
+  start: Date,
+  end: Date,
+  products: Product[]
+): ChartDataPoint[] {
+  if (range === '7d') {
+    return groupServiceByDay(orders, products, start, end);
+  }
+  if (range === '30d') {
+    return groupServiceByWeek(orders, products, start, end);
+  }
+  return groupServiceByMonth(orders, products);
+}
+
+export function getServiceMetrics(orders: Order[], products: Product[]): ServiceMetrics {
+  let revenue = 0;
+  let ordersWithServices = 0;
+  let serviceItems = 0;
+
+  for (const order of orders) {
+    const lineItems = collectServiceLineItems(order, products);
+    if (lineItems.length === 0) continue;
+    ordersWithServices += 1;
+    revenue += lineItems.reduce((sum, item) => sum + item.revenue, 0);
+    serviceItems += lineItems.reduce((sum, item) => sum + item.quantity, 0);
+  }
+
+  return { revenue, ordersWithServices, serviceItems };
+}
+
+export function getServiceBreakdown(orders: Order[], products: Product[]): ServiceBreakdownItem[] {
+  const breakdown = new Map<string, { revenue: number; orders: Set<string>; quantity: number }>();
+
+  for (const order of orders) {
+    const lineItems = collectServiceLineItems(order, products);
+    if (lineItems.length === 0) continue;
+    for (const item of lineItems) {
+      const existing = breakdown.get(item.name) || { revenue: 0, orders: new Set<string>(), quantity: 0 };
+      existing.revenue += item.revenue;
+      existing.orders.add(order.id);
+      existing.quantity += item.quantity;
+      breakdown.set(item.name, existing);
+    }
+  }
+
+  return Array.from(breakdown.entries())
+    .map(([name, data]) => ({
+      name,
+      revenue: data.revenue,
+      orders: data.orders.size,
+      quantity: data.quantity,
+    }))
+    .sort((a, b) => b.revenue - a.revenue);
 }
 
 /**

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, Pressable, TextInput, Modal, Share, Alert, ActivityIndicator, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ChevronLeft, Plus, Trash2, Edit2, User, Shield, X, Mail, Clock, Copy, Send, UserCog } from 'lucide-react-native';
+import { ChevronLeft, Plus, Trash2, Edit2, User as UserIcon, Shield, X, Mail, Clock, Copy, Send, UserCog } from 'lucide-react-native';
 import { useThemeColors } from '@/lib/theme';
 import useAuthStore, { TeamMember, TeamRole, PendingInvite } from '@/lib/state/auth-store';
 import * as Haptics from 'expo-haptics';
@@ -30,7 +30,7 @@ const roleColors: Record<TeamRole, string> = {
 const roleIcons: Record<TeamRole, React.ReactNode> = {
   admin: <Shield size={16} color="#EF4444" strokeWidth={2} />,
   manager: <UserCog size={16} color="#F59E0B" strokeWidth={2} />,
-  staff: <User size={16} color="#3B82F6" strokeWidth={2} />,
+  staff: <UserIcon size={16} color="#3B82F6" strokeWidth={2} />,
 };
 
 export default function TeamManagementScreen() {
@@ -606,7 +606,7 @@ export default function TeamManagementScreen() {
                         >
                           {role === 'admin' && <Shield size={20} color={roleColors[role]} strokeWidth={2} />}
                           {role === 'manager' && <UserCog size={20} color={roleColors[role]} strokeWidth={2} />}
-                          {role === 'staff' && <User size={20} color={roleColors[role]} strokeWidth={2} />}
+                          {role === 'staff' && <UserIcon size={20} color={roleColors[role]} strokeWidth={2} />}
                         </View>
                         <View className="flex-1">
                           <Text style={{ color: inviteRole === role ? roleColors[role] : colors.text.primary }} className="font-semibold">

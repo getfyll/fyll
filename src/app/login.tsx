@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, Pressable, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Eye, EyeOff, Mail, Lock, UserPlus, ChevronLeft, User, Key } from 'lucide-react-native';
+import { Eye, EyeOff, Mail, Lock, UserPlus, ChevronLeft, User as UserIcon, Key } from 'lucide-react-native';
 import { useThemeColors } from '@/lib/theme';
 import useAuthStore from '@/lib/state/auth-store';
 import * as Haptics from 'expo-haptics';
@@ -384,7 +384,7 @@ export default function LoginScreen() {
                           height: 56,
                         }}
                       >
-                        <User size={20} color={colors.text.tertiary} strokeWidth={1.5} />
+                        <UserIcon size={20} color={colors.text.tertiary} strokeWidth={1.5} />
                         <TextInput
                           value={inviteName}
                           onChangeText={(text) => {
@@ -576,7 +576,7 @@ export default function LoginScreen() {
                       height: 56,
                     }}
                   >
-                    <User size={20} color={colors.text.tertiary} strokeWidth={1.5} />
+                    <UserIcon size={20} color={colors.text.tertiary} strokeWidth={1.5} />
                     <TextInput
                       value={signupName}
                       onChangeText={(text) => {

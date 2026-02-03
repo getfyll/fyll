@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, Pressable, Platform, Linking, Modal } from 'react-native';
-import { ArrowLeft, User, Phone, Mail, MapPin, Edit2, Trash2, ShoppingCart, Calendar } from 'lucide-react-native';
+import { ArrowLeft, User as UserIcon, Phone, Mail, MapPin, Edit2, Trash2, ShoppingCart, Calendar } from 'lucide-react-native';
 import useFyllStore, { Customer, formatCurrency } from '@/lib/state/fyll-store';
 import useAuthStore from '@/lib/state/auth-store';
 import { useThemeColors } from '@/lib/theme';
@@ -45,7 +45,7 @@ export function CustomerDetailPanel({ customerId, onEdit, onClose }: CustomerDet
   if (!customer) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40 }}>
-        <User size={48} color={colors.text.muted} strokeWidth={1.5} />
+        <UserIcon size={48} color={colors.text.muted} strokeWidth={1.5} />
         <Text style={{ color: colors.text.muted, fontSize: 16, marginTop: 16 }}>
           Select a customer to view details
         </Text>
@@ -124,7 +124,7 @@ export function CustomerDetailPanel({ customerId, onEdit, onClose }: CustomerDet
             marginBottom: 16,
           }}
         >
-          <User size={40} color="#10B981" strokeWidth={1.5} />
+          <UserIcon size={40} color="#10B981" strokeWidth={1.5} />
         </View>
         <Text style={{ color: colors.text.primary, fontSize: 24, fontWeight: '700', textAlign: 'center' }}>
           {customer.fullName}

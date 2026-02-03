@@ -15,7 +15,7 @@ import {
   ChevronRight,
   ClipboardList,
 } from 'lucide-react-native';
-import useFyllStore, { formatCurrency, Order } from '@/lib/state/fyll-store';
+import useFyllStore, { formatCurrency, Order, Product } from '@/lib/state/fyll-store';
 import { useThemeColors } from '@/lib/theme';
 import * as Haptics from 'expo-haptics';
 import { getPlatformBreakdown } from '@/lib/analytics-utils';
@@ -142,7 +142,7 @@ function AuditBanner({ onPress }: AuditBannerProps) {
 // Recent Order Item Component
 interface RecentOrderItemProps {
   order: Order;
-  products: Array<{ id: string; name: string; variants: Array<{ id: string; sku: string }> }>;
+  products: Product[];
   onPress: () => void;
   isLast?: boolean;
 }

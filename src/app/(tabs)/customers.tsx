@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, ScrollView, Pressable, TextInput, Modal, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Plus, Upload, Search, User, Phone, Mail, MapPin, Edit2, Trash2, X, Check, ChevronDown } from 'lucide-react-native';
+import { Plus, Upload, Search, X, Check, ChevronDown, ChevronRight } from 'lucide-react-native';
 import useFyllStore, { Customer, NIGERIA_STATES } from '@/lib/state/fyll-store';
 import useAuthStore from '@/lib/state/auth-store';
 import { useThemeColors } from '@/lib/theme';
@@ -121,17 +121,6 @@ export default function CustomersScreen() {
     resetForm();
   };
 
-  const openDeleteCustomer = (customer: Customer) => {
-    if (Platform.OS === 'web') {
-      const active = document.activeElement as HTMLElement | null;
-      active?.blur();
-    }
-    if (Platform.OS !== 'web') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }
-    setPendingDeleteCustomer(customer);
-  };
-
   const confirmDeleteCustomer = () => {
     if (!pendingDeleteCustomer) return;
     if (Platform.OS !== 'web') {
@@ -217,96 +206,59 @@ export default function CustomersScreen() {
         showsVerticalScrollIndicator={false}
       >
         {filteredCustomers.length === 0 ? (
-            <Animated.View entering={FadeInDown.springify()} className="items-center justify-center py-20">
-              <View
-                className="w-20 h-20 rounded-2xl items-center justify-center mb-4"
-                style={{ backgroundColor: colors.bg.secondary }}
-              >
-                <User size={40} color={colors.text.muted} strokeWidth={1.5} />
-              </View>
-              <Text style={{ color: colors.text.tertiary }} className="text-base mb-1">No customers found</Text>
-              <Text style={{ color: colors.text.muted }} className="text-sm mb-4">Add your first customer to get started</Text>
+          <Animated.View entering={FadeInDown.springify()} className="items-center justify-center py-20">
+            <Text style={{ color: colors.text.tertiary }} className="text-base mb-1">No customers found</Text>
+            <Text style={{ color: colors.text.muted }} className="text-sm mb-4">Add your first customer to get started</Text>
+            <Pressable
+              onPress={() => {
+                resetForm();
+                setShowAddModal(true);
+              }}
+              className="rounded-xl overflow-hidden active:opacity-80"
+              style={{ backgroundColor: '#111111', paddingHorizontal: 24, paddingVertical: 14 }}
+            >
+              <Text className="text-white font-semibold">Add Customer</Text>
+            </Pressable>
+          </Animated.View>
+        ) : (
+          filteredCustomers.map((customer, index) => (
+            <Animated.View
+              key={customer.id}
+              entering={FadeInRight.delay(index * 50).springify()}
+              layout={Layout.springify()}
+              className="mb-3"
+            >
               <Pressable
-                onPress={() => {
-                  resetForm();
-                  setShowAddModal(true);
-                }}
-                className="rounded-xl overflow-hidden active:opacity-80"
-                style={{ backgroundColor: '#111111', paddingHorizontal: 24, paddingVertical: 14 }}
+                onPress={() => handleCustomerSelect(customer.id)}
+                className="active:opacity-80"
               >
-                <Text className="text-white font-semibold">Add Customer</Text>
+                <View
+                  className="rounded-xl p-4"
+                  style={{
+                    backgroundColor: selectedCustomerId === customer.id && showSplitView ? colors.bg.tertiary : colors.bg.card,
+                    borderWidth: selectedCustomerId === customer.id && showSplitView ? 2 : 1,
+                    borderColor: selectedCustomerId === customer.id && showSplitView ? colors.accent.primary : colors.border.light,
+                    borderLeftWidth: selectedCustomerId === customer.id && showSplitView ? 3 : 1,
+                    borderLeftColor: selectedCustomerId === customer.id && showSplitView ? colors.accent.primary : colors.border.light,
+                  }}
+                >
+                  <View className="flex-row items-start">
+                    <View className="flex-1">
+                      <Text style={{ color: colors.text.primary }} className="font-bold text-base">{customer.fullName}</Text>
+                      {customer.email && (
+                        <Text style={{ color: colors.text.tertiary }} className="text-xs mt-1">{customer.email}</Text>
+                      )}
+                      {customer.defaultState && (
+                        <Text style={{ color: colors.text.tertiary }} className="text-xs mt-0.5">{customer.defaultState}</Text>
+                      )}
+                    </View>
+                    <ChevronRight size={18} color={colors.text.tertiary} strokeWidth={2} />
+                  </View>
+                </View>
               </Pressable>
             </Animated.View>
-          ) : (
-            filteredCustomers.map((customer, index) => (
-              <Animated.View
-                key={customer.id}
-                entering={FadeInRight.delay(index * 50).springify()}
-                layout={Layout.springify()}
-                className="mb-3"
-              >
-                <Pressable
-                  onPress={() => handleCustomerSelect(customer.id)}
-                  className="active:opacity-80"
-                >
-                  <View
-                    className="rounded-xl p-4"
-                    style={{
-                      backgroundColor: selectedCustomerId === customer.id && showSplitView ? colors.bg.tertiary : colors.bg.card,
-                      borderWidth: selectedCustomerId === customer.id && showSplitView ? 2 : 1,
-                      borderColor: selectedCustomerId === customer.id && showSplitView ? colors.accent.primary : colors.border.light,
-                      borderLeftWidth: selectedCustomerId === customer.id && showSplitView ? 3 : 1,
-                      borderLeftColor: selectedCustomerId === customer.id && showSplitView ? colors.accent.primary : colors.border.light,
-                    }}
-                  >
-                    <View className="flex-row items-start">
-                      <View
-                        className="w-12 h-12 rounded-xl items-center justify-center mr-3"
-                        style={{ backgroundColor: 'rgba(16, 185, 129, 0.15)' }}
-                      >
-                        <User size={24} color="#10B981" strokeWidth={1.5} />
-                      </View>
-                      <View className="flex-1">
-                        <Text style={{ color: colors.text.primary }} className="font-bold text-base">{customer.fullName}</Text>
-                        {customer.phone && (
-                          <View className="flex-row items-center mt-1">
-                            <Phone size={12} color={colors.text.tertiary} strokeWidth={2} />
-                            <Text style={{ color: colors.text.tertiary }} className="text-xs ml-1">{customer.phone}</Text>
-                          </View>
-                        )}
-                        {customer.email && (
-                          <View className="flex-row items-center mt-1">
-                            <Mail size={12} color={colors.text.tertiary} strokeWidth={2} />
-                            <Text style={{ color: colors.text.tertiary }} className="text-xs ml-1">{customer.email}</Text>
-                          </View>
-                        )}
-                        {customer.defaultState && (
-                          <View className="flex-row items-center mt-1">
-                            <MapPin size={12} color={colors.text.tertiary} strokeWidth={2} />
-                            <Text style={{ color: colors.text.tertiary }} className="text-xs ml-1">{customer.defaultState}</Text>
-                          </View>
-                        )}
-                      </View>
-                      <View className="flex-row">
-                        <Pressable
-                          onPress={() => openEditModal(customer)}
-                          className="p-2 active:opacity-50"
-                        >
-                          <Edit2 size={16} color={colors.text.tertiary} strokeWidth={2} />
-                        </Pressable>
-                        <Pressable
-                          onPress={() => openDeleteCustomer(customer)}
-                          className="p-2 active:opacity-50"
-                        >
-                          <Trash2 size={16} color="#EF4444" strokeWidth={2} />
-                        </Pressable>
-                      </View>
-                    </View>
-                  </View>
-                </Pressable>
-              </Animated.View>
-            ))
-          )}
+          ))
+        )}
           <View className="h-24" />
         </ScrollView>
       </>

@@ -29,8 +29,7 @@ import {
   Sparkles,
   XCircle,
 } from 'lucide-react-native';
-import { formatCurrency } from '@/lib/state/fyll-store';
-import useFyllStore from '@/lib/state/fyll-store';
+import useFyllStore, { formatCurrency } from '@/lib/state/fyll-store';
 import { SparklineChart } from '@/components/stats/SparklineChart';
 import { SalesBarChart } from '@/components/stats/SalesBarChart';
 import { HorizontalBarChart } from '@/components/stats/HorizontalBarChart';
@@ -305,6 +304,10 @@ export default function InsightsScreen() {
   // Team sync
   const teamSync = useTeamSync();
 
+  const serviceRevenueChange = analytics.serviceRevenueChange ?? 0;
+  const serviceBreakdown = analytics.serviceBreakdown ?? [];
+  const serviceByPeriod = analytics.serviceByPeriod ?? [];
+
   const tabs: { key: TabKey; label: string }[] = [
     { key: 'sales', label: 'Sales' },
     { key: 'orders', label: 'Orders' },
@@ -338,7 +341,7 @@ export default function InsightsScreen() {
                   { text: 'Cancel', style: 'cancel' },
                   {
                     text: 'Connect',
-                    onPress: (teamId) => {
+                    onPress: (teamId?: string | null) => {
                       if (teamId) {
                         teamSync.setupTeam(teamId, `Team ${teamId}`);
                       }
@@ -391,7 +394,7 @@ export default function InsightsScreen() {
               style={{ color: colors.text.primary }}
               className="text-3xl font-bold"
             >
-              Stats
+              Insights
             </Text>
 
             {/* Sync Button */}
@@ -777,42 +780,188 @@ export default function InsightsScreen() {
                           color={colors.text.tertiary}
                           strokeWidth={2}
                         />
-                      </View>
-                      {analytics.topAddOns.map((addon, index) => (
-                        <View
-                          key={addon.name}
-                          className="flex-row items-center justify-between py-3"
-                          style={{
-                            borderBottomWidth:
-                              index < analytics.topAddOns.length - 1 ? 1 : 0,
-                            borderBottomColor: colors.divider,
-                          }}
-                        >
-                          <View>
-                            <Text
-                              style={{ color: colors.text.primary }}
-                              className="text-sm font-medium"
-                            >
-                              {addon.name}
-                            </Text>
-                            <Text
-                              style={{ color: colors.text.tertiary }}
-                              className="text-xs"
-                            >
-                              {addon.count} orders
-                            </Text>
-                          </View>
+                    </View>
+                    {analytics.topAddOns.map((addon, index) => (
+                      <View
+                        key={addon.name}
+                        className="flex-row items-center justify-between py-3"
+                        style={{
+                          borderBottomWidth:
+                            index < analytics.topAddOns.length - 1 ? 1 : 0,
+                          borderBottomColor: colors.divider,
+                        }}
+                      >
+                        <View>
                           <Text
                             style={{ color: colors.text.primary }}
-                            className="text-sm font-bold"
+                            className="text-sm font-medium"
                           >
-                            {formatCurrency(addon.revenue)}
+                            {addon.name}
+                          </Text>
+                          <Text
+                            style={{ color: colors.text.tertiary }}
+                            className="text-xs"
+                          >
+                            {addon.count} orders
                           </Text>
                         </View>
-                      ))}
+                        <Text
+                          style={{ color: colors.text.primary }}
+                          className="text-sm font-bold"
+                        >
+                          {formatCurrency(addon.revenue)}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                </Pressable>
+              )}
+
+              {/* Service Revenue */}
+              {analytics.serviceMetrics?.revenue > 0 && (
+                <Pressable
+                  className="px-5 pt-4"
+                  onPress={() => router.push('/insights/sales')}
+                >
+                  <View
+                    className="rounded-2xl p-5"
+                    style={colors.getCardStyle()}
+                  >
+                    <View className="flex-row items-center justify-between mb-2">
+                      <View className="flex-row items-center">
+                        <Sparkles
+                          size={18}
+                          color={colors.text.tertiary}
+                          strokeWidth={2}
+                        />
+                        <Text
+                          style={{ color: colors.text.primary }}
+                          className="text-lg font-bold ml-2"
+                        >
+                          Service Revenue
+                        </Text>
+                      </View>
+                      <ChevronRight
+                        size={16}
+                        color={colors.text.tertiary}
+                        strokeWidth={2}
+                      />
                     </View>
-                  </Pressable>
-                )}
+                    <Text
+                      style={{ color: colors.text.primary }}
+                      className="text-2xl font-bold"
+                    >
+                      {formatCurrency(analytics.serviceMetrics?.revenue ?? 0)}
+                    </Text>
+                    <View className="flex-row items-center mt-1 mb-4">
+                      {serviceRevenueChange >= 0 ? (
+                        <TrendingUp
+                          size={14}
+                          color={colors.success}
+                          strokeWidth={2.5}
+                        />
+                      ) : (
+                        <TrendingDown
+                          size={14}
+                          color={colors.danger}
+                          strokeWidth={2.5}
+                        />
+                      )}
+                      <Text
+                        style={{
+                        color: serviceRevenueChange >= 0 ? colors.success : colors.danger,
+                        }}
+                        className="text-sm font-medium ml-1"
+                      >
+                          {serviceRevenueChange >= 0 ? '+' : ''}
+                          {serviceRevenueChange.toFixed(1)}% vs last
+                        period
+                      </Text>
+                    </View>
+                      <SalesBarChart
+                        data={serviceByPeriod}
+                      height={140}
+                      barColor={colors.bar}
+                      gridColor={colors.barBg}
+                      textColor={colors.text.tertiary}
+                    />
+                    <View className="flex-row items-center justify-between mt-4 flex-wrap">
+                      <View className="flex-row items-center mb-2">
+                        <Package
+                          size={14}
+                          color={colors.text.tertiary}
+                          strokeWidth={2}
+                        />
+                        <Text
+                          style={{ color: colors.text.secondary }}
+                          className="text-xs ml-1.5"
+                        >
+                          {analytics.serviceMetrics?.ordersWithServices ?? 0} orders
+                        </Text>
+                      </View>
+                      <View className="flex-row items-center mb-2">
+                        <Users
+                          size={14}
+                          color={colors.text.tertiary}
+                          strokeWidth={2}
+                        />
+                        <Text
+                          style={{ color: colors.text.secondary }}
+                          className="text-xs ml-1.5"
+                        >
+                          {analytics.serviceMetrics?.serviceItems ?? 0} services
+                        </Text>
+                      </View>
+                      <View className="flex-row items-center mb-2">
+                        <DollarSign
+                          size={14}
+                          color={colors.text.tertiary}
+                          strokeWidth={2}
+                        />
+                        <Text
+                          style={{ color: colors.text.secondary }}
+                          className="text-xs ml-1.5"
+                        >
+                          Today: {formatCurrency(analytics.todayServiceMetrics?.revenue ?? 0)}
+                        </Text>
+                      </View>
+                    </View>
+                    {serviceBreakdown.length > 0 && (
+                      <View className="mt-3 space-y-2">
+                        {serviceBreakdown.slice(0, 3).map((item) =>
+                          item ? (
+                            <View
+                              key={item.name}
+                              className="flex-row items-center justify-between"
+                            >
+                              <View>
+                                <Text
+                                  style={{ color: colors.text.primary }}
+                                  className="text-sm font-semibold"
+                                >
+                                  {item.name}
+                                </Text>
+                                <Text
+                                  style={{ color: colors.text.tertiary }}
+                                  className="text-xs"
+                                >
+                                  {item.orders} orders • {item.quantity} services
+                                </Text>
+                              </View>
+                              <Text
+                                style={{ color: colors.text.primary }}
+                                className="text-sm font-bold"
+                              >
+                                {formatCurrency(item.revenue)}
+                              </Text>
+                            </View>
+                          ) : null
+                        )}
+                      </View>
+                    )}
+                  </View>
+                </Pressable>
+              )}
 
                 {/* Revenue by Source */}
                 {analytics.revenueBySource.length > 0 && (

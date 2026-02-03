@@ -180,7 +180,7 @@ export default function ImportCustomersScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
       const existingByName = new Map(
-        existingCustomers.map((c) => [c.name.toLowerCase(), c])
+        existingCustomers.map((c) => [c.fullName.toLowerCase(), c])
       );
 
       let newCount = 0;
@@ -205,22 +205,22 @@ export default function ImportCustomersScreen() {
           const updated: Partial<Customer> = {};
           if (row.email && row.email !== existing.email) updated.email = row.email;
           if (row.phone && row.phone !== existing.phone) updated.phone = row.phone;
-          if (fullAddress && fullAddress !== existing.address) updated.address = fullAddress;
+          if (fullAddress && fullAddress !== existing.defaultAddress) updated.defaultAddress = fullAddress;
+          if (row.state && row.state !== existing.defaultState) updated.defaultState = row.state;
 
           if (Object.keys(updated).length > 0) {
-            await updateCustomer(existing.id, updated, businessId);
+            updateCustomer(existing.id, updated);
             updatedCount++;
           }
         } else {
           // Add new customer
           const newCustomer: Customer = {
             id: generateCustomerId(),
-            name: row.name,
+            fullName: row.name,
             email: row.email || '',
             phone: row.phone || '',
-            address: fullAddress,
-            totalOrders: 0,
-            totalSpent: 0,
+            defaultAddress: fullAddress,
+            defaultState: row.state || '',
             createdAt: new Date().toISOString(),
           };
           await addCustomer(newCustomer, businessId);

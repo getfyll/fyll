@@ -3,8 +3,9 @@ import { View, Text, ScrollView, Pressable, TextInput, Dimensions, Modal, Image,
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
-import { Plus, Search, Package, ChevronRight, Minus, Tag, Boxes, ClipboardList, Printer, Filter, Check, X, QrCode, PackagePlus, ImageIcon, ArrowUpDown, ArrowDownAZ, ArrowUpAZ, Clock, TrendingUp } from 'lucide-react-native';
+import { Plus, Search, Package, ChevronRight, Minus, Tag, Boxes, ClipboardList, Printer, Filter, Check, X, QrCode, PackagePlus, ImageIcon, ArrowUpDown, ArrowDownAZ, ArrowUpAZ, Clock, TrendingUp, AlertTriangle } from 'lucide-react-native';
 import useFyllStore, { Product, ProductVariant, formatCurrency } from '@/lib/state/fyll-store';
+import { normalizeProductType } from '@/lib/product-utils';
 import { cn } from '@/lib/cn';
 import { useThemeColors } from '@/lib/theme';
 import { useBreakpoint } from '@/lib/useBreakpoint';
@@ -35,11 +36,16 @@ interface VariantRowProps {
 
 function VariantRow({ product, variant, isOwner, onAdjustStock, onPrintLabel, onRestock, separatorColor, isLast = false, effectiveThreshold }: VariantRowProps) {
   const colors = useThemeColors();
-  const isLowStock = variant.stock <= effectiveThreshold;
-  const isOutOfStock = variant.stock === 0;
+  const isService = normalizeProductType(product.productType) === 'service';
+  const isLowStock = !isService && variant.stock > 0 && variant.stock <= effectiveThreshold;
+  const isOutOfStock = !isService && variant.stock === 0;
   const variantName = Object.values(variant.variableValues).join(' / ');
-
-  const statusColor = isOutOfStock ? '#EF4444' : isLowStock ? '#F59E0B' : '#10B981';
+  const statusColor = isService ? '#10B981' : isOutOfStock ? '#EF4444' : isLowStock ? '#F59E0B' : '#10B981';
+  const statusText = isService
+    ? 'Service'
+    : isOutOfStock
+      ? 'Out of stock'
+      : `${variant.stock} units`;
 
   const handleAdjust = (delta: number) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -66,12 +72,14 @@ function VariantRow({ product, variant, isOwner, onAdjustStock, onPrintLabel, on
         <Text style={{ color: colors.text.tertiary }} className="text-xs mt-0.5">SKU: {variant.sku}</Text>
       </View>
 
-      <Pressable
-        onPress={handleRestock}
-        className="p-2 mr-1 active:opacity-50"
-      >
-        <PackagePlus size={16} color="#10B981" strokeWidth={2} />
-      </Pressable>
+      {!isService && (
+        <Pressable
+          onPress={handleRestock}
+          className="p-2 mr-1 active:opacity-50"
+        >
+          <PackagePlus size={16} color="#10B981" strokeWidth={2} />
+        </Pressable>
+      )}
 
       <Pressable
         onPress={handlePrint}
@@ -86,7 +94,7 @@ function VariantRow({ product, variant, isOwner, onAdjustStock, onPrintLabel, on
           style={{ backgroundColor: `${statusColor}15` }}
         >
           <Text style={{ color: statusColor }} className="text-xs font-semibold">
-            {variant.stock} units
+            {statusText}
           </Text>
         </View>
         {isOwner && (
@@ -96,10 +104,11 @@ function VariantRow({ product, variant, isOwner, onAdjustStock, onPrintLabel, on
         )}
       </View>
 
-      <View
-        className="flex-row items-center rounded-xl overflow-hidden"
-        style={{ backgroundColor: colors.border.light }}
-      >
+      {!isService && (
+        <View
+          className="flex-row items-center rounded-xl overflow-hidden"
+          style={{ backgroundColor: colors.border.light }}
+        >
         <Pressable
           onPress={() => handleAdjust(-1)}
           className="p-2.5 active:opacity-50"
@@ -117,6 +126,7 @@ function VariantRow({ product, variant, isOwner, onAdjustStock, onPrintLabel, on
           <Plus size={16} color={colors.text.primary} strokeWidth={2} />
         </Pressable>
       </View>
+      )}
     </View>
   );
 }
@@ -140,9 +150,21 @@ function ProductCard({ product, isOwner, onPress, onSelect, isSelected, onAdjust
   const separatorColor = isDark ? SEPARATOR_DARK : SEPARATOR_LIGHT;
 
   const [expanded, setExpanded] = useState(false);
-  const totalStock = product.variants.reduce((sum, v) => sum + v.stock, 0);
+  const isService = normalizeProductType(product.productType) === 'service';
+  const totalStock = isService ? 0 : product.variants.reduce((sum, v) => sum + v.stock, 0);
   const totalValue = product.variants.reduce((sum, v) => sum + v.stock * v.sellingPrice, 0);
-  const lowStockCount = product.variants.filter((v) => v.stock <= effectiveThreshold).length;
+  const lowStockCount = isService
+    ? 0
+    : product.variants.filter((v) => v.stock > 0 && v.stock <= effectiveThreshold).length;
+  const isOutOfStock = !isService && product.variants.every((v) => v.stock === 0);
+  const stockText = isService
+    ? 'Service'
+    : isOutOfStock
+      ? 'Out of stock'
+      : `${totalStock} in stock`;
+  const stockTextColor = isService ? '#10B981' : (isOutOfStock ? '#EF4444' : '#10B981');
+  const chipColor = isService ? '#10B981' : isOutOfStock ? '#EF4444' : '#10B981';
+  const servicePrice = product.variants[0]?.sellingPrice ?? 0;
 
   const handlePress = () => {
     if (Platform.OS !== 'web') {
@@ -162,72 +184,58 @@ function ProductCard({ product, isOwner, onPress, onSelect, isSelected, onAdjust
 
   return (
     <View className="mb-3">
-      <View
-        style={{
-          backgroundColor: isSelected && showSplitView ? colors.bg.tertiary : colors.bg.card,
-          borderWidth: isSelected && showSplitView ? 2 : 0.5,
-          borderColor: isSelected && showSplitView ? colors.accent.primary : separatorColor,
-          borderLeftWidth: isSelected && showSplitView ? 3 : 0.5,
-          borderLeftColor: isSelected && showSplitView ? colors.accent.primary : separatorColor,
-        }}
-        className="rounded-2xl overflow-hidden"
-      >
-        <Pressable
-          onPress={handlePress}
-          className="p-3 flex-row items-center active:opacity-70"
-        >
-          {/* Product Image or Placeholder */}
-          {product.imageUrl ? (
-            <View className="w-10 h-10 rounded-lg overflow-hidden mr-3" style={{ borderWidth: 0.5, borderColor: separatorColor }}>
-              <Image
-                source={{ uri: product.imageUrl }}
-                style={{ width: 40, height: 40 }}
-                resizeMode="cover"
-              />
-            </View>
-          ) : (
-            <View
-              className="w-10 h-10 rounded-lg items-center justify-center mr-3"
-              style={{ backgroundColor: lowStockCount > 0 ? 'rgba(245, 158, 11, 0.15)' : 'rgba(16, 185, 129, 0.15)' }}
+          <View
+            style={{
+              backgroundColor: isSelected && showSplitView ? colors.bg.tertiary : colors.bg.card,
+              borderWidth: isSelected && showSplitView ? 2 : 0.5,
+              borderColor: isSelected && showSplitView ? colors.accent.primary : separatorColor,
+              borderLeftWidth: isSelected && showSplitView ? 3 : 0.5,
+              borderLeftColor: isSelected && showSplitView ? colors.accent.primary : separatorColor,
+            }}
+            className="rounded-2xl overflow-hidden"
+          >
+            <Pressable
+              onPress={handlePress}
+              className="p-3 flex-row items-center active:opacity-70"
             >
-              <Package size={20} color={lowStockCount > 0 ? '#F59E0B' : '#10B981'} strokeWidth={1.5} />
-            </View>
-          )}
-
-          <View className="flex-1">
-            <View className="flex-row items-center">
-              <Text style={{ color: colors.text.primary }} className="font-bold text-sm">{product.name}</Text>
-              {product.isNewDesign && (
-                <View className="ml-2 px-1.5 py-0.5 rounded" style={{ backgroundColor: '#3B82F6' }}>
-                  <Text className="text-white text-[10px] font-bold">
-                    New {product.designYear || new Date().getFullYear()}
+              <View className="flex-row items-center flex-1">
+                {product.imageUrl ? (
+                  <View className="w-12 h-12 rounded-lg overflow-hidden" style={{ borderWidth: 0.5, borderColor: separatorColor }}>
+                    <Image
+                      source={{ uri: product.imageUrl }}
+                      style={{ width: 48, height: 48 }}
+                      resizeMode="cover"
+                    />
+                  </View>
+                ) : (
+                  <View
+                    className="w-12 h-12 rounded-xl items-center justify-center"
+                    style={{ backgroundColor: 'rgba(16, 185, 129, 0.15)' }}
+                  >
+                    <Package size={24} color="#10B981" strokeWidth={1.5} />
+                  </View>
+                )}
+                <View className="ml-3 flex-1">
+                  <Text style={{ color: colors.text.primary }} className="font-bold text-base">{product.name}</Text>
+                  <Text style={{ color: stockTextColor }} className="text-xs mt-0.5">
+                    {stockText}
                   </Text>
                 </View>
-              )}
-            </View>
-            <Text style={{ color: colors.text.tertiary }} className="text-xs mt-0.5">
-              {totalStock} in stock
-            </Text>
-          </View>
+              </View>
+              <View className="flex-row items-center">
+                <View
+                  className="rounded-full px-3 py-1 flex-row items-center mr-2"
+                  style={{ backgroundColor: `${chipColor}20` }}
+                >
+                  <Text style={{ color: chipColor }} className="text-xs font-semibold">
+                    {isOutOfStock ? 'Out of stock' : isService ? 'Service' : `${totalStock} in stock`}
+                  </Text>
+                </View>
+                <ChevronRight size={20} color={colors.text.tertiary} strokeWidth={2} />
+              </View>
+            </Pressable>
 
-          {lowStockCount > 0 && (
-            <View className="px-2 py-1 rounded-lg mr-2" style={{ backgroundColor: 'rgba(245, 158, 11, 0.15)' }}>
-              <Text className="text-amber-500 text-xs font-semibold">{lowStockCount} low</Text>
-            </View>
-          )}
-
-          <View
-            className="w-7 h-7 rounded-lg items-center justify-center"
-            style={{
-              backgroundColor: colors.border.light,
-              transform: [{ rotate: expanded ? '90deg' : '0deg' }]
-            }}
-          >
-            <ChevronRight size={18} color={colors.text.tertiary} strokeWidth={2} />
-          </View>
-        </Pressable>
-
-        {expanded && (
+            {expanded && (
           <View className="px-4 pb-4" style={{ borderTopWidth: 0.5, borderTopColor: separatorColor }}>
             {product.variants.map((variant, index) => (
               <VariantRow
@@ -246,8 +254,17 @@ function ProductCard({ product, isOwner, onPress, onSelect, isSelected, onAdjust
 
             {isOwner && (
               <View className="flex-row items-center justify-between mt-3 py-3" style={{ borderTopWidth: 0.5, borderTopColor: separatorColor }}>
-                <Text style={{ color: colors.text.tertiary }} className="text-sm">Total Inventory Value</Text>
-                <Text className="text-emerald-500 font-bold text-lg">{formatCurrency(totalValue)}</Text>
+                <View>
+                  <Text style={{ color: colors.text.tertiary }} className="text-sm">
+                    {isService ? 'Service Price' : 'Total Inventory Value'}
+                  </Text>
+                  <Text style={{ color: colors.text.muted }} className="text-xs">
+                    {isService ? 'default charge' : 'at retail price'}
+                  </Text>
+                </View>
+                <Text className="text-emerald-500 font-bold text-lg">
+                  {formatCurrency(isService ? servicePrice : totalValue)}
+                </Text>
               </View>
             )}
 
@@ -297,9 +314,10 @@ export default function InventoryScreen() {
     }
   }, [products.length]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterLowStock, setFilterLowStock] = useState(false);
+  const [inventoryFilter, setInventoryFilter] = useState<'all' | 'low-stock' | 'in-stock' | 'out-of-stock'>('all');
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [sortBy, setSortBy] = useState<'name-asc' | 'name-desc' | 'newest' | 'oldest' | 'stock-low' | 'stock-high'>('name-asc');
+  const activeFilterCount = (inventoryFilter !== 'all' ? 1 : 0) + (sortBy !== 'name-asc' ? 1 : 0);
 
   // Split view state
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
@@ -326,11 +344,15 @@ export default function InventoryScreen() {
       );
     }
 
-    if (filterLowStock) {
+    if (inventoryFilter === 'low-stock') {
       result = result.filter((p) => {
         const threshold = useGlobalLowStockThreshold ? globalLowStockThreshold : p.lowStockThreshold;
         return p.variants.some((v) => v.stock <= threshold);
       });
+    } else if (inventoryFilter === 'in-stock') {
+      result = result.filter((p) => p.variants.some((v) => v.stock > 0));
+    } else if (inventoryFilter === 'out-of-stock') {
+      result = result.filter((p) => p.variants.every((v) => v.stock === 0));
     }
 
     // Apply sorting
@@ -358,7 +380,7 @@ export default function InventoryScreen() {
     });
 
     return result;
-  }, [products, searchQuery, filterLowStock, useGlobalLowStockThreshold, globalLowStockThreshold, sortBy]);
+  }, [products, searchQuery, inventoryFilter, useGlobalLowStockThreshold, globalLowStockThreshold, sortBy]);
 
   useEffect(() => {
     if (!showSplitView) return;
@@ -451,25 +473,25 @@ export default function InventoryScreen() {
               selectionColor={colors.text.primary}
             />
           </View>
-          <Pressable
-            onPress={() => {
-              if (Platform.OS !== 'web') {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              }
-              setShowFilterMenu(true);
-            }}
-            className="rounded-xl items-center justify-center active:opacity-70 flex-row px-4"
-            style={{
-              height: 52,
-              backgroundColor: (filterLowStock || sortBy !== 'name-asc') ? colors.accent.primary : colors.bg.secondary,
-              borderWidth: (filterLowStock || sortBy !== 'name-asc') ? 0 : 0.5,
-              borderColor: separatorColor,
-            }}
-          >
-            <Filter size={18} color={(filterLowStock || sortBy !== 'name-asc') ? (isDark ? '#000000' : '#FFFFFF') : colors.text.tertiary} strokeWidth={2} />
-            {(filterLowStock || sortBy !== 'name-asc') && (
+            <Pressable
+              onPress={() => {
+                if (Platform.OS !== 'web') {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }
+                setShowFilterMenu(true);
+              }}
+              className="rounded-xl items-center justify-center active:opacity-70 flex-row px-4"
+              style={{
+                height: 52,
+                backgroundColor: activeFilterCount > 0 ? colors.accent.primary : colors.bg.secondary,
+                borderWidth: activeFilterCount > 0 ? 0 : 0.5,
+                borderColor: separatorColor,
+              }}
+            >
+            <Filter size={18} color={activeFilterCount > 0 ? (isDark ? '#000000' : '#FFFFFF') : colors.text.tertiary} strokeWidth={2} />
+            {(activeFilterCount > 0) && (
               <Text style={{ color: isDark ? '#000000' : '#FFFFFF' }} className="font-semibold text-sm ml-1.5">
-                {(filterLowStock ? 1 : 0) + (sortBy !== 'name-asc' ? 1 : 0)}
+                {activeFilterCount}
               </Text>
             )}
           </Pressable>
@@ -530,8 +552,18 @@ export default function InventoryScreen() {
                 onSelect={() => handleProductSelect(product.id)}
                 onPress={() => router.push(`/product/${product.id}`)}
                 onAdjustStock={(variantId, delta) => handleAdjustStock(product.id, variantId, delta)}
-                onPrintLabel={(variantId) => router.push(`/label-print?productId=${product.id}&variantId=${variantId}`)}
-                onRestock={(variantId) => router.push(`/restock?productId=${product.id}&variantId=${variantId}`)}
+                onPrintLabel={(variantId) =>
+                  router.push({
+                    pathname: '/label-print',
+                    params: { productId: product.id, variantId },
+                  })
+                }
+                onRestock={(variantId) =>
+                  router.push({
+                    pathname: '/restock',
+                    params: { productId: product.id, variantId },
+                  })
+                }
                 effectiveThreshold={getEffectiveThreshold(product)}
               />
             ))}
@@ -617,42 +649,70 @@ export default function InventoryScreen() {
                 <View className="px-5 pt-4">
                   <Text style={{ color: colors.text.muted }} className="text-xs font-semibold uppercase tracking-wider mb-3">Filter</Text>
 
-                  {/* All Products */}
-                  <Pressable
-                    onPress={() => {
-                      Haptics.selectionAsync();
-                      setFilterLowStock(false);
-                    }}
-                    className="flex-row items-center py-3 active:opacity-70"
-                  >
-                    <Boxes size={18} color={!filterLowStock ? '#10B981' : colors.text.muted} strokeWidth={2} />
-                    <View className="flex-1 ml-3">
-                      <Text style={{ color: colors.text.primary }} className="font-medium text-sm">All Products</Text>
-                    </View>
-                    {!filterLowStock && (
-                      <View className="w-5 h-5 rounded-full items-center justify-center" style={{ backgroundColor: colors.accent.primary }}>
-                        <Check size={12} color={isDark ? '#000000' : '#FFFFFF'} strokeWidth={3} />
-                      </View>
-                    )}
-                  </Pressable>
+                  {[
+                    {
+                      key: 'all',
+                      label: 'All products',
+                      description: 'Every item in your catalog',
+                      icon: Boxes,
+                      helperColor: '#10B981',
+                    },
+                    {
+                      key: 'low-stock',
+                      label: 'Low stock only',
+                      description: 'Variants at or below threshold',
+                      icon: Tag,
+                      helperColor: '#F59E0B',
+                    },
+                    {
+                      key: 'in-stock',
+                      label: 'In stock',
+                      description: 'Variants that are available',
+                      icon: Check,
+                      helperColor: '#10B981',
+                    },
+                    {
+                      key: 'out-of-stock',
+                      label: 'Out of stock',
+                      description: 'Variants with zero stock',
+                      icon: AlertTriangle,
+                      helperColor: '#EF4444',
+                    },
+                  ].map((option) => {
+                    const Icon = option.icon;
+                    return (
+                      <Pressable
+                        key={option.key}
+                        onPress={() => {
+                          Haptics.selectionAsync();
+                          setInventoryFilter(option.key as typeof inventoryFilter);
+                        }}
+                        className="flex-row items-center py-3 active:opacity-70"
+                      >
+                        <Icon size={18} color={inventoryFilter === option.key ? option.helperColor : colors.text.muted} strokeWidth={2} />
+                        <View className="flex-1 ml-3">
+                          <Text style={{ color: colors.text.primary }} className="font-medium text-sm">{option.label}</Text>
+                          <Text style={{ color: colors.text.muted }} className="text-xs mt-0.5">{option.description}</Text>
+                        </View>
+                        {inventoryFilter === option.key && (
+                          <View className="w-5 h-5 rounded-full items-center justify-center" style={{ backgroundColor: colors.accent.primary }}>
+                            <Check size={12} color={isDark ? '#000000' : '#FFFFFF'} strokeWidth={3} />
+                          </View>
+                        )}
+                      </Pressable>
+                    );
+                  })}
 
-                  {/* Low Stock */}
                   <Pressable
                     onPress={() => {
-                      Haptics.selectionAsync();
-                      setFilterLowStock(true);
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      setInventoryFilter('all');
+                      setSortBy('name-asc');
                     }}
-                    className="flex-row items-center py-3 active:opacity-70"
+                    className="mt-3 rounded-xl items-center justify-center"
+                    style={{ height: 42, backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.border.light }}
                   >
-                    <Tag size={18} color={filterLowStock ? '#F59E0B' : colors.text.muted} strokeWidth={2} />
-                    <View className="flex-1 ml-3">
-                      <Text style={{ color: colors.text.primary }} className="font-medium text-sm">Low Stock Only</Text>
-                    </View>
-                    {filterLowStock && (
-                      <View className="w-5 h-5 rounded-full items-center justify-center" style={{ backgroundColor: colors.accent.primary }}>
-                        <Check size={12} color={isDark ? '#000000' : '#FFFFFF'} strokeWidth={3} />
-                      </View>
-                    )}
+                    <Text style={{ color: colors.text.primary }} className="text-sm font-semibold">Clear filters</Text>
                   </Pressable>
                 </View>
 

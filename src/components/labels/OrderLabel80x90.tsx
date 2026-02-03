@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, Image } from 'react-native';
+import { generateQrSvg } from '@/lib/qrcode';
 
 export interface OrderLabelData {
   // Business/Sender Info
@@ -151,46 +152,6 @@ export function OrderLabel80x90Preview({ data }: OrderLabel80x90Props) {
 /**
  * Generate QR Code SVG for the order number
  * Always encodes the FYLL internal order number
- */
-function generateSimpleQRSVG(data: string, size: number = 60): string {
-  const hash = data.split('').reduce((acc, char) => {
-    return ((acc << 5) - acc + char.charCodeAt(0)) | 0;
-  }, 0);
-
-  const modules = 21;
-  const moduleSize = size / modules;
-
-  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">`;
-  svg += `<rect width="${size}" height="${size}" fill="white"/>`;
-
-  for (let row = 0; row < modules; row++) {
-    for (let col = 0; col < modules; col++) {
-      const isTopLeftFinder = row < 7 && col < 7;
-      const isTopRightFinder = row < 7 && col >= modules - 7;
-      const isBottomLeftFinder = row >= modules - 7 && col < 7;
-
-      let isFilled = false;
-
-      if (isTopLeftFinder || isTopRightFinder || isBottomLeftFinder) {
-        const localRow = row < 7 ? row : row - (modules - 7);
-        const localCol = col < 7 ? col : col - (modules - 7);
-        isFilled = localRow === 0 || localRow === 6 || localCol === 0 || localCol === 6 ||
-                   (localRow >= 2 && localRow <= 4 && localCol >= 2 && localCol <= 4);
-      } else {
-        const bitIndex = (row * modules + col) % 32;
-        isFilled = ((hash >> bitIndex) & 1) === 1 || ((row + col) % 3 === 0 && (hash + row * col) % 5 !== 0);
-      }
-
-      if (isFilled) {
-        svg += `<rect x="${col * moduleSize}" y="${row * moduleSize}" width="${moduleSize}" height="${moduleSize}" fill="black"/>`;
-      }
-    }
-  }
-
-  svg += '</svg>';
-  return svg;
-}
-
 /**
  * Generate HTML for printing 80x90mm shipping label
  * Clean courier-style shipping label layout
@@ -202,7 +163,7 @@ function generateSimpleQRSVG(data: string, size: number = 60): string {
  */
 export function generateOrderLabelHTML(data: OrderLabelData): string {
   // QR always encodes the internal FYLL order number
-  const qrSvg = generateSimpleQRSVG(data.orderNumber, 60);
+  const qrSvg = generateQrSvg(data.orderNumber, 60);
 
   // Determine primary order display
   const hasWebsiteOrder = !!data.websiteOrderRef;

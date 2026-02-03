@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, Pressable, TextInput, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ChevronLeft, User, Shield, Mail, Lock, UserCog } from 'lucide-react-native';
+import { ChevronLeft, User as UserIcon, Shield, Mail, Lock, UserCog } from 'lucide-react-native';
 import { useThemeColors } from '@/lib/theme';
 import useAuthStore, { TeamRole } from '@/lib/state/auth-store';
 import * as Haptics from 'expo-haptics';
@@ -209,7 +209,7 @@ export default function AddTeamMemberScreen() {
                 >
                   {role === 'admin' && <Shield size={24} color={roleColors[role]} strokeWidth={2} />}
                   {role === 'manager' && <UserCog size={24} color={roleColors[role]} strokeWidth={2} />}
-                  {role === 'staff' && <User size={24} color={roleColors[role]} strokeWidth={2} />}
+                  {role === 'staff' && <UserIcon size={24} color={roleColors[role]} strokeWidth={2} />}
                 </View>
                 <View className="flex-1">
                   <Text

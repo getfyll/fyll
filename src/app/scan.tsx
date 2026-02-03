@@ -6,7 +6,7 @@ import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-ca
 import { X, Zap, ZapOff, Package, ShoppingCart, AlertCircle, Plus } from 'lucide-react-native';
 import useFyllStore, { formatCurrency } from '@/lib/state/fyll-store';
 import { cn } from '@/lib/cn';
-import Animated, { FadeInDown, SlideInUp } from 'react-native-reanimated';
+import Animated, { SlideInUp } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 
 const { width } = Dimensions.get('window');
@@ -36,6 +36,12 @@ export default function ScanScreen() {
   const [scanned, setScanned] = useState(false);
   const [scannedProduct, setScannedProduct] = useState<ScannedProduct | null>(null);
   const [notFound, setNotFound] = useState(false);
+
+  const resetScanState = () => {
+    setScanned(false);
+    setScannedProduct(null);
+    setNotFound(false);
+  };
 
   const findProductByBarcode = useCallback(
     (barcode: string): ScannedProduct | null => {
@@ -103,13 +109,22 @@ export default function ScanScreen() {
 
   const handleScanAgain = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setScanned(false);
-    setScannedProduct(null);
-    setNotFound(false);
+    resetScanState();
+  };
+
+  const handleCompleteAdd = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    resetScanState();
+  };
+
+  const handleFinishAddStock = () => {
+    handleCompleteAdd();
+    router.back();
   };
 
   const handleClose = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    resetScanState();
     router.back();
   };
 
@@ -292,21 +307,33 @@ export default function ScanScreen() {
               </View>
 
               {scanMode === 'add-stock' ? (
-                <View className="flex-row gap-3">
-                  <Pressable
-                    onPress={handleAddStock}
-                    className="flex-1 bg-[#111111] py-4 rounded-2xl items-center flex-row justify-center active:opacity-80"
-                  >
-                    <Plus size={20} color="#FFFFFF" strokeWidth={2} />
-                    <Text className="text-white font-bold text-base ml-2">Add 1 to Stock</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={handleScanAgain}
-                    className="bg-gray-100 px-5 py-4 rounded-2xl items-center active:opacity-70"
-                  >
-                    <Text className="text-gray-700 font-semibold">Scan Again</Text>
-                  </Pressable>
-                </View>
+                <>
+                  <View className="flex-row gap-3">
+                    <Pressable
+                      onPress={handleAddStock}
+                      className="flex-1 bg-[#111111] py-4 rounded-2xl items-center flex-row justify-center active:opacity-80"
+                    >
+                      <Plus size={20} color="#FFFFFF" strokeWidth={2} />
+                      <Text className="text-white font-bold text-base ml-2">Add 1 to Stock</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={handleScanAgain}
+                      className="bg-gray-100 px-5 py-4 rounded-2xl items-center active:opacity-70"
+                    >
+                      <Text className="text-gray-700 font-semibold">Scan Again</Text>
+                    </Pressable>
+                  </View>
+                  <View className="mt-4">
+                    <Pressable
+                      onPress={handleFinishAddStock}
+                      className="rounded-2xl border border-gray-200 py-4 px-6 items-center active:opacity-80"
+                      style={{ backgroundColor: '#F9FAFB' }}
+                    >
+                      <Text className="text-gray-900 font-semibold text-base">Complete</Text>
+                      <Text className="text-xs text-gray-500 mt-1">Close scanner</Text>
+                    </Pressable>
+                  </View>
+                </>
               ) : (
                 <View className="flex-row gap-3">
                   <Pressable
@@ -339,8 +366,8 @@ export default function ScanScreen() {
                   </Pressable>
                 </View>
               )}
-            </View>
-          ) : notFound ? (
+          </View>
+        ) : notFound ? (
             <View className="px-5 items-center">
               <View className="w-16 h-16 bg-red-100 rounded-full items-center justify-center mb-4">
                 <AlertCircle size={32} color="#EF4444" strokeWidth={2} />

@@ -13,3 +13,12 @@ textarea,
 select {
   font-size: 16px !important;
 }
+
+/* hide OneSignal floating bell on mobile when not needed */
+.onesignal-bell-launcher,
+.onesignal-bell-launcher__inner,
+.onesignal-bell-launcher__badge,
+.onesignal-bell-container,
+.onesignal-bell-launcher-button {
+  display: none !important;
+}

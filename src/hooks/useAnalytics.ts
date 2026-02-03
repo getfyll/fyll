@@ -30,6 +30,9 @@ import {
   getTopCustomers,
   getCustomersByLocation,
   getCustomersByPlatform,
+  getServiceMetrics,
+  getServiceBreakdown,
+  getServiceRevenueByPeriod,
   TabKey,
   // New refund helpers
   getRefundStats,
@@ -40,6 +43,8 @@ import {
  */
 export function useAnalytics(range: TimeRange, _tab: TabKey): AnalyticsResult {
   const orders = useFyllStore((s) => s.orders);
+  const orderStatuses = useFyllStore((s) => s.orderStatuses);
+  const products = useFyllStore((s) => s.products);
 
   return useMemo(() => {
     // Get date ranges
@@ -68,6 +73,12 @@ export function useAnalytics(range: TimeRange, _tab: TabKey): AnalyticsResult {
     const refundsAmount = currentRefundStats.total;
     const netRevenue = Math.max(0, totalSales - refundsAmount);
 
+    const serviceMetrics = getServiceMetrics(currentOrders, products);
+    const previousServiceMetrics = getServiceMetrics(previousOrders, products);
+    const serviceRevenueChange = percentChange(serviceMetrics.revenue, previousServiceMetrics.revenue);
+    const serviceByPeriod = getServiceRevenueByPeriod(range, currentOrders, rangeStart, rangeEnd, products);
+    const serviceBreakdown = getServiceBreakdown(currentOrders, products);
+
     // Previous period metrics
     const previousPeriodSales = previousOrders.reduce((sum, o) => sum + o.totalAmount, 0);
     const previousPeriodOrders = previousOrders.length;
@@ -91,7 +102,7 @@ export function useAnalytics(range: TimeRange, _tab: TabKey): AnalyticsResult {
     }
 
     // Today's stats
-    const todayStats = getTodayStats(orders);
+    const todayStats = getTodayStats(orders, products);
 
     // Hourly trend for sparkline
     const hourlyTrend = getHourlyTrend(orders);
@@ -163,6 +174,13 @@ export function useAnalytics(range: TimeRange, _tab: TabKey): AnalyticsResult {
       todayRefundsAmount: todayStats.refundsAmount,
       hourlyTrend,
 
+      serviceMetrics,
+      previousServiceMetrics,
+      serviceRevenueChange,
+      todayServiceMetrics: todayStats.serviceMetrics,
+      serviceBreakdown,
+      serviceByPeriod,
+
       // Chart data
       salesByPeriod,
 
@@ -197,5 +215,5 @@ export function useAnalytics(range: TimeRange, _tab: TabKey): AnalyticsResult {
       customersByLocation,
       customersByPlatform,
     };
-  }, [orders, range]);
+  }, [orders, orderStatuses, products, range]);
 }

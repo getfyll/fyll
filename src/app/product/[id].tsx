@@ -518,7 +518,10 @@ export default function ProductDetailScreen() {
                         <Pressable
                           onPress={() => {
                             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                            router.push(`/label-print?productId=${product.id}&variantId=${variant.id}`);
+                            router.push({
+                              pathname: '/label-print',
+                              params: { productId: product.id, variantId: variant.id },
+                            });
                           }}
                           className="p-1.5 active:opacity-50"
                         >
@@ -553,7 +556,10 @@ export default function ProductDetailScreen() {
                       <Pressable
                         onPress={() => {
                           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                          router.push(`/restock?productId=${product.id}&variantId=${variant.id}`);
+                          router.push({
+                            pathname: '/restock',
+                            params: { productId: product.id, variantId: variant.id },
+                          });
                         }}
                         className="flex-row items-center px-3 py-1.5 rounded-lg active:opacity-80"
                         style={{ backgroundColor: 'rgba(16, 185, 129, 0.15)' }}

@@ -12,17 +12,14 @@ import {
   Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Package, Edit2, Phone, Mail, MapPin, Calendar, Tag, CreditCard, Truck, RefreshCcw, Printer, Trash2, FileText, Camera, X } from 'lucide-react-native';
+import { Package, Edit2, Phone, Mail, MapPin, Calendar, Tag, CreditCard, Truck, RefreshCcw, Printer, Trash2, FileText, Camera, ChevronRight, X } from 'lucide-react-native';
 import useFyllStore, { Case, formatCurrency, Refund } from '@/lib/state/fyll-store';
 import useAuthStore from '@/lib/state/auth-store';
 import { useThemeColors } from '@/lib/theme';
 import { DetailSection, DetailKeyValue, DetailActionButton } from './SplitViewLayout';
-import { useBusinessSettings } from '@/hooks/useBusinessSettings';
 import { Button } from '@/components/Button';
-import { printOrderLabel, prepareOrderLabelData } from '@/utils/printOrderLabel';
 import * as Haptics from 'expo-haptics';
 import { CaseForm } from '@/components/CaseForm';
-import { CaseListItem } from '@/components/CaseListItem';
 import * as ImagePicker from 'expo-image-picker';
 import { compressImage } from '@/lib/image-compression';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -31,6 +28,11 @@ interface OrderDetailPanelProps {
   orderId: string;
   onClose?: () => void;
 }
+
+const formatLogisticsDate = (dateString?: string) => {
+  if (!dateString) return '';
+  return new Date(dateString).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+};
 
 export function OrderDetailPanel({ orderId, onClose }: OrderDetailPanelProps) {
   const colors = useThemeColors();
@@ -43,7 +45,6 @@ export function OrderDetailPanel({ orderId, onClose }: OrderDetailPanelProps) {
   const cases = useFyllStore((s) => s.cases);
   const addCase = useFyllStore((s) => s.addCase);
   const updateCase = useFyllStore((s) => s.updateCase);
-  const deleteCase = useFyllStore((s) => s.deleteCase);
   const updateOrder = useFyllStore((s) => s.updateOrder);
   const deleteOrder = useFyllStore((s) => s.deleteOrder);
   const currentUser = useAuthStore((s) => s.currentUser);
@@ -60,7 +61,6 @@ export function OrderDetailPanel({ orderId, onClose }: OrderDetailPanelProps) {
   const [showRefundDatePicker, setShowRefundDatePicker] = useState(false);
 
   // Business settings for label printing
-  const { businessName, businessLogo, businessPhone, businessWebsite, returnAddress } = useBusinessSettings();
 
   const order = useMemo(() => orders.find((o) => o.id === orderId), [orders, orderId]);
 
@@ -120,10 +120,6 @@ export function OrderDetailPanel({ orderId, onClose }: OrderDetailPanelProps) {
     } else {
       await addCase(caseData, businessId);
     }
-  };
-
-  const handleDeleteCase = (caseId: string) => {
-    deleteCase(caseId, businessId);
   };
 
   const handleDelete = () => {
@@ -202,15 +198,8 @@ export function OrderDetailPanel({ orderId, onClose }: OrderDetailPanelProps) {
     setShowRefundModal(false);
   };
 
-  const handlePrintLabel = async () => {
-    const labelData = prepareOrderLabelData(order, {
-      businessName,
-      businessLogo,
-      businessPhone,
-      businessWebsite,
-      returnAddress,
-    });
-    await printOrderLabel(labelData);
+  const handlePrintLabel = () => {
+    router.push(`/order-label-preview?orderId=${order.id}`);
   };
 
   const handleUpdateStatus = (newStatus: string) => {
@@ -411,22 +400,19 @@ export function OrderDetailPanel({ orderId, onClose }: OrderDetailPanelProps) {
                 </Text>
               </View>
             )}
-            {order.logistics.dispatchDate && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-                <Calendar size={14} color={colors.text.tertiary} strokeWidth={2} />
-                <Text style={{ color: colors.text.secondary, fontSize: 13, marginLeft: 8 }}>
-                  Dispatched {new Date(order.logistics.dispatchDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                </Text>
-              </View>
-            )}
-            {order.logistics.datePickedUp && (
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Calendar size={14} color={colors.text.tertiary} strokeWidth={2} />
-                <Text style={{ color: colors.text.secondary, fontSize: 13, marginLeft: 8 }}>
-                  Picked up {new Date(order.logistics.datePickedUp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                </Text>
-              </View>
-            )}
+            {(() => {
+              const logisticsDate = order.logistics?.datePickedUp ?? order.logistics?.dispatchDate;
+              if (!logisticsDate) return null;
+              const logisticsLabel = order.logistics?.datePickedUp ? 'Picked up' : 'Dispatched';
+              return (
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Calendar size={14} color={colors.text.tertiary} strokeWidth={2} />
+                  <Text style={{ color: colors.text.secondary, fontSize: 13, marginLeft: 8 }}>
+                    {logisticsLabel} {formatLogisticsDate(logisticsDate)}
+                  </Text>
+                </View>
+              );
+            })()}
           </View>
         ) : (
           <View className="items-center py-3">
@@ -761,40 +747,15 @@ export function OrderDetailPanel({ orderId, onClose }: OrderDetailPanelProps) {
         {orderCases.length > 0 ? (
           <View className="gap-2">
             {orderCases.map((caseItem) => (
-              <View key={caseItem.id} className="flex-row items-center gap-2">
-                <View className="flex-1">
-                  <CaseListItem
-                    caseItem={caseItem}
-                    compact
-                    onPress={() => router.push(`/case/${caseItem.id}`)}
-                  />
-                </View>
-                <Pressable
-                  onPress={() => {
-                    if (Platform.OS !== 'web') {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    }
-                    setEditingCase(caseItem);
-                    setShowCaseForm(true);
-                  }}
-                  className="w-9 h-9 rounded-lg items-center justify-center active:opacity-70"
-                  style={{ backgroundColor: colors.bg.secondary }}
-                >
-                  <Edit2 size={16} color={colors.text.primary} strokeWidth={2} />
-                </Pressable>
-                <Pressable
-                  onPress={() => {
-                    if (Platform.OS !== 'web') {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                    }
-                    handleDeleteCase(caseItem.id);
-                  }}
-                  className="w-9 h-9 rounded-lg items-center justify-center active:opacity-70"
-                  style={{ backgroundColor: 'rgba(239, 68, 68, 0.12)' }}
-                >
-                  <Trash2 size={16} color="#EF4444" strokeWidth={2} />
-                </Pressable>
-              </View>
+              <Pressable
+                key={caseItem.id}
+                onPress={() => router.push(`/case/${caseItem.id}`)}
+                className="flex-row items-center justify-between rounded-2xl px-4 py-3"
+                style={{ backgroundColor: colors.bg.secondary }}
+              >
+                <Text style={{ color: colors.text.primary, fontWeight: '600' }}>{caseItem.caseNumber}</Text>
+                <ChevronRight size={18} color={colors.text.tertiary} strokeWidth={2} />
+              </Pressable>
             ))}
           </View>
         ) : (

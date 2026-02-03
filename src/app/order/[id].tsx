@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { View, Text, ScrollView, Pressable, Linking, Alert, Modal, TextInput, KeyboardAvoidingView, Platform, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ArrowLeft, Phone, Mail, MapPin, Calendar, Tag, Package, Trash2, Edit2, X, Check, Truck, CreditCard, ChevronDown, RefreshCcw, Camera, DollarSign, Plus, Minus, Search, Printer, User, Percent, ChevronLeft, ChevronRight, FileText } from 'lucide-react-native';
+import { ArrowLeft, Phone, Mail, MapPin, Calendar, Tag, Package, Trash2, Edit2, X, Check, Truck, CreditCard, ChevronDown, RefreshCcw, Camera, DollarSign, Plus, Minus, Search, Printer, User as UserIcon, Percent, ChevronLeft, ChevronRight, FileText } from 'lucide-react-native';
 import useFyllStore, { formatCurrency, NIGERIA_STATES, LogisticsInfo, Refund, OrderItem, PrescriptionInfo, Case } from '@/lib/state/fyll-store';
 import useAuthStore from '@/lib/state/auth-store';
 import { useThemeColors } from '@/lib/theme';
@@ -12,11 +12,9 @@ import * as ImagePicker from 'expo-image-picker';
 import { compressImage } from '@/lib/image-compression';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useBusinessSettings } from '@/hooks/useBusinessSettings';
-import { printOrderLabel, prepareOrderLabelData } from '@/utils/printOrderLabel';
 import { PrescriptionSection } from '@/components/PrescriptionSection';
 import { Button } from '@/components/Button';
 import { CaseForm } from '@/components/CaseForm';
-import { CaseListItem } from '@/components/CaseListItem';
 
 export default function OrderDetailScreen() {
   const router = useRouter();
@@ -32,7 +30,6 @@ export default function OrderDetailScreen() {
   const cases = useFyllStore((s) => s.cases);
   const addCase = useFyllStore((s) => s.addCase);
   const updateCase = useFyllStore((s) => s.updateCase);
-  const deleteCase = useFyllStore((s) => s.deleteCase);
   const updateOrder = useFyllStore((s) => s.updateOrder);
   const deleteOrder = useFyllStore((s) => s.deleteOrder);
   const updateVariantStock = useFyllStore((s) => s.updateVariantStock);
@@ -90,14 +87,14 @@ export default function OrderDetailScreen() {
 
   // Cases
   const [showCaseForm, setShowCaseForm] = useState(false);
-  const [editingCase, setEditingCase] = useState<Case | null>(null);
 
   const orderCases = useMemo(() => {
     return cases.filter((caseItem) => caseItem.orderId === order?.id);
   }, [cases, order?.id]);
 
   // Product search results for editing - must be before early return
-  const hasRefund = order?.refund?.amount != null && order.refund.amount > 0;
+  const refund = order?.refund;
+  const hasRefund = refund?.amount != null && refund.amount > 0;
 
   const productSearchResults = useMemo(() => {
     if (!productSearchQuery.trim()) return [];
@@ -170,20 +167,11 @@ export default function OrderDetailScreen() {
 
   const handleCreateCase = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setEditingCase(null);
     setShowCaseForm(true);
   };
 
   const handleSaveCase = async (caseData: Case) => {
-    if (editingCase) {
-      await updateCase(caseData.id, caseData, businessId);
-    } else {
-      await addCase(caseData, businessId);
-    }
-  };
-
-  const handleDeleteCase = (caseId: string) => {
-    deleteCase(caseId, businessId);
+    await addCase(caseData, businessId);
   };
 
   const handleAddEditItem = (result: { productId: string; variantId: string; price: number }) => {
@@ -374,15 +362,8 @@ export default function OrderDetailScreen() {
     router.back();
   };
 
-  const handlePrintLabel = async () => {
-    const labelData = prepareOrderLabelData(order, {
-      businessName,
-      businessLogo,
-      businessPhone,
-      businessWebsite,
-      returnAddress,
-    });
-    await printOrderLabel(labelData);
+  const handlePrintLabel = () => {
+    router.push(`/order-label-preview?orderId=${order.id}`);
   };
 
   const handleUpdatePrescription = (prescription: PrescriptionInfo | undefined) => {
@@ -617,16 +598,21 @@ export default function OrderDetailScreen() {
               <View>
                 <View className="flex-row items-center py-2">
                   <Truck size={16} color={colors.text.primary} strokeWidth={2} />
-                  <Text style={{ color: colors.text.primary }} className="text-sm ml-2 font-semibold">{order.logistics.carrierName}</Text>
+                  <Text  style={{ color: colors.text.primary }} className="text-sm ml-2 font-semibold">{order.logistics.carrierName}</Text>
                 </View>
-                {order.logistics.datePickedUp && (
-                  <View className="flex-row items-center py-2">
-                    <Calendar size={16} color={colors.text.tertiary} strokeWidth={2} />
-                    <Text style={{ color: colors.text.secondary }} className="text-sm ml-2">
-                      Picked up: {formatDateDisplay(order.logistics.datePickedUp)}
-                    </Text>
-                  </View>
-                )}
+                {(() => {
+                  const logisticsDate = order.logistics?.datePickedUp ?? order.logistics?.dispatchDate;
+                  if (!logisticsDate) return null;
+                  const logisticsLabel = order.logistics?.datePickedUp ? 'Picked up' : 'Dispatched';
+                  return (
+                    <View className="flex-row items-center py-2">
+                      <Calendar size={16} color={colors.text.tertiary} strokeWidth={2} />
+                      <Text style={{ color: colors.text.secondary }} className="text-sm ml-2">
+                        {logisticsLabel}: {formatDateDisplay(logisticsDate)}
+                      </Text>
+                    </View>
+                  );
+                })()}
                 {order.logistics.trackingNumber && (
                   <View className="rounded-xl px-3 py-2 mt-2" style={{ backgroundColor: colors.bg.secondary }}>
                     <Text style={{ color: colors.text.muted }} className="text-xs mb-1">Tracking Number</Text>
@@ -670,26 +656,28 @@ export default function OrderDetailScreen() {
                 </Pressable>
                 </View>
 
-                {hasRefund ? (
+                {hasRefund && refund ? (
                   <View>
                     <View className="flex-row items-center justify-between py-2">
                       <Text style={{ color: colors.text.tertiary }} className="text-sm">Amount Refunded</Text>
-                      <Text className="text-red-500 font-bold text-lg">{formatCurrency(order.refund.amount)}</Text>
-                </View>
-                <View className="flex-row items-center py-2">
-                  <Calendar size={14} color={colors.text.tertiary} strokeWidth={2} />
-                  <Text style={{ color: colors.text.secondary }} className="text-sm ml-2">
-                    {formatDateDisplay(order.refund.date)}
-                  </Text>
-                </View>
-                {order.refund.reason && (
-                  <View className="rounded-xl px-3 py-2 mt-2" style={{ backgroundColor: colors.bg.secondary }}>
-                    <Text style={{ color: colors.text.muted }} className="text-xs mb-1">Reason</Text>
-                    <Text style={{ color: colors.text.primary }} className="text-sm">{order.refund.reason}</Text>
+                      <Text className="text-red-500 font-bold text-lg">{formatCurrency(refund.amount)}</Text>
+                    </View>
+                    <View className="flex-row items-center py-2">
+                      <Calendar size={14} color={colors.text.tertiary} strokeWidth={2} />
+                      {refund.date && (
+                        <Text style={{ color: colors.text.secondary }} className="text-sm ml-2">
+                          {formatDateDisplay(refund.date)}
+                        </Text>
+                      )}
+                    </View>
+                    {refund.reason && (
+                      <View className="rounded-xl px-3 py-2 mt-2" style={{ backgroundColor: colors.bg.secondary }}>
+                        <Text style={{ color: colors.text.muted }} className="text-xs mb-1">Reason</Text>
+                        <Text style={{ color: colors.text.primary }} className="text-sm">{refund.reason}</Text>
+                      </View>
+                    )}
                   </View>
-                )}
-              </View>
-            ) : (
+                ) : (
               <View className="py-4 items-center">
                 <RefreshCcw size={24} color={colors.text.muted} strokeWidth={1.5} />
                 <Text style={{ color: colors.text.muted }} className="text-sm mt-2">No refund processed</Text>
@@ -713,36 +701,15 @@ export default function OrderDetailScreen() {
             {orderCases.length > 0 ? (
               <View className="gap-2">
                 {orderCases.map((caseItem) => (
-                  <View key={caseItem.id} className="flex-row items-center gap-2">
-                    <View className="flex-1">
-                      <CaseListItem
-                        caseItem={caseItem}
-                        compact
-                        onPress={() => router.push(`/case/${caseItem.id}`)}
-                      />
-                    </View>
-                    <Pressable
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        setEditingCase(caseItem);
-                        setShowCaseForm(true);
-                      }}
-                      className="w-9 h-9 rounded-lg items-center justify-center active:opacity-70"
-                      style={{ backgroundColor: colors.bg.secondary }}
-                    >
-                      <Edit2 size={16} color={colors.text.primary} strokeWidth={2} />
-                    </Pressable>
-                    <Pressable
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                        handleDeleteCase(caseItem.id);
-                      }}
-                      className="w-9 h-9 rounded-lg items-center justify-center active:opacity-70"
-                      style={{ backgroundColor: 'rgba(239, 68, 68, 0.12)' }}
-                    >
-                      <Trash2 size={16} color="#EF4444" strokeWidth={2} />
-                    </Pressable>
-                  </View>
+                  <Pressable
+                    key={caseItem.id}
+                    onPress={() => router.push(`/case/${caseItem.id}`)}
+                    className="flex-row items-center justify-between rounded-2xl px-4 py-3"
+                    style={{ backgroundColor: colors.bg.secondary }}
+                  >
+                    <Text style={{ color: colors.text.primary, fontWeight: '600' }}>{caseItem.caseNumber}</Text>
+                    <ChevronRight size={18} color={colors.text.tertiary} strokeWidth={2} />
+                  </Pressable>
                 ))}
               </View>
             ) : (
@@ -817,7 +784,7 @@ export default function OrderDetailScreen() {
             <View className="mx-5 mt-4">
               <View className="rounded-2xl p-4" style={{ backgroundColor: colors.bg.secondary }}>
                 <View className="flex-row items-center mb-2">
-                  <User size={16} color={colors.text.tertiary} strokeWidth={2} />
+                  <UserIcon size={16} color={colors.text.tertiary} strokeWidth={2} />
                   <Text style={{ color: colors.text.tertiary }} className="font-semibold text-xs uppercase ml-2">Staff Activity</Text>
                 </View>
                 {order.createdBy && (
@@ -1859,7 +1826,6 @@ export default function OrderDetailScreen() {
           orderNumber={order.orderNumber}
           customerId={order.customerId}
           customerName={order.customerName}
-          existingCase={editingCase ?? undefined}
           createdBy={currentUser?.name}
         />
       </SafeAreaView>

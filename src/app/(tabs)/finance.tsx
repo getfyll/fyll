@@ -85,7 +85,6 @@ export default function FinanceScreen() {
   const orders = useFyllStore((s) => s.orders);
   const expenses = useFyllStore((s) => s.expenses);
   const procurements = useFyllStore((s) => s.procurements);
-  const products = useFyllStore((s) => s.products);
   const userRole = useFyllStore((s) => s.userRole);
 
   const isOwner = userRole === 'owner';

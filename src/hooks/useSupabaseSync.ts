@@ -13,6 +13,7 @@ import type {
   Procurement,
   Expense,
   Case,
+  AuditLog,
   OrderStatus,
   SaleSource,
   CustomService,
@@ -31,6 +32,7 @@ const TABLES = {
   procurements: 'procurements',
   expenses: 'expenses',
   cases: 'cases',
+  auditLogs: 'audit_logs',
 };
 
 type GlobalSettingsPayload = {
@@ -102,6 +104,7 @@ export function useSupabaseSync() {
   const procurements = useFyllStore((s) => s.procurements);
   const expenses = useFyllStore((s) => s.expenses);
   const cases = useFyllStore((s) => s.cases);
+  const auditLogs = useFyllStore((s) => s.auditLogs);
   const categories = useFyllStore((s) => s.categories);
   const productVariables = useFyllStore((s) => s.productVariables);
   const orderStatuses = useFyllStore((s) => s.orderStatuses);
@@ -120,6 +123,7 @@ export function useSupabaseSync() {
   const prevProcurementIds = useRef<Set<string>>(new Set());
   const prevExpenseIds = useRef<Set<string>>(new Set());
   const prevCaseIds = useRef<Set<string>>(new Set());
+  const prevAuditLogIds = useRef<Set<string>>(new Set());
   const prevOrderStatusIds = useRef<Set<string>>(new Set());
   const prevSaleSourceIds = useRef<Set<string>>(new Set());
   const prevCustomServiceIds = useRef<Set<string>>(new Set());
@@ -145,6 +149,7 @@ export function useSupabaseSync() {
       procurements: Procurement[];
       expenses: Expense[];
       cases: Case[];
+      auditLogs: AuditLog[];
       settings?: GlobalSettingsPayload | null;
     }) => {
       applyingRemote.current = true;
@@ -157,6 +162,7 @@ export function useSupabaseSync() {
           procurements: next.procurements,
           expenses: next.expenses,
           cases: next.cases,
+          auditLogs: next.auditLogs,
           categories: next.settings.categories,
           productVariables: next.settings.productVariables,
           orderStatuses: next.settings.orderStatuses,
@@ -178,6 +184,7 @@ export function useSupabaseSync() {
           procurements: next.procurements,
           expenses: next.expenses,
           cases: next.cases,
+          auditLogs: next.auditLogs,
         });
       }
       prevProductIds.current = toIdSet(next.products);
@@ -186,8 +193,9 @@ export function useSupabaseSync() {
       prevRestockIds.current = toIdSet(next.restockLogs);
       prevProcurementIds.current = toIdSet(next.procurements);
       prevExpenseIds.current = toIdSet(next.expenses);
-      prevCaseIds.current = toIdSet(next.cases);
-      if (next.settings) {
+        prevCaseIds.current = toIdSet(next.cases);
+        prevAuditLogIds.current = toIdSet(next.auditLogs);
+        if (next.settings) {
         prevOrderStatusIds.current = toIdSet(next.settings.orderStatuses);
         prevSaleSourceIds.current = toIdSet(next.settings.saleSources);
         prevCustomServiceIds.current = toIdSet(next.settings.customServices);
@@ -202,7 +210,7 @@ export function useSupabaseSync() {
     };
 
     const applyDataSlice = <T extends { id: string }>(
-      key: 'products' | 'orders' | 'customers' | 'restockLogs' | 'procurements' | 'expenses' | 'cases',
+      key: 'products' | 'orders' | 'customers' | 'restockLogs' | 'procurements' | 'expenses' | 'cases' | 'auditLogs',
       rows: { data: T }[],
     ) => {
       const items = rows.map((row) => row.data);
@@ -214,6 +222,7 @@ export function useSupabaseSync() {
       if (key === 'procurements') prevProcurementIds.current = toIdSet(items);
       if (key === 'expenses') prevExpenseIds.current = toIdSet(items);
       if (key === 'cases') prevCaseIds.current = toIdSet(items);
+      if (key === 'auditLogs') prevAuditLogIds.current = toIdSet(items);
     };
 
     const applySettingsSlice = (table: string, rows: { data: any }[]) => {
@@ -303,6 +312,9 @@ export function useSupabaseSync() {
             case TABLES.cases:
               applyDataSlice('cases', await supabaseData.fetchCollection<Case>(TABLES.cases, businessId));
               break;
+            case TABLES.auditLogs:
+              applyDataSlice('auditLogs', await supabaseData.fetchCollection<AuditLog>(TABLES.auditLogs, businessId));
+              break;
             default:
               break;
           }
@@ -338,6 +350,7 @@ export function useSupabaseSync() {
           procurementRows,
           expenseRows,
           caseRows,
+          auditLogRows,
           orderStatusRows,
           saleSourceRows,
           customServiceRows,
@@ -356,6 +369,7 @@ export function useSupabaseSync() {
           supabaseData.fetchCollection<Procurement>(TABLES.procurements, businessId),
           supabaseData.fetchCollection<Expense>(TABLES.expenses, businessId),
           supabaseData.fetchCollection<Case>(TABLES.cases, businessId),
+          supabaseData.fetchCollection<AuditLog>(TABLES.auditLogs, businessId),
           supabaseSettings.fetchSettings<OrderStatus>(SETTINGS_TABLES.orderStatuses, businessId),
           supabaseSettings.fetchSettings<SaleSource>(SETTINGS_TABLES.saleSources, businessId),
           supabaseSettings.fetchSettings<CustomService>(SETTINGS_TABLES.customServices, businessId),
@@ -404,6 +418,7 @@ export function useSupabaseSync() {
               procurements: procurementRows.map((row) => row.data),
               expenses: expenseRows.map((row) => row.data),
               cases: caseRows.map((row) => row.data),
+              auditLogs: auditLogRows.map((row) => row.data),
               settings: remoteSettings,
             });
           } else {
@@ -415,6 +430,7 @@ export function useSupabaseSync() {
               procurements: procurementRows.map((row) => row.data),
               expenses: expenseRows.map((row) => row.data),
               cases: caseRows.map((row) => row.data),
+              auditLogs: auditLogRows.map((row) => row.data),
               settings: remoteSettings,
             });
           }
@@ -618,6 +634,27 @@ export function useSupabaseSync() {
         .catch((error) => console.warn('Supabase case delete error:', error));
     }
   }, [cases, businessId, isInitialized, isOfflineMode]);
+
+  useEffect(() => {
+    if (!isInitialized || !businessId || isOfflineMode || applyingRemote.current) return;
+
+    const nextIds = toIdSet(auditLogs);
+    const removed = [...prevAuditLogIds.current].filter((id) => !nextIds.has(id));
+    const added = auditLogs.filter((log) => !prevAuditLogIds.current.has(log.id));
+    prevAuditLogIds.current = nextIds;
+
+    if (added.length > 0) {
+      supabaseData
+        .upsertCollection(TABLES.auditLogs, businessId, added)
+        .catch((error) => console.warn('Supabase audit log upsert error:', error));
+    }
+
+    if (removed.length > 0) {
+      supabaseData
+        .deleteByIds(TABLES.auditLogs, businessId, removed)
+        .catch((error) => console.warn('Supabase audit log delete error:', error));
+    }
+  }, [auditLogs, businessId, isInitialized, isOfflineMode]);
 
   useEffect(() => {
     if (!isInitialized || !businessId || isOfflineMode || applyingRemote.current) return;

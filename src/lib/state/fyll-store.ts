@@ -30,6 +30,8 @@ export interface ProductVariant {
   imageUrl?: string; // Optional variant-specific image
 }
 
+export type ProductType = 'product' | 'service';
+
 export interface Product {
   id: string;
   name: string;
@@ -38,6 +40,7 @@ export interface Product {
   variants: ProductVariant[];
   lowStockThreshold: number;
   createdAt: string;
+  productType: ProductType;
   imageUrl?: string; // Optional product image
   createdBy?: string; // Staff name who created the product
   // New Design tracking
@@ -220,6 +223,17 @@ export interface ExpenseCategory {
   name: string;
 }
 
+export interface AuditLogItem {
+  productId: string;
+  variantId: string;
+  productName: string;
+  variantName: string;
+  sku: string;
+  expectedStock: number;
+  actualStock: number;
+  discrepancy: number;
+}
+
 export interface AuditLog {
   id: string;
   month: number; // 0-11
@@ -227,6 +241,8 @@ export interface AuditLog {
   itemsAudited: number;
   discrepancies: number;
   completedAt: string;
+  performedBy?: string;
+  items: AuditLogItem[];
 }
 
 export interface RestockLog {
@@ -548,6 +564,7 @@ const initialProducts: Product[] = [
     categories: ['Sunglasses'],
     lowStockThreshold: 5,
     createdAt: new Date().toISOString(),
+    productType: 'product',
     variants: [
       { id: '1-1', sku: 'AV1-GOLD', barcode: generateBarcode(), variableValues: { Color: 'Gold' }, stock: 15, sellingPrice: 129000 },
       { id: '1-2', sku: 'AV1-SILV', barcode: generateBarcode(), variableValues: { Color: 'Silver' }, stock: 12, sellingPrice: 129000 },
@@ -561,6 +578,7 @@ const initialProducts: Product[] = [
     categories: ['Sunglasses'],
     lowStockThreshold: 5,
     createdAt: new Date().toISOString(),
+    productType: 'product',
     variants: [
       { id: '2-1', sku: 'WFC-GOLD', barcode: generateBarcode(), variableValues: { Color: 'Gold' }, stock: 20, sellingPrice: 99000 },
       { id: '2-2', sku: 'WFC-SILV', barcode: generateBarcode(), variableValues: { Color: 'Silver' }, stock: 3, sellingPrice: 99000 },

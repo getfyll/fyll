@@ -9,7 +9,7 @@ export default {
     newArchEnabled: true,
     icon: "./assets/icon.png",
     splash: {
-      image: "./assets/splash.png",
+      image: "./assets/image-1767894092.png",
       resizeMode: "contain",
       backgroundColor: "#000000"
     },
@@ -21,7 +21,7 @@ export default {
       edgeToEdgeEnabled: true,
       package: "com.fyll.app",
       adaptiveIcon: {
-        foregroundImage: "./assets/adaptive-icon.png",
+        foregroundImage: "./assets/icon.png",
         backgroundColor: "#ffffff"
       }
     },
@@ -31,7 +31,16 @@ export default {
       output: "static"
     },
     plugins: [
-      "expo-router"
+      "expo-router",
+      "@react-native-community/datetimepicker",
+      "expo-asset",
+      "expo-build-properties",
+      "expo-font",
+      "expo-mail-composer",
+      "expo-secure-store",
+      "expo-sqlite",
+      "expo-video",
+      "expo-web-browser"
     ],
     experiments: {
       typedRoutes: true
@@ -45,6 +54,8 @@ export default {
       firebaseMessagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
       firebaseAppId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
       firebaseDatabaseId: process.env.EXPO_PUBLIC_FIREBASE_DATABASE_ID,
+      onesignalAppId: process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID,
+      onesignalSafariWebId: process.env.EXPO_PUBLIC_ONESIGNAL_SAFARI_WEB_ID,
     }
   }
 };

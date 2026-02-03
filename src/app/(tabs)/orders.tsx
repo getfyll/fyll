@@ -3,7 +3,7 @@ import { View, Text, ScrollView, Pressable, TextInput, Modal, Platform } from 'r
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
-import { Plus, Search, ShoppingCart, ChevronRight, MapPin, Calendar, User, Filter, Check, X, ArrowDownAZ, ArrowUpAZ, DollarSign, Sparkles, Clock } from 'lucide-react-native';
+import { Plus, Search, ShoppingCart, ChevronRight, MapPin, Calendar, User as UserIcon, Filter, Check, X, ArrowDownAZ, ArrowUpAZ, DollarSign, Sparkles, Clock } from 'lucide-react-native';
 import useFyllStore, { Order, formatCurrency } from '@/lib/state/fyll-store';
 import { useThemeColors } from '@/lib/theme';
 import { useBreakpoint } from '@/lib/useBreakpoint';
@@ -72,7 +72,7 @@ function OrderCard({ order, statusColor, onPress, isSelected, showSplitView, sep
               </View>
             </View>
             <View className="flex-row items-center mt-1">
-              <User size={12} color={colors.text.tertiary} strokeWidth={2} />
+              <UserIcon size={12} color={colors.text.tertiary} strokeWidth={2} />
               <Text style={{ color: colors.text.tertiary }} className="text-sm ml-1">{order.customerName}</Text>
             </View>
           </View>

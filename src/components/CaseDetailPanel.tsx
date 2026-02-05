@@ -29,7 +29,6 @@ import {
   Plus,
   History,
 } from 'lucide-react-native';
-import Animated, { FadeInDown, FadeInLeft } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { useThemeColors } from '@/lib/theme';
 import useFyllStore, {
@@ -232,7 +231,7 @@ export function CaseDetailPanel({
       )}
 
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
-        <Animated.View entering={FadeInDown.springify()} className="px-5 py-4">
+        <View className="px-5 py-4">
           {/* Case Header Card */}
           <View
             className="p-6 rounded-[28px] mb-4"
@@ -549,10 +548,8 @@ export function CaseDetailPanel({
                   const entryDate = new Date(entry.date);
                   const formattedEntryDate = `${entryDate.toLocaleDateString('en-GB', { month: 'short', day: 'numeric' })}, ${entryDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
                   return (
-                    <Animated.View
-                      key={entry.id}
-                      entering={FadeInLeft.delay(index * 50).springify()}
-                      className="flex-row gap-4 mb-4"
+                    <View
+                      key={entry.id}                      className="flex-row gap-4 mb-4"
                     >
                       <View
                         className="w-3 h-3 rounded-full z-10"
@@ -573,7 +570,7 @@ export function CaseDetailPanel({
                           {entry.user} • {formattedEntryDate}
                         </Text>
                       </View>
-                    </Animated.View>
+                    </View>
                   );
                 })}
               </View>
@@ -666,7 +663,7 @@ export function CaseDetailPanel({
               </Text>
             </Pressable>
           </View>
-        </Animated.View>
+        </View>
       </ScrollView>
 
       {/* Status Modal */}

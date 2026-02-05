@@ -7,7 +7,6 @@ import { useThemeColors } from '@/lib/theme';
 import useAuthStore from '@/lib/state/auth-store';
 import * as Haptics from 'expo-haptics';
 import { FyllLogo } from '@/components/FyllLogo';
-import Constants from 'expo-constants';
 import { supabase } from '@/lib/supabase';
 
 type AuthMode = 'login' | 'invite' | 'signup';
@@ -18,13 +17,10 @@ export default function LoginScreen() {
   const colors = useThemeColors();
   const login = useAuthStore((s) => s.login);
   const signup = useAuthStore((s) => s.signup);
+  const signInWithGoogle = useAuthStore((s) => s.signInWithGoogle);
   const enableOfflineMode = useAuthStore((s) => s.enableOfflineMode);
   const getInviteByCode = useAuthStore((s) => s.getInviteByCode);
   const acceptInvite = useAuthStore((s) => s.acceptInvite);
-  const isOfflineMode = useAuthStore((s) => s.isOfflineMode);
-  const businessId = useAuthStore((s) => s.businessId);
-  const supabaseUrl = Constants.expoConfig?.extra?.supabaseUrl ?? process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
-  const supabaseProjectId = supabaseUrl ? supabaseUrl.replace(/^https?:\/\//, '').split('.')[0] : '';
 
   const [mode, setMode] = useState<AuthMode>('login');
 
@@ -117,6 +113,26 @@ export default function LoginScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setIsResetting(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setIsLoading(true);
+    setError('');
+    setResetMessage('');
+
+    try {
+      const result = await signInWithGoogle();
+      if (!result.success) {
+        setError(result.error || 'Google sign-in failed');
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      }
+    } catch (error) {
+      const message = (error as { message?: string })?.message ?? 'Google sign-in failed';
+      setError(message);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -857,6 +873,24 @@ export default function LoginScreen() {
               >
                 <Text style={{ color: colors.text.tertiary }} className="text-sm">
                   {isResetting ? 'Sending reset email...' : 'Forgot password?'}
+                </Text>
+              </Pressable>
+
+              {/* Google Sign-in */}
+              <Pressable
+                onPress={handleGoogleLogin}
+                disabled={isLoading}
+                className="mt-6 rounded-xl items-center justify-center active:opacity-80 flex-row"
+                style={{
+                  height: 56,
+                  backgroundColor: colors.bg.secondary,
+                  borderWidth: 1,
+                  borderColor: colors.border.light,
+                  opacity: isLoading ? 0.7 : 1,
+                }}
+              >
+                <Text style={{ color: colors.text.primary }} className="font-semibold text-base">
+                  Continue with Google
                 </Text>
               </Pressable>
 

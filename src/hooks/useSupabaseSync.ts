@@ -530,109 +530,65 @@ export function useSupabaseSync() {
     };
   }, [businessId, isAuthenticated, isOfflineMode]);
 
-  useEffect(() => {
-    if (!isInitialized || !businessId || isOfflineMode || applyingRemote.current) return;
+  // SAFETY: Never bulk-delete ALL items from Supabase. If the local list goes
+  // from N items to 0 that is always a store reset / logout, never a legitimate
+  // user action. Skipping prevents accidental data wipe.
+  const safeSyncDeletions = (
+    table: string,
+    nextIds: Set<string>,
+    prevIds: React.RefObject<Set<string>>,
+    label: string,
+  ) => {
+    const removed = [...prevIds.current].filter((id) => !nextIds.has(id));
+    prevIds.current = nextIds;
 
-    const nextIds = toIdSet(products);
-    const removed = [...prevProductIds.current].filter((id) => !nextIds.has(id));
-    prevProductIds.current = nextIds;
+    // If EVERYTHING was removed (going to 0) and there were items before,
+    // this is a store reset — NOT legitimate deletions. Block it.
+    if (nextIds.size === 0 && removed.length > 0) {
+      console.warn(`🛡️ Blocked bulk deletion of ALL ${removed.length} ${label} — likely a store reset`);
+      return;
+    }
 
-    // Only sync deletions immediately - upserts are handled by individual actions
     if (removed.length > 0) {
       supabaseData
-        .deleteByIds(TABLES.products, businessId, removed)
-        .catch((error) => console.warn('Supabase product delete error:', error));
+        .deleteByIds(table, businessId!, removed)
+        .catch((error) => console.warn(`Supabase ${label} delete error:`, error));
     }
+  };
+
+  useEffect(() => {
+    if (!isInitialized || !businessId || isOfflineMode || applyingRemote.current) return;
+    safeSyncDeletions(TABLES.products, toIdSet(products), prevProductIds, 'products');
   }, [products, businessId, isInitialized, isOfflineMode]);
 
   useEffect(() => {
     if (!isInitialized || !businessId || isOfflineMode || applyingRemote.current) return;
-
-    const nextIds = toIdSet(orders);
-    const removed = [...prevOrderIds.current].filter((id) => !nextIds.has(id));
-    prevOrderIds.current = nextIds;
-
-    // Only sync deletions immediately - upserts are handled by individual actions
-    if (removed.length > 0) {
-      supabaseData
-        .deleteByIds(TABLES.orders, businessId, removed)
-        .catch((error) => console.warn('Supabase order delete error:', error));
-    }
+    safeSyncDeletions(TABLES.orders, toIdSet(orders), prevOrderIds, 'orders');
   }, [orders, businessId, isInitialized, isOfflineMode]);
 
   useEffect(() => {
     if (!isInitialized || !businessId || isOfflineMode || applyingRemote.current) return;
-
-    const nextIds = toIdSet(customers);
-    const removed = [...prevCustomerIds.current].filter((id) => !nextIds.has(id));
-    prevCustomerIds.current = nextIds;
-
-    // Only sync deletions immediately - upserts are handled by individual actions
-    if (removed.length > 0) {
-      supabaseData
-        .deleteByIds(TABLES.customers, businessId, removed)
-        .catch((error) => console.warn('Supabase customer delete error:', error));
-    }
+    safeSyncDeletions(TABLES.customers, toIdSet(customers), prevCustomerIds, 'customers');
   }, [customers, businessId, isInitialized, isOfflineMode]);
 
   useEffect(() => {
     if (!isInitialized || !businessId || isOfflineMode || applyingRemote.current) return;
-
-    const nextIds = toIdSet(restockLogs);
-    const removed = [...prevRestockIds.current].filter((id) => !nextIds.has(id));
-    prevRestockIds.current = nextIds;
-
-    // Only sync deletions immediately - upserts are handled by individual actions
-    if (removed.length > 0) {
-      supabaseData
-        .deleteByIds(TABLES.restockLogs, businessId, removed)
-        .catch((error) => console.warn('Supabase restock log delete error:', error));
-    }
+    safeSyncDeletions(TABLES.restockLogs, toIdSet(restockLogs), prevRestockIds, 'restock logs');
   }, [restockLogs, businessId, isInitialized, isOfflineMode]);
 
   useEffect(() => {
     if (!isInitialized || !businessId || isOfflineMode || applyingRemote.current) return;
-
-    const nextIds = toIdSet(procurements);
-    const removed = [...prevProcurementIds.current].filter((id) => !nextIds.has(id));
-    prevProcurementIds.current = nextIds;
-
-    // Only sync deletions immediately - upserts are handled by individual actions
-    if (removed.length > 0) {
-      supabaseData
-        .deleteByIds(TABLES.procurements, businessId, removed)
-        .catch((error) => console.warn('Supabase procurement delete error:', error));
-    }
+    safeSyncDeletions(TABLES.procurements, toIdSet(procurements), prevProcurementIds, 'procurements');
   }, [procurements, businessId, isInitialized, isOfflineMode]);
 
   useEffect(() => {
     if (!isInitialized || !businessId || isOfflineMode || applyingRemote.current) return;
-
-    const nextIds = toIdSet(expenses);
-    const removed = [...prevExpenseIds.current].filter((id) => !nextIds.has(id));
-    prevExpenseIds.current = nextIds;
-
-    // Only sync deletions immediately - upserts are handled by individual actions
-    if (removed.length > 0) {
-      supabaseData
-        .deleteByIds(TABLES.expenses, businessId, removed)
-        .catch((error) => console.warn('Supabase expense delete error:', error));
-    }
+    safeSyncDeletions(TABLES.expenses, toIdSet(expenses), prevExpenseIds, 'expenses');
   }, [expenses, businessId, isInitialized, isOfflineMode]);
 
   useEffect(() => {
     if (!isInitialized || !businessId || isOfflineMode || applyingRemote.current) return;
-
-    const nextIds = toIdSet(cases);
-    const removed = [...prevCaseIds.current].filter((id) => !nextIds.has(id));
-    prevCaseIds.current = nextIds;
-
-    // Only sync deletions immediately - upserts are handled by individual actions
-    if (removed.length > 0) {
-      supabaseData
-        .deleteByIds(TABLES.cases, businessId, removed)
-        .catch((error) => console.warn('Supabase case delete error:', error));
-    }
+    safeSyncDeletions(TABLES.cases, toIdSet(cases), prevCaseIds, 'cases');
   }, [cases, businessId, isInitialized, isOfflineMode]);
 
   useEffect(() => {
@@ -641,6 +597,13 @@ export function useSupabaseSync() {
     const nextIds = toIdSet(auditLogs);
     const removed = [...prevAuditLogIds.current].filter((id) => !nextIds.has(id));
     const added = auditLogs.filter((log) => !prevAuditLogIds.current.has(log.id));
+
+    // Block bulk wipe (same safety as above)
+    if (nextIds.size === 0 && removed.length > 0) {
+      console.warn(`🛡️ Blocked bulk deletion of ALL ${removed.length} audit logs — likely a store reset`);
+      prevAuditLogIds.current = nextIds;
+      return;
+    }
     prevAuditLogIds.current = nextIds;
 
     if (added.length > 0) {

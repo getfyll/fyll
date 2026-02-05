@@ -2,11 +2,11 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, ScrollView, Pressable, TextInput, Modal, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Plus, Search, ShoppingCart, ChevronRight, MapPin, Calendar, User as UserIcon, Filter, Check, X, ArrowDownAZ, ArrowUpAZ, DollarSign, Sparkles, Clock } from 'lucide-react-native';
 import useFyllStore, { Order, formatCurrency } from '@/lib/state/fyll-store';
 import { useThemeColors } from '@/lib/theme';
 import { useBreakpoint } from '@/lib/useBreakpoint';
+import { useTabBarHeight } from '@/lib/useTabBarHeight';
 import { SplitViewLayout } from '@/components/SplitViewLayout';
 import { OrderDetailPanel } from '@/components/OrderDetailPanel';
 import { cn } from '@/lib/cn';
@@ -50,9 +50,9 @@ function OrderCard({ order, statusColor, onPress, isSelected, showSplitView, sep
       <View
         style={{
           backgroundColor: isSelected && showSplitView ? colors.bg.tertiary : colors.bg.card,
-          borderWidth: isSelected && showSplitView ? 2 : 0.5,
-          borderColor: isSelected && showSplitView ? colors.accent.primary : separatorColor,
-          borderLeftWidth: isSelected && showSplitView ? 3 : 0.5,
+          borderWidth: 0.5,
+          borderColor: isSelected && showSplitView ? colors.accent.primary + '60' : separatorColor,
+          borderLeftWidth: isSelected && showSplitView ? 2.5 : 0.5,
           borderLeftColor: isSelected && showSplitView ? colors.accent.primary : separatorColor,
         }}
         className="rounded-xl p-3"
@@ -107,7 +107,7 @@ function OrderCard({ order, statusColor, onPress, isSelected, showSplitView, sep
 export default function OrdersScreen() {
   const router = useRouter();
   const colors = useThemeColors();
-  const tabBarHeight = useBottomTabBarHeight();
+  const tabBarHeight = useTabBarHeight();
   const { isMobile, isDesktop } = useBreakpoint();
   const isDark = colors.bg.primary === '#111111';
   const separatorColor = isDark ? SEPARATOR_DARK : SEPARATOR_LIGHT;
@@ -225,7 +225,7 @@ export default function OrdersScreen() {
                   }
                   router.push('/ai-order');
                 }}
-                className="rounded-xl active:opacity-80 px-3 flex-row items-center"
+                className="rounded-full active:opacity-80 px-3 flex-row items-center"
                 style={{ backgroundColor: '#8B5CF6', height: 42 }}
               >
                 <Sparkles size={16} color="#FFFFFF" strokeWidth={2.5} />
@@ -233,11 +233,11 @@ export default function OrdersScreen() {
               </Pressable>
               <Pressable
                 onPress={handleNewOrder}
-                className="rounded-xl active:opacity-80 px-4 flex-row items-center"
-                style={{ backgroundColor: '#111111', height: 42 }}
+                className="rounded-full active:opacity-80 px-4 flex-row items-center"
+                style={{ backgroundColor: colors.bg.secondary, height: 42 }}
               >
-                <Plus size={18} color="#FFFFFF" strokeWidth={2.5} />
-                <Text style={{ color: '#FFFFFF' }} className="font-semibold ml-1.5 text-sm">New Order</Text>
+                <Plus size={18} color={colors.text.primary} strokeWidth={2.5} />
+                <Text style={{ color: colors.text.primary }} className="font-semibold ml-1.5 text-sm">New Order</Text>
               </Pressable>
             </View>
           </View>
@@ -245,7 +245,7 @@ export default function OrdersScreen() {
           {/* Search + Filter Row */}
           <View className="flex-row gap-2">
             <View
-              className="flex-1 flex-row items-center rounded-xl px-4"
+              className="flex-1 flex-row items-center rounded-full px-4"
               style={{ height: 52, backgroundColor: colors.input.bg, borderWidth: 1, borderColor: colors.input.border }}
             >
               <Search size={18} color={colors.text.muted} strokeWidth={2} />
@@ -265,7 +265,7 @@ export default function OrdersScreen() {
                 }
                 setShowFilterMenu(true);
               }}
-              className="rounded-xl items-center justify-center active:opacity-70 flex-row px-4"
+              className="rounded-full items-center justify-center active:opacity-70 flex-row px-4"
               style={{
                 height: 52,
                 backgroundColor: (selectedStatus || sortBy !== 'newest') ? colors.accent.primary : colors.bg.secondary,
@@ -308,7 +308,7 @@ export default function OrdersScreen() {
             <Text style={{ color: colors.text.muted }} className="text-sm mb-4">Create your first order to get started</Text>
             <Pressable
               onPress={handleNewOrder}
-              className="rounded-xl active:opacity-80 px-6 py-3"
+              className="rounded-full active:opacity-80 px-6 py-3"
               style={{ backgroundColor: colors.accent.primary }}
             >
               <Text style={{ color: isDark ? '#000000' : '#FFFFFF' }} className="font-semibold">Create First Order</Text>
@@ -554,7 +554,7 @@ export default function OrdersScreen() {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                       setShowFilterMenu(false);
                     }}
-                    className="rounded-xl items-center justify-center active:opacity-80"
+                    className="rounded-full items-center justify-center active:opacity-80"
                     style={{ height: 50, backgroundColor: colors.accent.primary }}
                   >
                     <Text style={{ color: isDark ? '#000000' : '#FFFFFF' }} className="font-semibold">Apply</Text>

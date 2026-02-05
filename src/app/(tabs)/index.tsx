@@ -2,12 +2,9 @@ import React, { useMemo } from 'react';
 import { View, Text, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import {
   TrendingDown,
-  Package,
   ShoppingCart,
-  AlertTriangle,
   BarChart3,
   Scan,
   Plus,
@@ -20,6 +17,8 @@ import { useThemeColors } from '@/lib/theme';
 import * as Haptics from 'expo-haptics';
 import { getPlatformBreakdown } from '@/lib/analytics-utils';
 import useAuthStore from '@/lib/state/auth-store';
+import { FulfillmentPipelineCard, type FulfillmentStageKey } from '@/components/FulfillmentPipelineCard';
+import { useTabBarHeight } from '@/lib/useTabBarHeight';
 
 interface MetricCardProps {
   title: string;
@@ -67,41 +66,6 @@ function MetricCard({ title, value, subtitle, trend, icon, onPress }: MetricCard
         <Text style={{ color: colors.text.primary }} className="text-2xl font-bold tracking-tight">{value}</Text>
         {subtitle && <Text style={{ color: colors.text.muted }} className="text-xs mt-1">{subtitle}</Text>}
       </Pressable>
-    </View>
-  );
-}
-
-interface LowStockItemProps {
-  name: string;
-  variant: string;
-  stock: number;
-  threshold: number;
-  isLast?: boolean;
-}
-
-function LowStockItem({ name, variant, stock, threshold, isLast = false }: LowStockItemProps) {
-  const colors = useThemeColors();
-  const urgency = stock === 0 ? 'Out' : stock <= threshold / 2 ? 'Critical' : 'Low';
-  const urgencyColor = stock === 0 ? '#EF4444' : '#F59E0B';
-
-  return (
-    <View
-      className="flex-row items-center py-3"
-      style={isLast ? undefined : { borderBottomWidth: 1, borderBottomColor: colors.border.light }}
-    >
-      <View className="w-8 h-8 rounded-lg items-center justify-center mr-3" style={{ backgroundColor: `${urgencyColor}15` }}>
-        <Package size={16} color={urgencyColor} strokeWidth={2} />
-      </View>
-      <View className="flex-1">
-        <Text style={{ color: colors.text.primary }} className="font-semibold text-sm">{name}</Text>
-        <Text style={{ color: colors.text.tertiary }} className="text-xs">{variant}</Text>
-      </View>
-      <View className="items-end">
-        <View className="px-2 py-0.5 rounded-md" style={{ backgroundColor: `${urgencyColor}15` }}>
-          <Text style={{ color: urgencyColor }} className="text-xs font-bold">{urgency}</Text>
-        </View>
-        <Text style={{ color: colors.text.muted }} className="text-xs mt-1">{stock} left</Text>
-      </View>
     </View>
   );
 }
@@ -200,14 +164,10 @@ function RecentOrderItem({ order, products, onPress, isLast = false }: RecentOrd
 export default function DashboardScreen() {
   const router = useRouter();
   const colors = useThemeColors();
-  const tabBarHeight = useBottomTabBarHeight();
+  const tabBarHeight = useTabBarHeight();
   const products = useFyllStore((s) => s.products);
   const orders = useFyllStore((s) => s.orders);
   const hasAuditForMonth = useFyllStore((s) => s.hasAuditForMonth);
-
-  // Global low stock threshold settings
-  const useGlobalLowStockThreshold = useFyllStore((s) => s.useGlobalLowStockThreshold);
-  const globalLowStockThreshold = useFyllStore((s) => s.globalLowStockThreshold);
 
   const userName = useAuthStore((s) => s.currentUser?.name ?? '');
 
@@ -296,28 +256,6 @@ export default function DashboardScreen() {
         return sum + (order.services?.reduce((sSum, s) => sSum + s.price, 0) || 0);
       }, 0);
 
-    const totalStock = products.reduce((sum, product) =>
-      sum + product.variants.reduce((vSum, variant) => vSum + variant.stock, 0), 0
-    );
-
-    const lowStockItems: { name: string; variant: string; stock: number; threshold: number }[] = [];
-    products.forEach((product) => {
-      // Use global threshold if enabled, otherwise use per-product threshold
-      const threshold = useGlobalLowStockThreshold ? globalLowStockThreshold : product.lowStockThreshold;
-      product.variants.forEach((variant) => {
-        if (variant.stock <= threshold) {
-          const variantName = Object.values(variant.variableValues).join(' / ');
-          lowStockItems.push({
-            name: product.name,
-            variant: variantName,
-            stock: variant.stock,
-            threshold: threshold,
-          });
-        }
-      });
-    });
-    lowStockItems.sort((a, b) => a.stock - b.stock);
-
     const pendingOrders = orders.filter((o) => o.status !== 'Delivered' && o.status !== 'Refunded').length;
 
     return {
@@ -326,12 +264,36 @@ export default function DashboardScreen() {
       servicesRevenue,
       totalRevenue,
       revenueChange,
-      totalStock,
-      lowStockItems,
       pendingOrders,
       totalOrders: orders.length,
     };
-  }, [products, orders, useGlobalLowStockThreshold, globalLowStockThreshold]);
+  }, [orders]);
+
+  const fulfillment = useMemo(() => {
+    const counts: Record<FulfillmentStageKey, number> = {
+      processing: 0,
+      dispatch: 0,
+      delivered: 0,
+    };
+
+    const bucket = (status: string): FulfillmentStageKey | null => {
+      const value = (status || '').toLowerCase();
+      if (!value) return null;
+      if (value.includes('refund')) return null;
+      if (value.includes('deliver')) return 'delivered';
+      if (value.includes('processing') || value.includes('quality') || value.includes('ready')) return 'processing';
+      if (value.includes('dispatch') || value.includes('shipp') || value.includes('ship') || value.includes('pickup') || value.includes('pending')) return 'dispatch';
+      return 'dispatch';
+    };
+
+    orders.forEach((o) => {
+      const key = bucket(o.status);
+      if (!key) return;
+      counts[key] += 1;
+    });
+
+    return counts;
+  }, [orders]);
 
   const handleQuickAction = (route: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -341,6 +303,15 @@ export default function DashboardScreen() {
   const handleCardPress = (route: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     router.push(route as any);
+  };
+
+  const goToFulfillment = (tab?: FulfillmentStageKey) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push(
+      tab
+        ? ({ pathname: '/fulfillment-pipeline', params: { tab } } as any)
+        : ('/fulfillment-pipeline' as any)
+    );
   };
 
   return (
@@ -372,40 +343,40 @@ export default function DashboardScreen() {
           <View className="px-5 pt-4">
             <View
               className="rounded-3xl overflow-hidden p-6"
-              style={{ backgroundColor: '#111111' }}
+              style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light }}
             >
               <View className="flex-row items-center justify-between mb-4">
-                <Text className="text-gray-400 text-sm font-medium">Total Revenue</Text>
+                <Text style={{ color: colors.text.muted }} className="text-sm font-medium">Total Revenue</Text>
                 {stats.revenueChange !== 0 && (
-                  <View className={`flex-row items-center px-2 py-1 rounded-full ${stats.revenueChange >= 0 ? 'bg-white/10' : 'bg-red-500/20'}`}>
+                  <View style={{ backgroundColor: stats.revenueChange >= 0 ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 }}>
                     {stats.revenueChange >= 0 ? (
-                      <ArrowUpRight size={12} color="#FFFFFF" strokeWidth={2.5} />
+                      <ArrowUpRight size={12} color="#22C55E" strokeWidth={2.5} />
                     ) : (
-                      <TrendingDown size={12} color="#FCA5A5" strokeWidth={2.5} />
+                      <TrendingDown size={12} color="#EF4444" strokeWidth={2.5} />
                     )}
-                    <Text className={`text-xs font-bold ml-0.5 ${stats.revenueChange >= 0 ? 'text-white' : 'text-red-300'}`}>
+                    <Text style={{ color: stats.revenueChange >= 0 ? '#22C55E' : '#EF4444', fontSize: 12, fontWeight: '700', marginLeft: 2 }}>
                       {Math.abs(stats.revenueChange)}%
                     </Text>
                   </View>
                 )}
               </View>
-              <Text className="text-white text-4xl font-bold tracking-tight mb-1">
+              <Text style={{ color: colors.text.primary }} className="text-4xl font-bold tracking-tight mb-1">
                 {formatCurrency(stats.totalRevenue)}
               </Text>
-              <Text className="text-gray-500 text-sm">This month</Text>
+              <Text style={{ color: colors.text.muted }} className="text-sm">This month</Text>
 
-              <View className="flex-row mt-4 pt-4 border-t border-gray-700">
+              <View className="flex-row mt-4 pt-4" style={{ borderTopWidth: 1, borderTopColor: colors.border.light }}>
                 <View className="flex-1">
-                  <Text className="text-gray-500 text-xs">Products</Text>
-                  <Text className="text-white font-semibold">{formatCurrency(stats.productSales)}</Text>
+                  <Text style={{ color: colors.text.muted }} className="text-xs">Products</Text>
+                  <Text style={{ color: colors.text.primary }} className="font-semibold">{formatCurrency(stats.productSales)}</Text>
                 </View>
                 <View className="flex-1">
-                  <Text className="text-gray-500 text-xs">Delivery</Text>
-                  <Text className="text-white font-semibold">{formatCurrency(stats.deliveryFees)}</Text>
+                  <Text style={{ color: colors.text.muted }} className="text-xs">Delivery</Text>
+                  <Text style={{ color: colors.text.primary }} className="font-semibold">{formatCurrency(stats.deliveryFees)}</Text>
                 </View>
                 <View className="flex-1">
-                  <Text className="text-gray-500 text-xs">Services</Text>
-                  <Text className="text-white font-semibold">{formatCurrency(stats.servicesRevenue)}</Text>
+                  <Text style={{ color: colors.text.muted }} className="text-xs">Services</Text>
+                  <Text style={{ color: colors.text.primary }} className="font-semibold">{formatCurrency(stats.servicesRevenue)}</Text>
                 </View>
               </View>
             </View>
@@ -431,40 +402,14 @@ export default function DashboardScreen() {
             </View>
           </View>
 
-          {/* Low Stock Alert */}
-          {stats.lowStockItems.length > 0 && (
-            <View className="px-5 pt-6">
-              <View
-                className="rounded-2xl p-4"
-                style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light }}
-              >
-                <View className="flex-row items-center mb-4">
-                  <View className="w-10 h-10 rounded-xl items-center justify-center mr-3" style={{ backgroundColor: 'rgba(245, 158, 11, 0.15)' }}>
-                    <AlertTriangle size={20} color="#F59E0B" strokeWidth={2} />
-                  </View>
-                  <View className="flex-1">
-                    <Text style={{ color: colors.text.primary }} className="font-bold text-base">Low Stock Alert</Text>
-                    <Text style={{ color: colors.text.tertiary }} className="text-xs">{stats.lowStockItems.length} items need attention</Text>
-                  </View>
-                  <Pressable
-                    onPress={() => router.push('/(tabs)/inventory')}
-                    className="flex-row items-center px-3 py-1.5 rounded-lg active:opacity-70"
-                    style={{ backgroundColor: colors.bg.secondary }}
-                  >
-                    <Text style={{ color: colors.text.primary }} className="text-xs font-semibold mr-1">View All</Text>
-                    <ChevronRight size={14} color={colors.text.primary} strokeWidth={2} />
-                  </Pressable>
-                </View>
-                {stats.lowStockItems.slice(0, 3).map((item, index, arr) => (
-                  <LowStockItem
-                    key={`${item.name}-${item.variant}-${index}`}
-                    {...item}
-                    isLast={index === arr.length - 1}
-                  />
-                ))}
-              </View>
-            </View>
-          )}
+          {/* Fulfillment Pipeline */}
+          <View className="px-5 pt-6">
+            <FulfillmentPipelineCard
+              counts={fulfillment}
+              onPress={() => goToFulfillment()}
+              onStagePress={(stage) => goToFulfillment(stage)}
+            />
+          </View>
 
           {/* Recent Orders Feed */}
           {recentOrders.length > 0 && (
@@ -483,7 +428,7 @@ export default function DashboardScreen() {
                   </View>
                   <Pressable
                     onPress={() => router.push('/(tabs)/orders')}
-                    className="flex-row items-center px-3 py-1.5 rounded-lg active:opacity-70"
+                    className="flex-row items-center px-3 py-1.5 rounded-full active:opacity-70"
                     style={{ backgroundColor: colors.bg.secondary }}
                   >
                     <Text style={{ color: colors.text.primary }} className="text-xs font-semibold mr-1">View All</Text>
@@ -521,7 +466,7 @@ export default function DashboardScreen() {
                 </View>
                 <Pressable
                   onPress={() => router.push('/insights/platforms')}
-                  className="flex-row items-center px-3 py-1.5 rounded-lg active:opacity-70"
+                  className="flex-row items-center px-3 py-1.5 rounded-full active:opacity-70"
                   style={{ backgroundColor: colors.bg.secondary }}
                 >
                   <Text style={{ color: colors.text.primary }} className="text-xs font-semibold mr-1">View All</Text>

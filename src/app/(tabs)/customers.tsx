@@ -2,14 +2,13 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, ScrollView, Pressable, TextInput, Modal, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Plus, Upload, Search, X, Check, ChevronDown, ChevronRight } from 'lucide-react-native';
+import { Plus, Upload, Search, X, Check, ChevronDown, ChevronRight, Filter, ArrowDownAZ, ArrowUpAZ, Clock, MapPin } from 'lucide-react-native';
 import useFyllStore, { Customer, NIGERIA_STATES } from '@/lib/state/fyll-store';
 import useAuthStore from '@/lib/state/auth-store';
 import { useThemeColors } from '@/lib/theme';
 import { useBreakpoint } from '@/lib/useBreakpoint';
 import { SplitViewLayout } from '@/components/SplitViewLayout';
 import { CustomerDetailPanel } from '@/components/CustomerDetailPanel';
-import Animated, { FadeInDown, FadeInRight, Layout } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 
 export default function CustomersScreen() {
@@ -29,6 +28,9 @@ export default function CustomersScreen() {
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [showStateModal, setShowStateModal] = useState(false);
   const [pendingDeleteCustomer, setPendingDeleteCustomer] = useState<Customer | null>(null);
+  const [showFilterMenu, setShowFilterMenu] = useState(false);
+  const [sortBy, setSortBy] = useState<'name-asc' | 'name-desc' | 'newest' | 'oldest' | 'state'>('name-asc');
+  const isDark = colors.bg.primary === '#111111';
 
   // Split view state
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
@@ -47,14 +49,33 @@ export default function CustomersScreen() {
   const [defaultState, setDefaultState] = useState('');
 
   const filteredCustomers = useMemo(() => {
-    if (!searchQuery.trim()) return customers;
-    const query = searchQuery.toLowerCase();
-    return customers.filter((c) =>
-      c.fullName.toLowerCase().includes(query) ||
-      c.email.toLowerCase().includes(query) ||
-      c.phone.includes(query)
-    );
-  }, [customers, searchQuery]);
+    let result = [...customers];
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter((c) =>
+        c.fullName.toLowerCase().includes(query) ||
+        c.email.toLowerCase().includes(query) ||
+        c.phone.includes(query)
+      );
+    }
+    result.sort((a, b) => {
+      switch (sortBy) {
+        case 'name-asc':
+          return a.fullName.localeCompare(b.fullName);
+        case 'name-desc':
+          return b.fullName.localeCompare(a.fullName);
+        case 'newest':
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        case 'oldest':
+          return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+        case 'state':
+          return (a.defaultState || '').localeCompare(b.defaultState || '');
+        default:
+          return 0;
+      }
+    });
+    return result;
+  }, [customers, searchQuery, sortBy]);
 
   useEffect(() => {
     if (!showSplitView) return;
@@ -160,7 +181,7 @@ export default function CustomersScreen() {
             <View className="flex-row gap-2">
               <Pressable
                 onPress={() => router.push('/import-customers')}
-                className="rounded-xl items-center justify-center active:opacity-80"
+                className="rounded-full items-center justify-center active:opacity-80"
                 style={{ paddingHorizontal: 14, height: 42, flexDirection: 'row', backgroundColor: colors.bg.secondary }}
               >
                 <Upload size={16} color={colors.text.primary} strokeWidth={2} />
@@ -174,28 +195,50 @@ export default function CustomersScreen() {
                   resetForm();
                   setShowAddModal(true);
                 }}
-                className="rounded-xl items-center justify-center active:opacity-80"
-                style={{ paddingHorizontal: 14, height: 42, flexDirection: 'row', backgroundColor: '#111111' }}
+                className="rounded-full items-center justify-center active:opacity-80"
+                style={{ paddingHorizontal: 14, height: 42, flexDirection: 'row', backgroundColor: colors.bg.secondary }}
               >
-                <Plus size={18} color="#FFFFFF" strokeWidth={2.5} />
-                <Text style={{ color: '#FFFFFF' }} className="font-semibold ml-1.5 text-sm">Add</Text>
+                <Plus size={18} color={colors.text.primary} strokeWidth={2.5} />
+                <Text style={{ color: colors.text.primary }} className="font-semibold ml-1.5 text-sm">Add</Text>
               </Pressable>
             </View>
           </View>
 
-          <View
-            className="flex-row items-center rounded-xl px-4"
-            style={{ height: 52, backgroundColor: colors.input.bg, borderWidth: 1, borderColor: colors.input.border }}
-          >
-            <Search size={18} color={colors.text.muted} strokeWidth={2} />
-            <TextInput
-              placeholder="Search customers..."
-              placeholderTextColor={colors.input.placeholder}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              style={{ flex: 1, marginLeft: 8, color: colors.input.text, fontSize: 14 }}
-              selectionColor={colors.text.primary}
-            />
+          <View className="flex-row items-center gap-2">
+            <View
+              className="flex-1 flex-row items-center rounded-full px-4"
+              style={{ height: 52, backgroundColor: colors.input.bg, borderWidth: 1, borderColor: colors.input.border }}
+            >
+              <Search size={18} color={colors.text.muted} strokeWidth={2} />
+              <TextInput
+                placeholder="Search customers..."
+                placeholderTextColor={colors.input.placeholder}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                style={{ flex: 1, marginLeft: 8, color: colors.input.text, fontSize: 14 }}
+                selectionColor={colors.text.primary}
+              />
+            </View>
+            <Pressable
+              onPress={() => {
+                if (Platform.OS !== 'web') {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }
+                setShowFilterMenu(true);
+              }}
+              className="rounded-full items-center justify-center active:opacity-70 flex-row px-4"
+              style={{
+                height: 52,
+                backgroundColor: sortBy !== 'name-asc' ? colors.accent.primary : colors.bg.secondary,
+                borderWidth: sortBy !== 'name-asc' ? 0 : 0.5,
+                borderColor: colors.border.light,
+              }}
+            >
+              <Filter size={18} color={sortBy !== 'name-asc' ? (isDark ? '#000000' : '#FFFFFF') : colors.text.tertiary} strokeWidth={2} />
+              {sortBy !== 'name-asc' && (
+                <Text style={{ color: isDark ? '#000000' : '#FFFFFF' }} className="font-semibold text-sm ml-1.5">1</Text>
+              )}
+            </Pressable>
           </View>
         </View>
       </View>
@@ -206,7 +249,7 @@ export default function CustomersScreen() {
         showsVerticalScrollIndicator={false}
       >
         {filteredCustomers.length === 0 ? (
-          <Animated.View entering={FadeInDown.springify()} className="items-center justify-center py-20">
+          <View className="items-center justify-center py-20">
             <Text style={{ color: colors.text.tertiary }} className="text-base mb-1">No customers found</Text>
             <Text style={{ color: colors.text.muted }} className="text-sm mb-4">Add your first customer to get started</Text>
             <Pressable
@@ -214,18 +257,16 @@ export default function CustomersScreen() {
                 resetForm();
                 setShowAddModal(true);
               }}
-              className="rounded-xl overflow-hidden active:opacity-80"
+              className="rounded-full overflow-hidden active:opacity-80"
               style={{ backgroundColor: '#111111', paddingHorizontal: 24, paddingVertical: 14 }}
             >
               <Text className="text-white font-semibold">Add Customer</Text>
             </Pressable>
-          </Animated.View>
+          </View>
         ) : (
           filteredCustomers.map((customer, index) => (
-            <Animated.View
+            <View
               key={customer.id}
-              entering={FadeInRight.delay(index * 50).springify()}
-              layout={Layout.springify()}
               className="mb-3"
             >
               <Pressable
@@ -236,9 +277,9 @@ export default function CustomersScreen() {
                   className="rounded-xl p-4"
                   style={{
                     backgroundColor: selectedCustomerId === customer.id && showSplitView ? colors.bg.tertiary : colors.bg.card,
-                    borderWidth: selectedCustomerId === customer.id && showSplitView ? 2 : 1,
-                    borderColor: selectedCustomerId === customer.id && showSplitView ? colors.accent.primary : colors.border.light,
-                    borderLeftWidth: selectedCustomerId === customer.id && showSplitView ? 3 : 1,
+                    borderWidth: 0.5,
+                    borderColor: selectedCustomerId === customer.id && showSplitView ? colors.accent.primary + '60' : colors.border.light,
+                    borderLeftWidth: selectedCustomerId === customer.id && showSplitView ? 2.5 : 0.5,
                     borderLeftColor: selectedCustomerId === customer.id && showSplitView ? colors.accent.primary : colors.border.light,
                   }}
                 >
@@ -256,7 +297,7 @@ export default function CustomersScreen() {
                   </View>
                 </View>
               </Pressable>
-            </Animated.View>
+            </View>
           ))
         )}
           <View className="h-24" />
@@ -301,14 +342,14 @@ export default function CustomersScreen() {
             <View className="px-5 py-4 flex-row gap-3">
               <Pressable
                 onPress={() => setPendingDeleteCustomer(null)}
-                className="flex-1 rounded-xl items-center"
+                className="flex-1 rounded-full items-center"
                 style={{ backgroundColor: colors.bg.secondary, height: 48, justifyContent: 'center' }}
               >
                 <Text style={{ color: colors.text.tertiary }} className="font-medium">Cancel</Text>
               </Pressable>
               <Pressable
                 onPress={confirmDeleteCustomer}
-                className="flex-1 rounded-xl items-center"
+                className="flex-1 rounded-full items-center"
                 style={{ backgroundColor: '#EF4444', height: 48, justifyContent: 'center' }}
               >
                 <Text className="text-white font-semibold">Delete</Text>
@@ -462,7 +503,7 @@ export default function CustomersScreen() {
                       setShowAddModal(false);
                       resetForm();
                     }}
-                    className="flex-1 rounded-xl items-center"
+                    className="flex-1 rounded-full items-center"
                     style={{ backgroundColor: colors.bg.secondary, height: 50, justifyContent: 'center' }}
                   >
                     <Text style={{ color: colors.text.tertiary }} className="font-medium">Cancel</Text>
@@ -470,7 +511,7 @@ export default function CustomersScreen() {
                   <Pressable
                     onPress={handleSave}
                     disabled={!fullName.trim()}
-                    className="flex-1 rounded-xl items-center"
+                    className="flex-1 rounded-full items-center"
                     style={{ backgroundColor: '#111111', height: 50, justifyContent: 'center', opacity: fullName.trim() ? 1 : 0.5 }}
                   >
                     <Text className="text-white font-semibold">{editingCustomer ? 'Save' : 'Add Customer'}</Text>
@@ -480,6 +521,84 @@ export default function CustomersScreen() {
             </Pressable>
           </Pressable>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Sort Modal */}
+      <Modal
+        visible={showFilterMenu}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setShowFilterMenu(false)}
+      >
+        <Pressable
+          className="flex-1 items-center justify-end"
+          style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}
+          onPress={() => setShowFilterMenu(false)}
+        >
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            className="w-full rounded-t-3xl overflow-hidden"
+            style={{ backgroundColor: colors.bg.primary, maxHeight: '60%' }}
+          >
+            <View className="items-center pt-3 pb-2">
+              <View className="w-10 h-1 rounded-full" style={{ backgroundColor: colors.border.light }} />
+            </View>
+            <View className="flex-row items-center justify-between px-5 pb-4" style={{ borderBottomWidth: 0.5, borderBottomColor: colors.border.light }}>
+              <Text style={{ color: colors.text.primary }} className="font-bold text-lg">Sort</Text>
+              <Pressable
+                onPress={() => setShowFilterMenu(false)}
+                className="w-8 h-8 rounded-full items-center justify-center active:opacity-50"
+                style={{ backgroundColor: colors.bg.secondary }}
+              >
+                <X size={18} color={colors.text.tertiary} strokeWidth={2} />
+              </Pressable>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View className="px-5 pt-4 pb-2">
+                <Text style={{ color: colors.text.muted }} className="text-xs font-semibold uppercase tracking-wider mb-3">Sort By</Text>
+                {([
+                  { key: 'name-asc' as const, label: 'Name (A-Z)', icon: <ArrowDownAZ size={18} strokeWidth={2} /> },
+                  { key: 'name-desc' as const, label: 'Name (Z-A)', icon: <ArrowUpAZ size={18} strokeWidth={2} /> },
+                  { key: 'newest' as const, label: 'Newest First', icon: <Clock size={18} strokeWidth={2} /> },
+                  { key: 'oldest' as const, label: 'Oldest First', icon: <Clock size={18} strokeWidth={2} /> },
+                  { key: 'state' as const, label: 'State', icon: <MapPin size={18} strokeWidth={2} /> },
+                ]).map((option) => (
+                  <Pressable
+                    key={option.key}
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      setSortBy(option.key);
+                    }}
+                    className="flex-row items-center py-3 active:opacity-70"
+                  >
+                    {React.cloneElement(option.icon, { color: sortBy === option.key ? colors.accent.primary : colors.text.muted })}
+                    <View className="flex-1 ml-3">
+                      <Text style={{ color: colors.text.primary }} className="font-medium text-sm">{option.label}</Text>
+                    </View>
+                    {sortBy === option.key && (
+                      <View className="w-5 h-5 rounded-full items-center justify-center" style={{ backgroundColor: colors.accent.primary }}>
+                        <Check size={12} color={isDark ? '#000000' : '#FFFFFF'} strokeWidth={3} />
+                      </View>
+                    )}
+                  </Pressable>
+                ))}
+              </View>
+              <View className="px-5 py-4">
+                <Pressable
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    setShowFilterMenu(false);
+                  }}
+                  className="rounded-full items-center justify-center active:opacity-80"
+                  style={{ height: 50, backgroundColor: '#111111' }}
+                >
+                  <Text style={{ color: '#FFFFFF' }} className="font-semibold">Done</Text>
+                </Pressable>
+              </View>
+              <View className="h-8" />
+            </ScrollView>
+          </Pressable>
+        </Pressable>
       </Modal>
 
       {/* State Selection Modal */}
@@ -518,7 +637,7 @@ export default function CustomersScreen() {
                     setShowStateModal(false);
                     Haptics.selectionAsync();
                   }}
-                  className="py-3 px-4 rounded-xl mb-2 active:opacity-70"
+                  className="py-3 px-4 rounded-full mb-2 active:opacity-70"
                   style={{ backgroundColor: defaultState === state ? colors.accent.primary + '15' : colors.bg.secondary }}
                 >
                   <View className="flex-row items-center justify-between">

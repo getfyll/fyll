@@ -2,13 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, Pressable, TextInput, Alert, Switch, Platform, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Trash2, Edit2, Check, X, ChevronRight, ChevronLeft, Package, ShoppingCart, Tag, RotateCcw, Info, CreditCard, Truck, Wrench, Users, Moon, Sun, LogOut, Shield, Building2, AlertTriangle, UserCircle, Upload, FileText } from 'lucide-react-native';
 import useFyllStore, { formatCurrency } from '@/lib/state/fyll-store';
 import useAuthStore from '@/lib/state/auth-store';
 import { useThemeColors } from '@/lib/theme';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import * as Haptics from 'expo-haptics';
+import { useTabBarHeight } from '@/lib/useTabBarHeight';
 
 type SettingsSection =
   | 'order-statuses'
@@ -283,7 +283,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { section: sectionParam } = useLocalSearchParams<{ section?: SettingsSection }>();
   const colors = useThemeColors();
-  const tabBarHeight = useBottomTabBarHeight();
+  const tabBarHeight = useTabBarHeight();
   const orderStatuses = useFyllStore((s) => s.orderStatuses);
   const saleSources = useFyllStore((s) => s.saleSources);
   const productVariables = useFyllStore((s) => s.productVariables);

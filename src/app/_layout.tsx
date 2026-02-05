@@ -14,6 +14,7 @@ import { SyncOverlay } from '@/components/SyncOverlay';
 import { Platform } from 'react-native';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import { useWebPushNotifications } from '@/hooks/useWebPushNotifications';
+import * as WebBrowser from 'expo-web-browser';
 
 export const unstable_settings = {
   // Ensure that reloading on `/modal` keeps a back button present.
@@ -22,6 +23,7 @@ export const unstable_settings = {
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
+WebBrowser.maybeCompleteAuthSession();
 
 const queryClient = new QueryClient();
 const webInitialMetrics = {
@@ -33,8 +35,11 @@ function RootLayoutNav({ colorScheme }: { colorScheme: 'light' | 'dark' | null |
   const router = useRouter();
   const segments = useSegments();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const isOfflineMode = useAuthStore((s) => s.isOfflineMode);
+  const syncWithSupabaseSession = useAuthStore((s) => s.syncWithSupabaseSession);
   const [isNavigationReady, setIsNavigationReady] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
+  const [hasCheckedSession, setHasCheckedSession] = useState(false);
 
   useEffect(() => {
     const checkHydration = () => {
@@ -82,6 +87,14 @@ function RootLayoutNav({ colorScheme }: { colorScheme: 'light' | 'dark' | null |
   }, [isHydrated]);
 
   useEffect(() => {
+    if (!isHydrated || hasCheckedSession || isOfflineMode) return;
+    setHasCheckedSession(true);
+    syncWithSupabaseSession().catch((error) => {
+      console.warn('Session restore failed:', error);
+    });
+  }, [hasCheckedSession, isHydrated, isOfflineMode, syncWithSupabaseSession]);
+
+  useEffect(() => {
     // Wait for the navigation to be ready before attempting navigation
     if (!isNavigationReady) return;
 
@@ -126,6 +139,7 @@ function RootLayoutNav({ colorScheme }: { colorScheme: 'light' | 'dark' | null |
         <Stack.Screen name="inventory-audit" options={{ headerShown: false }} />
         <Stack.Screen name="category-manager" options={{ headerShown: false }} />
         <Stack.Screen name="label-print" options={{ headerShown: false }} />
+        <Stack.Screen name="fulfillment-pipeline" options={{ headerShown: false }} />
         <Stack.Screen name="order-label-preview" options={{ headerShown: false }} />
         <Stack.Screen name="ai-order" options={{ headerShown: false }} />
         <Stack.Screen name="team" options={{ headerShown: false }} />
@@ -142,6 +156,7 @@ function RootLayoutNav({ colorScheme }: { colorScheme: 'light' | 'dark' | null |
         <Stack.Screen name="insights/platforms" options={{ headerShown: false }} />
         <Stack.Screen name="insights/logistics" options={{ headerShown: false }} />
         <Stack.Screen name="insights/addons" options={{ headerShown: false }} />
+        <Stack.Screen name="insights/services" options={{ headerShown: false }} />
         <Stack.Screen name="business-settings" options={{ headerShown: false }} />
         <Stack.Screen name="account-settings" options={{ headerShown: false }} />
         <Stack.Screen name="pdf-viewer" options={{ headerShown: false, presentation: 'fullScreenModal' }} />

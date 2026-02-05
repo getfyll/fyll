@@ -5,7 +5,6 @@ import { useRouter } from 'expo-router';
 import { X, Plus, Minus, Trash2, ChevronDown, Package } from 'lucide-react-native';
 import useFyllStore, { ProcurementItem, formatCurrency } from '@/lib/state/fyll-store';
 import { cn } from '@/lib/cn';
-import Animated, { FadeInDown, Layout } from 'react-native-reanimated';
 
 interface ItemFormData extends ProcurementItem {
   tempId: string;
@@ -115,7 +114,7 @@ export default function NewProcurementScreen() {
 
         <ScrollView className="flex-1 px-5" showsVerticalScrollIndicator={false}>
           {/* Supplier Info */}
-          <Animated.View entering={FadeInDown.duration(400)} className="mt-4">
+          <View className="mt-4">
             <Text className="text-gray-900 font-bold text-base mb-3">Supplier Information</Text>
 
             <TextInput
@@ -136,10 +135,10 @@ export default function NewProcurementScreen() {
               className="bg-gray-100 rounded-xl px-4 py-3 text-gray-900 text-sm"
               style={{ minHeight: 60 }}
             />
-          </Animated.View>
+          </View>
 
           {/* Items */}
-          <Animated.View entering={FadeInDown.delay(100).duration(400)} className="mt-6">
+          <View className="mt-6">
             <View className="flex-row items-center justify-between mb-3">
               <Text className="text-gray-900 font-bold text-base">Items Received</Text>
               <Pressable
@@ -214,10 +213,8 @@ export default function NewProcurementScreen() {
                 {items.map((item) => {
                   const { productName, variantName } = getItemDetails(item);
                   return (
-                    <Animated.View
-                      key={item.tempId}
-                      layout={Layout.springify()}
-                      className="bg-white rounded-xl p-3 mb-2"
+                    <View
+                      key={item.tempId}                      className="bg-white rounded-xl p-3 mb-2"
                     >
                       <View className="flex-row items-start justify-between mb-2">
                         <View className="flex-1">
@@ -291,7 +288,7 @@ export default function NewProcurementScreen() {
                           </Text>
                         </View>
                       </View>
-                    </Animated.View>
+                    </View>
                   );
                 })}
               </View>
@@ -305,13 +302,11 @@ export default function NewProcurementScreen() {
                 </Pressable>
               )
             )}
-          </Animated.View>
+          </View>
 
           {/* Total */}
           {items.length > 0 && (
-            <Animated.View
-              entering={FadeInDown.delay(200).duration(400)}
-              className="mt-6 bg-blue-50 rounded-2xl p-4"
+            <View              className="mt-6 bg-blue-50 rounded-2xl p-4"
             >
               <View className="flex-row items-center justify-between">
                 <View>
@@ -322,7 +317,7 @@ export default function NewProcurementScreen() {
                 </View>
                 <Text className="text-blue-900 text-2xl font-bold">{formatCurrency(totalCost)}</Text>
               </View>
-            </Animated.View>
+            </View>
           )}
 
           <View className="h-24" />

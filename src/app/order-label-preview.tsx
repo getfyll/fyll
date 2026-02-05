@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, ScrollView, Pressable, ActivityIndicator } from 'react-native';
+import React, { useMemo, useState, useEffect } from 'react';
+import { View, Text, ScrollView, Pressable, ActivityIndicator, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { ArrowLeft, Printer } from 'lucide-react-native';
@@ -47,6 +47,42 @@ export default function OrderLabelPreviewScreen() {
       }
     );
   }, [order, businessName, businessLogo, businessPhone, businessWebsite, returnAddress]);
+
+  // Inject print styles for web to hide everything except the label preview
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const styleId = 'order-label-print-styles';
+      let styleEl = document.getElementById(styleId);
+
+      if (!styleEl) {
+        styleEl = document.createElement('style');
+        styleEl.id = styleId;
+        styleEl.textContent = `
+          @media print {
+            body * {
+              visibility: hidden !important;
+            }
+            .printable-order-label-container,
+            .printable-order-label-container * {
+              visibility: visible !important;
+            }
+            .printable-order-label-container {
+              position: absolute !important;
+              left: 50% !important;
+              top: 50% !important;
+              transform: translate(-50%, -50%) !important;
+            }
+          }
+        `;
+        document.head.appendChild(styleEl);
+      }
+
+      return () => {
+        const el = document.getElementById(styleId);
+        if (el) el.remove();
+      };
+    }
+  }, []);
 
   const handlePrint = async () => {
     if (!labelData || isPrinting) return;
@@ -103,17 +139,19 @@ export default function OrderLabelPreviewScreen() {
           contentContainerStyle={{ paddingTop: 24, paddingHorizontal: 20, paddingBottom: 200 }}
           showsVerticalScrollIndicator={false}
         >
-          <View className="items-center mb-6">
-            {labelData && !isLoading ? (
-              <OrderLabel80x90Preview data={labelData} />
-            ) : (
-              <View
-                className="rounded-2xl p-6"
-                style={{ backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.border.light }}
-              >
-                <ActivityIndicator color={colors.accent.primary} size="small" />
-              </View>
-            )}
+          <View className="printable-order-label-container">
+            <View className="items-center mb-6">
+              {labelData && !isLoading ? (
+                <OrderLabel80x90Preview data={labelData} />
+              ) : (
+                <View
+                  className="rounded-2xl p-6"
+                  style={{ backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.border.light }}
+                >
+                  <ActivityIndicator color={colors.accent.primary} size="small" />
+                </View>
+              )}
+            </View>
           </View>
 
           <View
@@ -174,7 +212,7 @@ export default function OrderLabelPreviewScreen() {
           <Pressable
             onPress={handlePrint}
             className="rounded-full items-center justify-center"
-            style={{ height: 56, backgroundColor: '#111827', opacity: isPrinting ? 0.7 : 1 }}
+            style={{ height: 56, backgroundColor: '#111111', opacity: isPrinting ? 0.7 : 1 }}
             disabled={isPrinting || !labelData}
           >
             {isPrinting ? (

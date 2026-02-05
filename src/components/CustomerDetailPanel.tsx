@@ -331,14 +331,14 @@ export function CustomerDetailPanel({ customerId, onEdit, onClose }: CustomerDet
             <View className="px-5 py-4 flex-row gap-3">
               <Pressable
                 onPress={() => setShowDeletePrompt(false)}
-                className="flex-1 rounded-xl items-center"
+                className="flex-1 rounded-full items-center"
                 style={{ backgroundColor: colors.bg.secondary, height: 48, justifyContent: 'center' }}
               >
                 <Text style={{ color: colors.text.tertiary }} className="font-medium">Cancel</Text>
               </Pressable>
               <Pressable
                 onPress={confirmDelete}
-                className="flex-1 rounded-xl items-center"
+                className="flex-1 rounded-full items-center"
                 style={{ backgroundColor: '#EF4444', height: 48, justifyContent: 'center' }}
               >
                 <Text className="text-white font-semibold">Delete</Text>

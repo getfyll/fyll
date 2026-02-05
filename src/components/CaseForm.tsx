@@ -83,10 +83,10 @@ interface CaseFormProps {
   visible: boolean;
   onClose: () => void;
   onSave: (caseData: Case) => void;
-  orderId: string;
-  orderNumber: string;
+  orderId?: string;
+  orderNumber?: string;
   customerId?: string;
-  customerName: string;
+  customerName?: string;
   existingCase?: Case;
   createdBy?: string;
 }
@@ -112,6 +112,7 @@ export function CaseForm({
   const [source, setSource] = useState<CaseSource>('Email');
   const [issueSummary, setIssueSummary] = useState('');
   const [originalMessage, setOriginalMessage] = useState('');
+  const [standaloneCustomerName, setStandaloneCustomerName] = useState(customerName || '');
   const [showTypeDropdown, setShowTypeDropdown] = useState(false);
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [attachments, setAttachments] = useState<CaseAttachment[]>(existingCase?.attachments ?? []);
@@ -170,6 +171,7 @@ export function CaseForm({
       setResolutionType(defaultResolutionType);
       setResolutionNotes('');
       setResolutionValue('');
+      setStandaloneCustomerName(customerName || '');
     }
   }, [existingCase, visible, caseStatuses, resolutionTypes]);
 
@@ -232,6 +234,13 @@ export function CaseForm({
       return;
     }
 
+    // For standalone cases, require customer name
+    const resolvedCustomerName = customerName || standaloneCustomerName.trim();
+    if (!resolvedCustomerName) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return;
+    }
+
     const now = new Date().toISOString();
     let resolution: CaseResolution | undefined;
 
@@ -260,10 +269,10 @@ export function CaseForm({
     const caseData: Case = {
       id: existingCase?.id || generateCaseId(),
       caseNumber: existingCase?.caseNumber || generateCaseNumber(),
-      orderId,
-      orderNumber,
+      orderId: orderId || existingCase?.orderId,
+      orderNumber: orderNumber || existingCase?.orderNumber,
       customerId,
-      customerName,
+      customerName: resolvedCustomerName,
       type: caseType,
       status,
       priority,
@@ -298,7 +307,7 @@ export function CaseForm({
           Haptics.selectionAsync();
       setShow(!show);
     }}
-    className="flex-row items-center justify-between py-3 px-4 rounded-xl"
+    className="flex-row items-center justify-between py-3 px-4 rounded-full"
     style={{
       backgroundColor: colors.bg.secondary,
       borderWidth: 1,
@@ -321,7 +330,7 @@ export function CaseForm({
 
       {show && (
         <View
-          className="mt-1 rounded-xl overflow-hidden"
+          className="mt-1 rounded-full overflow-hidden"
           style={{
             backgroundColor: colors.bg.card,
             borderWidth: 1,
@@ -388,7 +397,7 @@ export function CaseForm({
           </View>
           <Pressable
             onPress={handleSave}
-            className="px-5 py-2.5 rounded-xl active:opacity-80"
+            className="px-5 py-2.5 rounded-full active:opacity-80"
             style={{ backgroundColor: '#111111' }}
           >
             <Text className="text-white font-semibold">
@@ -398,23 +407,45 @@ export function CaseForm({
         </View>
 
         <ScrollView className="flex-1 px-5 py-4" showsVerticalScrollIndicator={false}>
-          {/* Order Info (read-only) */}
-          <View className="mb-6">
-            <Text style={{ color: colors.text.muted }} className="text-xs uppercase font-semibold mb-2">
-              Linked Order
-            </Text>
-            <View
-              className="p-4 rounded-xl"
-              style={{ backgroundColor: colors.bg.secondary }}
-            >
-              <Text style={{ color: colors.text.primary }} className="font-semibold">
-                {orderNumber}
+          {/* Order Info (read-only) or Customer Name input for standalone */}
+          {orderId && orderNumber ? (
+            <View className="mb-6">
+              <Text style={{ color: colors.text.muted }} className="text-xs uppercase font-semibold mb-2">
+                Linked Order
               </Text>
-              <Text style={{ color: colors.text.secondary }} className="text-sm mt-1">
-                {customerName}
-              </Text>
+              <View
+                className="p-4 rounded-full"
+                style={{ backgroundColor: colors.bg.secondary }}
+              >
+                <Text style={{ color: colors.text.primary }} className="font-semibold">
+                  {orderNumber}
+                </Text>
+                <Text style={{ color: colors.text.secondary }} className="text-sm mt-1">
+                  {customerName}
+                </Text>
+              </View>
             </View>
-          </View>
+          ) : (
+            <View className="mb-6">
+              <Text style={{ color: colors.text.muted }} className="text-xs uppercase font-semibold mb-2">
+                Customer Name *
+              </Text>
+              <TextInput
+                value={standaloneCustomerName}
+                onChangeText={setStandaloneCustomerName}
+                placeholder="Enter customer name..."
+                placeholderTextColor={colors.text.muted}
+                className="py-3 px-4 rounded-full"
+                style={{
+                  backgroundColor: colors.bg.secondary,
+                  color: colors.text.primary,
+                  borderWidth: 1,
+                  borderColor: colors.border.light,
+                  height: 52,
+                }}
+              />
+            </View>
+          )}
 
           {/* Case Type - Grid Selection */}
           <View className="mb-5">
@@ -431,7 +462,7 @@ export function CaseForm({
                       Haptics.selectionAsync();
                       setCaseType(type);
                     }}
-                    className="flex-row items-center gap-2 px-4 py-3 rounded-2xl active:opacity-80"
+                    className="flex-row items-center gap-2 px-4 py-3 rounded-full active:opacity-80"
                     style={{
                       backgroundColor: isSelected ? colors.bg.tertiary : colors.bg.secondary,
                       borderWidth: isSelected ? 2 : 1,
@@ -464,7 +495,7 @@ export function CaseForm({
               Priority
             </Text>
             <View
-              className="flex-row p-1.5 rounded-2xl"
+              className="flex-row p-1.5 rounded-full"
               style={{ backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.border.light }}
             >
               {CASE_PRIORITIES.map((p) => {
@@ -477,7 +508,7 @@ export function CaseForm({
                       Haptics.selectionAsync();
                       setPriority(p);
                     }}
-                    className="flex-1 flex-row items-center justify-center gap-1.5 py-3 rounded-xl active:opacity-80"
+                    className="flex-1 flex-row items-center justify-center gap-1.5 py-3 rounded-full active:opacity-80"
                     style={{
                       backgroundColor: isSelected ? colors.bg.card : 'transparent',
                       borderWidth: isSelected ? 1 : 0,
@@ -503,7 +534,7 @@ export function CaseForm({
               Source Channel
             </Text>
             <View
-              className="flex-row flex-wrap p-1.5 rounded-2xl gap-1"
+              className="flex-row flex-wrap p-1.5 rounded-full gap-1"
               style={{ backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.border.light }}
             >
               {CASE_SOURCES.map((s) => {
@@ -515,7 +546,7 @@ export function CaseForm({
                       Haptics.selectionAsync();
                       setSource(s);
                     }}
-                    className="flex-col items-center justify-center py-3 px-4 rounded-xl active:opacity-80"
+                    className="flex-col items-center justify-center py-3 px-4 rounded-full active:opacity-80"
                     style={{
                       backgroundColor: isSelected ? colors.bg.card : 'transparent',
                       borderWidth: isSelected ? 1 : 0,
@@ -576,7 +607,7 @@ export function CaseForm({
               onChangeText={setIssueSummary}
               placeholder="Brief description of the issue..."
               placeholderTextColor={colors.text.muted}
-              className="py-3 px-4 rounded-xl"
+              className="py-3 px-4 rounded-full"
               style={{
                 backgroundColor: colors.bg.secondary,
                 color: colors.text.primary,
@@ -598,7 +629,7 @@ export function CaseForm({
               placeholderTextColor={colors.text.muted}
               multiline
               numberOfLines={4}
-              className="py-3 px-4 rounded-xl"
+              className="py-3 px-4 rounded-full"
               style={{
                 backgroundColor: colors.bg.secondary,
                 color: colors.text.primary,
@@ -618,7 +649,7 @@ export function CaseForm({
             <View className="flex-row items-center justify-between mb-3">
               <Pressable
                 onPress={handleAddAttachment}
-                className="px-4 py-2 rounded-xl active:opacity-80"
+                className="px-4 py-2 rounded-full active:opacity-80"
                 style={{ backgroundColor: '#111111' }}
               >
                 <Text className="text-white font-semibold text-xs">Add Image</Text>
@@ -646,7 +677,7 @@ export function CaseForm({
               >
                 {attachments.map((attachment) => (
                   <View key={attachment.id} className="mr-3" style={{ position: 'relative' }}>
-                    <View className="rounded-2xl overflow-hidden" style={{ borderWidth: 1, borderColor: colors.border.light }}>
+                    <View className="rounded-full overflow-hidden" style={{ borderWidth: 1, borderColor: colors.border.light }}>
                       <Image
                         source={{ uri: attachment.preview ?? attachment.uri }}
                         style={{ width: 120, height: 120 }}
@@ -672,7 +703,7 @@ export function CaseForm({
           {/* Resolution Section */}
           {showResolution && (
             <View
-              className="p-4 rounded-xl mb-4"
+              className="p-4 rounded-full mb-4"
               style={{
                 backgroundColor: colors.bg.secondary,
                 borderWidth: 1,
@@ -709,7 +740,7 @@ export function CaseForm({
                     placeholder="0"
                     placeholderTextColor={colors.text.muted}
                     keyboardType="numeric"
-                    className="py-3 px-4 rounded-xl"
+                    className="py-3 px-4 rounded-full"
                     style={{
                       backgroundColor: colors.bg.primary,
                       color: colors.text.primary,
@@ -732,7 +763,7 @@ export function CaseForm({
                   placeholderTextColor={colors.text.muted}
                   multiline
                   numberOfLines={3}
-                  className="py-3 px-4 rounded-xl"
+                  className="py-3 px-4 rounded-full"
                   style={{
                     backgroundColor: colors.bg.primary,
                     color: colors.text.primary,
@@ -753,7 +784,7 @@ export function CaseForm({
                 Haptics.selectionAsync();
                 setShowResolution(true);
               }}
-              className="py-3 px-4 rounded-xl mb-4 active:opacity-70"
+              className="py-3 px-4 rounded-full mb-4 active:opacity-70"
               style={{
                 backgroundColor: colors.bg.secondary,
                 borderWidth: 1,

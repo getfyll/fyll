@@ -3,7 +3,6 @@ import { View, Text, TextInput, Pressable, FlatList, ScrollView } from 'react-na
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Search, ChevronLeft, FileText, Filter } from 'lucide-react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { useThemeColors } from '@/lib/theme';
 import useFyllStore, {
@@ -133,9 +132,7 @@ export default function CasesScreen() {
   );
 
   const renderEmptyState = () => (
-    <Animated.View
-      entering={FadeInDown.springify()}
-      className="flex-1 items-center justify-center py-20"
+    <View      className="flex-1 items-center justify-center py-20"
     >
       <View
         className="w-20 h-20 rounded-full items-center justify-center mb-4"
@@ -151,7 +148,7 @@ export default function CasesScreen() {
           ? 'Try adjusting your filters or search query'
           : 'Cases will appear here when created from orders'}
       </Text>
-    </Animated.View>
+    </View>
   );
 
   const renderList = () => (

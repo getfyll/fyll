@@ -2,17 +2,16 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, ScrollView, Pressable, TextInput, Dimensions, Modal, Image, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Plus, Search, Package, ChevronRight, Minus, Tag, Boxes, ClipboardList, Printer, Filter, Check, X, QrCode, PackagePlus, ImageIcon, ArrowUpDown, ArrowDownAZ, ArrowUpAZ, Clock, TrendingUp, AlertTriangle } from 'lucide-react-native';
 import useFyllStore, { Product, ProductVariant, formatCurrency } from '@/lib/state/fyll-store';
 import { normalizeProductType } from '@/lib/product-utils';
 import { cn } from '@/lib/cn';
 import { useThemeColors } from '@/lib/theme';
 import { useBreakpoint } from '@/lib/useBreakpoint';
+import { useTabBarHeight } from '@/lib/useTabBarHeight';
 import { SplitViewLayout } from '@/components/SplitViewLayout';
 import { ProductDetailPanel } from '@/components/ProductDetailPanel';
 import { ProductCardSkeleton } from '@/components/SkeletonLoader';
-import Animated, { FadeIn, FadeInDown, FadeInRight, Layout } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import useAuthStore from '@/lib/state/auth-store';
 
@@ -287,7 +286,7 @@ function ProductCard({ product, isOwner, onPress, onSelect, isSelected, onAdjust
 export default function InventoryScreen() {
   const router = useRouter();
   const colors = useThemeColors();
-  const tabBarHeight = useBottomTabBarHeight();
+  const tabBarHeight = useTabBarHeight();
   const { isMobile, isTablet, isDesktop } = useBreakpoint();
   const isDark = colors.bg.primary === '#111111';
   const separatorColor = isDark ? SEPARATOR_DARK : SEPARATOR_LIGHT;
@@ -440,7 +439,7 @@ export default function InventoryScreen() {
                 }
                 router.replace('/inventory-audit');
               }}
-              className="rounded-xl overflow-hidden active:opacity-80"
+              className="rounded-full overflow-hidden active:opacity-80"
               style={{ paddingHorizontal: 14, height: 42, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(168, 85, 247, 0.08)' }}
             >
               <ClipboardList size={16} color="#A856F6" strokeWidth={2} />
@@ -448,11 +447,11 @@ export default function InventoryScreen() {
             </Pressable>
             <Pressable
               onPress={handleAddProduct}
-              className="rounded-xl overflow-hidden active:opacity-80"
-              style={{ paddingHorizontal: 14, height: 42, flexDirection: 'row', alignItems: 'center', backgroundColor: '#111111' }}
+              className="rounded-full overflow-hidden active:opacity-80"
+              style={{ paddingHorizontal: 14, height: 42, flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bg.secondary }}
             >
-              <Plus size={18} color="#FFFFFF" strokeWidth={2.5} />
-              <Text style={{ color: '#FFFFFF' }} className="font-semibold ml-1.5 text-sm">Add</Text>
+              <Plus size={18} color={colors.text.primary} strokeWidth={2.5} />
+              <Text style={{ color: colors.text.primary }} className="font-semibold ml-1.5 text-sm">Add</Text>
             </Pressable>
           </View>
         </View>

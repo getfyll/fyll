@@ -1,8 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { View, Text, ScrollView, Pressable, Alert } from 'react-native';
+import { View, Text, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import {
   Users,
   ShoppingCart,
@@ -19,8 +18,6 @@ import {
   UserCheck,
   Clock,
   Star,
-  Cloud,
-  RefreshCcw,
   ChevronRight,
   AlertTriangle,
   PackageX,
@@ -35,9 +32,9 @@ import { SalesBarChart } from '@/components/stats/SalesBarChart';
 import { HorizontalBarChart } from '@/components/stats/HorizontalBarChart';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import { TimeRange, TabKey } from '@/lib/analytics-utils';
-import { useTeamSync } from '@/hooks/useTeamSync';
 import { computeInventoryAnalytics, calculateNewDesignAnalytics, calculateDiscontinueCandidates, type DiscontinuePeriod } from '@/lib/inventory-analytics';
 import { useStatsColors, type StatsColors } from '@/lib/theme';
+import { useTabBarHeight } from '@/lib/useTabBarHeight';
 
 // KPI Configuration per tab - always 4 KPIs
 interface KpiConfig {
@@ -259,7 +256,7 @@ function KpiGrid({
 export default function InsightsScreen() {
   const router = useRouter();
   const colors = useStatsColors();
-  const tabBarHeight = useBottomTabBarHeight();
+  const tabBarHeight = useTabBarHeight();
   const [activeTab, setActiveTab] = useState<TabKey>('sales');
   const [timeRange, setTimeRange] = useState<TimeRange>('7d');
   const [newDesignYear, setNewDesignYear] = useState(new Date().getFullYear());
@@ -301,9 +298,6 @@ export default function InsightsScreen() {
     );
   }, [products, orders, restockLogs, discontinuePeriod, discontinueStockThreshold]);
 
-  // Team sync
-  const teamSync = useTeamSync();
-
   const serviceRevenueChange = analytics.serviceRevenueChange ?? 0;
   const serviceBreakdown = analytics.serviceBreakdown ?? [];
   const serviceByPeriod = analytics.serviceByPeriod ?? [];
@@ -323,42 +317,6 @@ export default function InsightsScreen() {
 
   // Check if we have data
   const hasData = analytics.totalOrders > 0 || analytics.todayOrders > 0 || products.length > 0;
-
-  const handleSyncPress = async () => {
-    if (!teamSync.isConfigured) {
-      Alert.alert(
-        'Team Sync',
-        'Connect your team to sync data across accounts. Enter your team ID to get started.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Setup',
-            onPress: () => {
-              Alert.prompt?.(
-                'Team ID',
-                'Enter your team ID',
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Connect',
-                    onPress: (teamId?: string | null) => {
-                      if (teamId) {
-                        teamSync.setupTeam(teamId, `Team ${teamId}`);
-                      }
-                    },
-                  },
-                ],
-                'plain-text'
-              ) ??
-                teamSync.setupTeam('default-team', 'My Team');
-            },
-          },
-        ]
-      );
-    } else {
-      await teamSync.syncData();
-    }
-  };
 
   // Empty state component
   const EmptyState = () => (
@@ -397,36 +355,6 @@ export default function InsightsScreen() {
               Insights
             </Text>
 
-            {/* Sync Button */}
-            <Pressable
-              onPress={handleSyncPress}
-              className="flex-row items-center px-4 rounded-xl active:opacity-80"
-              style={{ backgroundColor: '#111111', height: 42 }}
-            >
-              {teamSync.status === 'syncing' ? (
-                <RefreshCcw
-                  size={16}
-                  color="#FFFFFF"
-                  strokeWidth={2}
-                />
-              ) : (
-                <Cloud
-                  size={16}
-                  color="#FFFFFF"
-                  strokeWidth={2}
-                />
-              )}
-              <Text
-                style={{ color: '#FFFFFF' }}
-                className="text-sm font-semibold ml-1.5"
-              >
-                {teamSync.status === 'syncing'
-                  ? 'Syncing...'
-                  : teamSync.isConfigured
-                    ? 'Synced'
-                    : 'Sync'}
-              </Text>
-            </Pressable>
           </View>
 
           {/* Tabs */}
@@ -817,30 +745,23 @@ export default function InsightsScreen() {
                 </Pressable>
               )}
 
-              {/* Service Revenue */}
+              {/* Service Revenue - Graph Card */}
               {analytics.serviceMetrics?.revenue > 0 && (
                 <Pressable
                   className="px-5 pt-4"
-                  onPress={() => router.push('/insights/sales')}
+                  onPress={() => router.push('/insights/services')}
                 >
                   <View
                     className="rounded-2xl p-5"
                     style={colors.getCardStyle()}
                   >
                     <View className="flex-row items-center justify-between mb-2">
-                      <View className="flex-row items-center">
-                        <Sparkles
-                          size={18}
-                          color={colors.text.tertiary}
-                          strokeWidth={2}
-                        />
-                        <Text
-                          style={{ color: colors.text.primary }}
-                          className="text-lg font-bold ml-2"
-                        >
-                          Service Revenue
-                        </Text>
-                      </View>
+                      <Text
+                        style={{ color: colors.text.primary }}
+                        className="text-lg font-bold"
+                      >
+                        Service Revenue
+                      </Text>
                       <ChevronRight
                         size={16}
                         color={colors.text.tertiary}
@@ -869,17 +790,16 @@ export default function InsightsScreen() {
                       )}
                       <Text
                         style={{
-                        color: serviceRevenueChange >= 0 ? colors.success : colors.danger,
+                          color: serviceRevenueChange >= 0 ? colors.success : colors.danger,
                         }}
                         className="text-sm font-medium ml-1"
                       >
-                          {serviceRevenueChange >= 0 ? '+' : ''}
-                          {serviceRevenueChange.toFixed(1)}% vs last
-                        period
+                        {serviceRevenueChange >= 0 ? '+' : ''}
+                        {serviceRevenueChange.toFixed(1)}% vs last period
                       </Text>
                     </View>
-                      <SalesBarChart
-                        data={serviceByPeriod}
+                    <SalesBarChart
+                      data={serviceByPeriod}
                       height={140}
                       barColor={colors.bar}
                       gridColor={colors.barBg}
@@ -926,38 +846,73 @@ export default function InsightsScreen() {
                         </Text>
                       </View>
                     </View>
-                    {serviceBreakdown.length > 0 && (
-                      <View className="mt-3 space-y-2">
-                        {serviceBreakdown.slice(0, 3).map((item) =>
-                          item ? (
-                            <View
-                              key={item.name}
-                              className="flex-row items-center justify-between"
-                            >
-                              <View>
-                                <Text
-                                  style={{ color: colors.text.primary }}
-                                  className="text-sm font-semibold"
-                                >
-                                  {item.name}
-                                </Text>
-                                <Text
-                                  style={{ color: colors.text.tertiary }}
-                                  className="text-xs"
-                                >
-                                  {item.orders} orders • {item.quantity} services
-                                </Text>
-                              </View>
-                              <Text
-                                style={{ color: colors.text.primary }}
-                                className="text-sm font-bold"
-                              >
-                                {formatCurrency(item.revenue)}
-                              </Text>
-                            </View>
-                          ) : null
-                        )}
+                  </View>
+                </Pressable>
+              )}
+
+              {/* Top Services Breakdown - List Card */}
+              {serviceBreakdown.length > 0 && (
+                <Pressable
+                  className="px-5 pt-4"
+                  onPress={() => router.push('/insights/services')}
+                >
+                  <View
+                    className="rounded-2xl p-5"
+                    style={colors.getCardStyle()}
+                  >
+                    <View className="flex-row items-center justify-between mb-4">
+                      <View className="flex-row items-center">
+                        <DollarSign
+                          size={18}
+                          color={colors.text.tertiary}
+                          strokeWidth={2}
+                        />
+                        <Text
+                          style={{ color: colors.text.primary }}
+                          className="text-lg font-bold ml-2"
+                        >
+                          Top Services Revenue
+                        </Text>
                       </View>
+                      <ChevronRight
+                        size={16}
+                        color={colors.text.tertiary}
+                        strokeWidth={2}
+                      />
+                    </View>
+                    {serviceBreakdown.slice(0, 5).map((item, index) =>
+                      item ? (
+                        <View
+                          key={item.name}
+                          className="flex-row items-center justify-between py-3"
+                          style={{
+                            borderBottomWidth:
+                              index < Math.min(serviceBreakdown.length, 5) - 1 ? 1 : 0,
+                            borderBottomColor: colors.divider,
+                          }}
+                        >
+                          <View>
+                            <Text
+                              style={{ color: colors.text.primary }}
+                              className="text-sm font-medium"
+                            >
+                              {item.name}
+                            </Text>
+                            <Text
+                              style={{ color: colors.text.tertiary }}
+                              className="text-xs"
+                            >
+                              {item.orders} orders
+                            </Text>
+                          </View>
+                          <Text
+                            style={{ color: colors.text.primary }}
+                            className="text-sm font-bold"
+                          >
+                            {formatCurrency(item.revenue)}
+                          </Text>
+                        </View>
+                      ) : null
                     )}
                   </View>
                 </Pressable>

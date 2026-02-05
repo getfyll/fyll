@@ -480,7 +480,7 @@ export default function NewOrderScreen() {
       >
         {/* Header */}
         <View className="flex-row items-center justify-between px-5 py-4 bg-white border-b border-gray-200">
-          <Pressable onPress={() => router.back()} className="w-10 h-10 rounded-xl items-center justify-center active:opacity-50 bg-gray-100">
+          <Pressable onPress={() => router.back()} className="w-10 h-10 rounded-full items-center justify-center active:opacity-50 bg-gray-100">
             <X size={24} color="#111111" strokeWidth={2} />
           </Pressable>
           <Text className="text-lg font-bold text-gray-900">New Order</Text>

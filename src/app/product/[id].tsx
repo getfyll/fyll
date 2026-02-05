@@ -447,7 +447,7 @@ export default function ProductDetailScreen() {
             <Text style={{ color: colors.text.primary }} className="font-bold text-base">Variants ({product.variants.length})</Text>
             <Pressable
               onPress={handleOpenAddVariant}
-              className="flex-row items-center px-3 py-2 rounded-xl active:opacity-80"
+              className="flex-row items-center px-3 py-2 rounded-full active:opacity-80"
               style={{ backgroundColor: '#111111' }}
             >
               <Plus size={16} color="#FFFFFF" strokeWidth={2.5} />
@@ -561,7 +561,7 @@ export default function ProductDetailScreen() {
                             params: { productId: product.id, variantId: variant.id },
                           });
                         }}
-                        className="flex-row items-center px-3 py-1.5 rounded-lg active:opacity-80"
+                        className="flex-row items-center px-3 py-1.5 rounded-full active:opacity-80"
                         style={{ backgroundColor: 'rgba(16, 185, 129, 0.15)' }}
                       >
                         <PackagePlus size={14} color="#10B981" strokeWidth={2} />
@@ -734,7 +734,7 @@ export default function ProductDetailScreen() {
                           <Pressable
                             onPress={handlePickImage}
                             disabled={imagePicker.isLoading}
-                            className="flex-row items-center px-3 py-2 rounded-lg mb-2 active:opacity-70"
+                            className="flex-row items-center px-3 py-2 rounded-full mb-2 active:opacity-70"
                             style={{ backgroundColor: '#222222', opacity: imagePicker.isLoading ? 0.5 : 1 }}
                           >
                             <Camera size={14} color="#FFFFFF" strokeWidth={2} />
@@ -742,7 +742,7 @@ export default function ProductDetailScreen() {
                           </Pressable>
                           <Pressable
                             onPress={handleRemoveImage}
-                            className="flex-row items-center px-3 py-2 rounded-lg active:opacity-70"
+                            className="flex-row items-center px-3 py-2 rounded-full active:opacity-70"
                             style={{ backgroundColor: 'rgba(239, 68, 68, 0.2)' }}
                           >
                             <Trash2 size={14} color="#EF4444" strokeWidth={2} />
@@ -1004,7 +1004,7 @@ export default function ProductDetailScreen() {
                   {/* Save Button */}
                   <Pressable
                     onPress={handleSaveEdit}
-                    className="rounded-xl items-center active:opacity-80 bg-white mb-3"
+                    className="rounded-full items-center active:opacity-80 bg-white mb-3"
                     style={{ height: 52, justifyContent: 'center' }}
                   >
                     <Text className="text-black font-semibold text-base">Save Changes</Text>
@@ -1013,7 +1013,7 @@ export default function ProductDetailScreen() {
                   {/* Cancel Button */}
                   <Pressable
                     onPress={() => setIsEditing(false)}
-                    className="rounded-xl items-center active:opacity-80 mb-4"
+                    className="rounded-full items-center active:opacity-80 mb-4"
                     style={{ height: 52, justifyContent: 'center', backgroundColor: '#222222' }}
                   >
                     <Text className="text-gray-400 font-semibold text-base">Cancel</Text>
@@ -1177,7 +1177,7 @@ export default function ProductDetailScreen() {
                   {/* Add Button */}
                   <Pressable
                     onPress={handleAddVariant}
-                    className="rounded-xl items-center active:opacity-80 mb-4"
+                    className="rounded-full items-center active:opacity-80 mb-4"
                     style={{ height: 52, justifyContent: 'center', backgroundColor: isDark ? '#FFFFFF' : '#111111' }}
                   >
                     <Text style={{ color: isDark ? '#000000' : '#FFFFFF' }} className="font-semibold text-base">Add Variant</Text>
@@ -1273,7 +1273,7 @@ export default function ProductDetailScreen() {
                           </Pressable>
                           <Pressable
                             onPress={() => setEditVariantImageUrl(undefined)}
-                            className="flex-row items-center px-3 py-2 rounded-lg active:opacity-70"
+                            className="flex-row items-center px-3 py-2 rounded-full active:opacity-70"
                             style={{ backgroundColor: 'rgba(239, 68, 68, 0.2)' }}
                           >
                             <Trash2 size={14} color="#EF4444" strokeWidth={2} />
@@ -1366,7 +1366,7 @@ export default function ProductDetailScreen() {
                   {/* Save Button */}
                   <Pressable
                     onPress={handleSaveVariant}
-                    className="rounded-xl items-center active:opacity-80 mb-4"
+                    className="rounded-full items-center active:opacity-80 mb-4"
                     style={{ height: 52, justifyContent: 'center', backgroundColor: isDark ? '#FFFFFF' : '#111111' }}
                   >
                     <Text style={{ color: isDark ? '#000000' : '#FFFFFF' }} className="font-semibold text-base">Save Changes</Text>
@@ -1400,7 +1400,7 @@ export default function ProductDetailScreen() {
 
                 <Pressable
                   onPress={handlePickImage}
-                  className="flex-row items-center p-4 rounded-xl mb-3 active:opacity-70"
+                  className="flex-row items-center p-4 rounded-full mb-3 active:opacity-70"
                   style={{ backgroundColor: '#1A1A1A' }}
                 >
                   <View className="w-10 h-10 rounded-full items-center justify-center mr-3" style={{ backgroundColor: '#FFFFFF' }}>
@@ -1414,7 +1414,7 @@ export default function ProductDetailScreen() {
 
                 <Pressable
                   onPress={() => setShowImagePicker(false)}
-                  className="p-4 rounded-xl items-center active:opacity-70"
+                  className="p-4 rounded-full items-center active:opacity-70"
                   style={{ backgroundColor: '#1A1A1A' }}
                 >
                   <Text className="text-gray-400 font-semibold">Cancel</Text>

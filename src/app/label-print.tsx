@@ -1,15 +1,24 @@
-import React, { useMemo } from 'react';
-import { View, Text, Pressable, ScrollView, Share, Platform } from 'react-native';
+import React, { useMemo, useEffect } from 'react';
+import { View, Text, Pressable, ScrollView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { ArrowLeft, Printer, Share2 } from 'lucide-react-native';
-import useFyllStore, { formatCurrency } from '@/lib/state/fyll-store';
+import useFyllStore from '@/lib/state/fyll-store';
 import { useThemeColors } from '@/lib/theme';
 import * as Haptics from 'expo-haptics';
 import * as Print from 'expo-print';
-import Animated, { FadeInDown } from 'react-native-reanimated';
+import * as Sharing from 'expo-sharing';
 import Svg, { Rect } from 'react-native-svg';
 import { generateQrMatrix, generateQrSvg } from '@/lib/qrcode';
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 export default function LabelPrintScreen() {
   const colors = useThemeColors();
@@ -26,6 +35,42 @@ export default function LabelPrintScreen() {
   const productCode = variant?.barcode || variant?.sku || 'fyll';
   const qrMatrix = useMemo(() => generateQrMatrix(productCode), [productCode]);
 
+  // Inject print styles for web to hide everything except the label preview
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const styleId = 'label-print-styles';
+      let styleEl = document.getElementById(styleId);
+
+      if (!styleEl) {
+        styleEl = document.createElement('style');
+        styleEl.id = styleId;
+        styleEl.textContent = `
+          @media print {
+            body * {
+              visibility: hidden !important;
+            }
+            .printable-label-container,
+            .printable-label-container * {
+              visibility: visible !important;
+            }
+            .printable-label-container {
+              position: absolute !important;
+              left: 50% !important;
+              top: 50% !important;
+              transform: translate(-50%, -50%) !important;
+            }
+          }
+        `;
+        document.head.appendChild(styleEl);
+      }
+
+      return () => {
+        const el = document.getElementById(styleId);
+        if (el) el.remove();
+      };
+    }
+  }, []);
+
   if (!product || !variant) {
     return (
       <SafeAreaView className="flex-1 items-center justify-center" style={{ backgroundColor: colors.bg.primary }}>
@@ -37,13 +82,13 @@ export default function LabelPrintScreen() {
     );
   }
 
-  const handlePrint = async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
+  const buildLabelHtml = () => {
     const qrSvg = productCode ? generateQrSvg(productCode, 44) : '';
+    const safeSku = escapeHtml(variant.sku ?? '');
+    const safeName = escapeHtml(fullName);
 
-    // Generate HTML for thermal label (50mm x 30mm approximately) - without price
-    const html = `
+    // Generate HTML for thermal label (30mm x 50mm)
+    return `
       <!DOCTYPE html>
       <html>
         <head>
@@ -105,36 +150,66 @@ export default function LabelPrintScreen() {
         <body>
           <div class="label">
             ${qrSvg.replace('<svg ', '<svg class="qr" ')}
-            <div class="sku">${variant.sku}</div>
-            <div class="product-name">${fullName}</div>
+            <div class="sku">${safeSku}</div>
+            <div class="product-name">${safeName}</div>
           </div>
         </body>
       </html>
     `;
+  };
+
+  const labelSizePoints = {
+    width: Math.round(30 * 2.83465),
+    height: Math.round(50 * 2.83465),
+  };
+
+  const handlePrint = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
       await Print.printAsync({
-        html,
-        width: 113, // 30mm in points (1mm ≈ 3.78pt)
-        height: 189, // 50mm in points
+        html: buildLabelHtml(),
+        width: labelSizePoints.width, // 30mm in points
+        height: labelSizePoints.height, // 50mm in points
       });
     } catch (error) {
       console.log('Print error:', error);
     }
   };
 
-  const handleShare = async () => {
+  const handleSavePdf = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     try {
-      await Share.share({
-        message: `Label: ${fullName}\nSKU: ${variant.sku}\nBarcode: ${variant.barcode}\nPrice: ${formatCurrency(variant.sellingPrice)}`,
-        title: 'Product Label',
+      if (Platform.OS === 'web') {
+        // Web already provides "Save as PDF" in the browser print dialog.
+        await handlePrint();
+        return;
+      }
+
+      const file = await Print.printToFileAsync({
+        html: buildLabelHtml(),
+        width: labelSizePoints.width,
+        height: labelSizePoints.height,
+      });
+
+      const canShare = await Sharing.isAvailableAsync();
+      if (!canShare) return;
+
+      await Sharing.shareAsync(file.uri, {
+        mimeType: 'application/pdf',
+        dialogTitle: 'Product Label PDF',
+        UTI: 'com.adobe.pdf',
       });
     } catch (error) {
-      console.log('Share error:', error);
+      console.log('Save PDF error:', error);
     }
   };
+
+  const tipsText =
+    Platform.OS === 'web'
+      ? 'Printing on web uses your computer’s print dialog. If the printer dropdown only shows “Save as PDF”, your computer doesn’t have a printer set up (or it can’t see your label printer yet). Add/pair your printer in your system settings, then try again.'
+      : 'Printing uses your device’s system print dialog. Make sure the printer is paired/connected to this device (and on the same Wi‑Fi if needed) so it appears in the printer list.';
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg.primary }}>
@@ -152,78 +227,80 @@ export default function LabelPrintScreen() {
 
         <ScrollView style={{ flex: 1, backgroundColor: colors.bg.secondary }} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24 }} showsVerticalScrollIndicator={false}>
           {/* Label Preview Card */}
-          <Animated.View entering={FadeInDown.duration(400)}>
-            <Text style={{ color: colors.text.tertiary }} className="text-xs font-medium uppercase tracking-wider mb-3">Label Preview (30mm x 50mm)</Text>
+          <View className="printable-label-container">
+            <View>
+              <Text style={{ color: colors.text.tertiary }} className="text-xs font-medium uppercase tracking-wider mb-3 print:hidden">Label Preview (30mm x 50mm)</Text>
 
-            {/* Simulated Label - without price */}
-            <View
-              className="overflow-hidden mb-6"
-              style={{
-                alignSelf: 'center',
-                backgroundColor: '#FFFFFF',
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: colors.border.light,
-                width: 180,
-                height: 300,
-                padding: 8,
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.08,
-                shadowRadius: 6,
-                elevation: 5,
-              }}
-            >
+              {/* Simulated Label - without price */}
               <View
+                className="overflow-hidden mb-6"
                 style={{
-                  flex: 1,
+                  alignSelf: 'center',
                   backgroundColor: '#FFFFFF',
-                  borderRadius: 8,
+                  borderRadius: 12,
                   borderWidth: 1,
-                  borderColor: '#F3F4F6',
-                  padding: 6,
-                  alignItems: 'center',
-                  justifyContent: 'center',
+                  borderColor: colors.border.light,
+                  width: 180,
+                  height: 300,
+                  padding: 8,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.08,
+                  shadowRadius: 6,
+                  elevation: 5,
                 }}
               >
-                <Svg
-                  width={148}
-                  height={148}
-                  viewBox={`0 0 ${qrMatrix.length} ${qrMatrix.length}`}
+                <View
+                  style={{
+                    flex: 1,
+                    backgroundColor: '#FFFFFF',
+                    borderRadius: 8,
+                    borderWidth: 1,
+                    borderColor: '#F3F4F6',
+                    padding: 6,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
                 >
-                  {qrMatrix.map((row, rowIndex) =>
-                    row.map((filled, colIndex) =>
-                      filled ? (
-                        <Rect
-                          key={`${rowIndex}-${colIndex}`}
-                          x={colIndex}
-                          y={rowIndex}
-                          width={1}
-                          height={1}
-                          fill="#0F172A"
-                        />
-                      ) : null
-                    )
-                  )}
-                </Svg>
-              </View>
-              <View className="items-center mt-4">
-                <Text style={{ color: colors.text.secondary }} className="text-[10px] font-bold tracking-[0.3px]">
-                  {variant.sku}
-                </Text>
-                <Text
-                  style={{ color: colors.text.primary }}
-                  className="text-[11px] font-semibold text-center mt-1"
-                  numberOfLines={2}
-                >
-                  {fullName}
-                </Text>
+                  <Svg
+                    width={148}
+                    height={148}
+                    viewBox={`0 0 ${qrMatrix.length} ${qrMatrix.length}`}
+                  >
+                    {qrMatrix.map((row, rowIndex) =>
+                      row.map((filled, colIndex) =>
+                        filled ? (
+                          <Rect
+                            key={`${rowIndex}-${colIndex}`}
+                            x={colIndex}
+                            y={rowIndex}
+                            width={1}
+                            height={1}
+                            fill="#0F172A"
+                          />
+                        ) : null
+                      )
+                    )}
+                  </Svg>
+                </View>
+                <View className="items-center mt-4">
+                  <Text style={{ color: colors.text.secondary }} className="text-[10px] font-bold tracking-[0.3px]">
+                    {variant.sku}
+                  </Text>
+                  <Text
+                    style={{ color: colors.text.primary }}
+                    className="text-[11px] font-semibold text-center mt-1"
+                    numberOfLines={2}
+                  >
+                    {fullName}
+                  </Text>
+                </View>
               </View>
             </View>
-          </Animated.View>
+          </View>
 
           {/* Product Details */}
-          <Animated.View entering={FadeInDown.delay(100).duration(400)}>
+          <View>
             <View className="rounded-xl p-4 mb-4" style={{ backgroundColor: colors.bg.primary, borderWidth: 1, borderColor: colors.border.light }}>
               <Text style={{ color: colors.text.tertiary }} className="text-xs font-medium mb-3">LABEL CONTENT</Text>
 
@@ -242,16 +319,16 @@ export default function LabelPrintScreen() {
                 <Text style={{ color: colors.text.primary }} className="font-semibold">{fullName}</Text>
               </View>
             </View>
-          </Animated.View>
+          </View>
 
           {/* Info Note */}
-          <Animated.View entering={FadeInDown.delay(200).duration(400)}>
+          <View>
             <View className="rounded-xl p-4 mb-6" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', borderWidth: 1, borderColor: 'rgba(59, 130, 246, 0.2)' }}>
               <Text style={{ color: '#3B82F6' }} className="text-sm">
-                Tap "Print Label" to open your device's print dialog. Connect to any Bluetooth or Wi-Fi thermal printer (30mm x 50mm labels).
+                {tipsText}
               </Text>
             </View>
-          </Animated.View>
+          </View>
 
           <View className="h-32" />
         </ScrollView>
@@ -260,12 +337,14 @@ export default function LabelPrintScreen() {
         <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 20, paddingBottom: 32, paddingTop: 16, backgroundColor: colors.bg.primary, borderTopWidth: 1, borderTopColor: colors.border.light }}>
           <View className="flex-row gap-3">
             <Pressable
-              onPress={handleShare}
+              onPress={handleSavePdf}
               className="flex-1 rounded-xl items-center justify-center active:opacity-70 flex-row"
               style={{ height: 56, backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.border.light }}
             >
               <Share2 size={20} color={colors.text.primary} strokeWidth={2} />
-              <Text style={{ color: colors.text.primary }} className="font-semibold ml-2">Share</Text>
+              <Text style={{ color: colors.text.primary }} className="font-semibold ml-2">
+                {Platform.OS === 'web' ? 'Save / Print' : 'Save PDF'}
+              </Text>
             </Pressable>
             <Pressable
               onPress={handlePrint}

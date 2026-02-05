@@ -127,7 +127,7 @@ export function Button({
       onPress={handlePress}
       disabled={isDisabled}
       className={cn(
-        'rounded-xl items-center justify-center flex-row',
+        'rounded-full items-center justify-center flex-row',
         fullWidth ? 'w-full' : '',
         className
       )}

@@ -3,6 +3,9 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import { storage } from "@/lib/storage";
 import { supabase } from "@/lib/supabase";
 import useFyllStore from "./fyll-store";
+import { Platform } from 'react-native';
+import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
 
 export type TeamRole = 'admin' | 'manager' | 'staff';
 
@@ -90,6 +93,8 @@ interface AuthStore {
   // Actions
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   signup: (input: { businessName: string; name: string; email: string; password: string }) => Promise<{ success: boolean; error?: string }>;
+  signInWithGoogle: () => Promise<{ success: boolean; error?: string }>;
+  syncWithSupabaseSession: () => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   updateProfile: (name: string, email: string) => Promise<void>;
   updatePassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
@@ -176,6 +181,18 @@ const normalizeRole = (value?: string | null): TeamRole => {
   return 'admin';
 };
 
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const getNameFromAuthUser = (email: string, metadata: Record<string, unknown> | null | undefined) => {
+  const meta = metadata ?? {};
+  const candidates = [
+    typeof meta.name === 'string' ? meta.name : undefined,
+    typeof meta.full_name === 'string' ? meta.full_name : undefined,
+    typeof meta.businessName === 'string' ? meta.businessName : undefined,
+  ].filter(Boolean) as string[];
+  return candidates[0] ?? email.split('@')[0] ?? 'User';
+};
+
 const useAuthStore = create<AuthStore>()(
   persist(
     (set, get) => ({
@@ -186,6 +203,145 @@ const useAuthStore = create<AuthStore>()(
       businessId: null,
       teamMembers: [],
       pendingInvites: [],
+
+      syncWithSupabaseSession: async () => {
+        if (get().isOfflineMode) {
+          return { success: false, error: 'You are in offline mode.' };
+        }
+
+        try {
+          set({ isAuthLoading: true });
+
+          const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+          if (sessionError) {
+            throw sessionError;
+          }
+
+          const authUser = sessionData.session?.user;
+          if (!authUser?.id) {
+            set({
+              isAuthenticated: false,
+              currentUser: null,
+              businessId: null,
+              isAuthLoading: false,
+            });
+            return { success: false, error: 'Not signed in.' };
+          }
+
+          let profile: { id: string; email: string | null; name: string | null; role: string | null; business_id: string | null } | null = null;
+
+          for (let attempt = 0; attempt < 6; attempt += 1) {
+            const { data: profileData, error: profileError } = await supabase
+              .from('profiles')
+              .select('id, email, name, role, business_id')
+              .eq('id', authUser.id)
+              .maybeSingle();
+
+            if (profileError) {
+              console.warn('Profile lookup failed:', profileError);
+            }
+
+            if (profileData?.business_id) {
+              profile = profileData;
+              break;
+            }
+
+            await wait(500);
+          }
+
+          const businessId = profile?.business_id ?? null;
+          if (!businessId) {
+            await supabase.auth.signOut();
+            set({ isAuthLoading: false });
+            return { success: false, error: 'Account data not found. Please contact support.' };
+          }
+
+          const normalizedEmail = (profile?.email ?? authUser.email ?? '').trim().toLowerCase();
+          const name = profile?.name ?? getNameFromAuthUser(normalizedEmail || authUser.email || 'user@local', authUser.user_metadata as Record<string, unknown> | undefined);
+
+          const userData: AuthUser = {
+            id: authUser.id,
+            email: normalizedEmail || authUser.email || 'user@local',
+            name,
+            role: normalizeRole(profile?.role),
+            businessId,
+          };
+
+          set({
+            isAuthenticated: true,
+            currentUser: userData,
+            businessId,
+            isOfflineMode: false,
+            isAuthLoading: false,
+          });
+
+          try {
+            await get().refreshTeamData();
+          } catch (error) {
+            console.warn('Could not refresh team data:', error);
+          }
+
+          if (userData.email) {
+            void storage.setItem(
+              `fyll_user_profile:${userData.email}`,
+              JSON.stringify({ businessId, name: userData.name })
+            );
+          }
+
+          return { success: true };
+        } catch (error) {
+          set({ isAuthLoading: false });
+          console.error('Session sync failed:', error);
+          return { success: false, error: getAuthErrorMessage(error, 'Could not restore your session. Please sign in again.') };
+        }
+      },
+
+      signInWithGoogle: async () => {
+        if (get().isOfflineMode) {
+          return { success: false, error: 'Turn off offline mode to use Google sign-in.' };
+        }
+
+        try {
+          set({ isAuthLoading: true });
+
+          const redirectTo = Linking.createURL('login');
+          const { data, error } = await supabase.auth.signInWithOAuth({
+            provider: 'google',
+            options: {
+              redirectTo,
+              skipBrowserRedirect: true,
+            },
+          });
+
+          if (error || !data?.url) {
+            throw error ?? new Error('Google sign-in could not start.');
+          }
+
+          if (Platform.OS === 'web') {
+            set({ isAuthLoading: false });
+            window.location.assign(data.url);
+            return { success: true };
+          }
+
+          const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+          if (result.type !== 'success' || !result.url) {
+            set({ isAuthLoading: false });
+            return { success: false, error: 'Sign-in cancelled.' };
+          }
+
+          const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(result.url);
+          if (exchangeError) {
+            throw exchangeError;
+          }
+
+          const syncResult = await get().syncWithSupabaseSession();
+          return syncResult;
+        } catch (error) {
+          set({ isAuthLoading: false });
+          console.error('Google sign-in failed:', error);
+          return { success: false, error: getAuthErrorMessage(error, 'Google sign-in failed. Please try again.') };
+        }
+      },
 
       login: async (email, password) => {
         try {
@@ -320,7 +476,6 @@ const useAuthStore = create<AuthStore>()(
 
           const createdUserId = signupData.user.id;
 
-          const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
           let profile: { business_id?: string | null; name?: string | null; role?: string | null } | null = null;
 
           for (let attempt = 0; attempt < 6; attempt += 1) {
@@ -363,11 +518,13 @@ const useAuthStore = create<AuthStore>()(
 
           // Clear demo data and save business name for new account
           try {
-            // Reset store to clear Mint Eyewear demo data
+            // Temporarily clear businessId so resetStore doesn't trigger sync deletions
+            const newBusinessId = get().businessId;
+            set({ businessId: null });
             useFyllStore.getState().resetStore();
-
-            // CRITICAL: Clear AsyncStorage to prevent old account data from persisting
             await storage.removeItem('fyll-storage');
+            // Restore businessId after reset is safe
+            set({ businessId: newBusinessId });
             console.log('Demo data and AsyncStorage cleared for new account');
 
             const businessSettings = {
@@ -403,6 +560,18 @@ const useAuthStore = create<AuthStore>()(
       },
 
       logout: async () => {
+        // CRITICAL: Clear businessId and auth FIRST to prevent sync effects
+        // from interpreting resetStore() as "user deleted all products" and
+        // wiping them from Supabase.
+        set({
+          isAuthenticated: false,
+          isOfflineMode: false,
+          currentUser: null,
+          businessId: null,
+          teamMembers: [],
+          pendingInvites: [],
+        });
+
         try {
           await Promise.race([
             supabase.auth.signOut(),
@@ -412,31 +581,22 @@ const useAuthStore = create<AuthStore>()(
           console.warn('Logout failed, clearing local session anyway:', error);
         }
 
-        try {
-          await storage.removeItem('fyll-auth-storage');
-          // CRITICAL: Clear all app data on logout to prevent data leakage between accounts
-          await storage.removeItem('fyll-storage');
-          await storage.removeItem('fyll_business_settings');
-          console.log('All local storage cleared on logout');
-        } catch (storageError) {
-          console.warn('Could not clear auth storage:', storageError);
-        }
-
-        // Reset the fyll store to clear all products, orders, customers
+        // Reset the fyll store AFTER businessId is null so sync effects skip deletions
         try {
           useFyllStore.getState().resetStore();
         } catch (resetError) {
           console.warn('Could not reset fyll store:', resetError);
         }
 
-        set({
-          isAuthenticated: false,
-          isOfflineMode: false,
-          currentUser: null,
-          businessId: null,
-          teamMembers: [],
-          pendingInvites: [],
-        });
+        try {
+          await storage.removeItem('fyll-auth-storage');
+          // Clear all app data on logout to prevent data leakage between accounts
+          await storage.removeItem('fyll-storage');
+          await storage.removeItem('fyll_business_settings');
+          console.log('All local storage cleared on logout');
+        } catch (storageError) {
+          console.warn('Could not clear auth storage:', storageError);
+        }
       },
 
       updateProfile: async (name, email) => {

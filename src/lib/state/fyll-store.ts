@@ -176,6 +176,13 @@ export interface Order {
   updatedAt: string;
   createdBy?: string; // Staff name who created the order
   updatedBy?: string; // Staff name who last updated the order
+  activityLog?: OrderActivityEntry[]; // Trail of all staff activity
+}
+
+export interface OrderActivityEntry {
+  staffName: string;
+  action: string; // e.g. "Created order", "Updated status to Shipped"
+  date: string; // ISO string
 }
 
 export interface ProcurementItem {
@@ -305,8 +312,8 @@ export interface CaseResolution {
 export interface Case {
   id: string;
   caseNumber: string; // Auto-generated like "CASE-001234"
-  orderId: string; // Required - linked order
-  orderNumber: string; // Denormalized for display
+  orderId?: string; // Optional - linked order (standalone cases may not have one)
+  orderNumber?: string; // Denormalized for display
   customerId?: string; // Optional - linked customer
   customerName: string; // Denormalized for display
   type: CaseType;
@@ -1004,9 +1011,39 @@ const useFyllStore = create<FyllStore>()(
       },
       updateOrder: async (id, updates, businessId) => {
         set({
-          orders: get().orders.map((o) =>
-            o.id === id ? { ...o, ...updates, updatedAt: new Date().toISOString() } : o
-          ),
+          orders: get().orders.map((o) => {
+            if (o.id !== id) return o;
+            const merged = { ...o, ...updates, updatedAt: new Date().toISOString() };
+            // Auto-append to activity log when updatedBy is provided
+            if (updates.updatedBy) {
+              // Determine what was updated to create a specific action message
+              let action = '';
+              if (updates.status && updates.status !== o.status) {
+                action = `Updated status to ${updates.status}`;
+              } else if (updates.logistics) {
+                action = 'Updated logistics';
+              } else if (updates.prescription) {
+                action = 'Updated prescription';
+              } else if (updates.refund) {
+                action = 'Processed refund';
+              } else if (updates.customerName || updates.customerPhone || updates.deliveryAddress || updates.deliveryState) {
+                action = 'Updated customer details';
+              } else if (updates.items) {
+                action = 'Updated order items';
+              } else {
+                // Fallback for other updates (notes, payment, etc.)
+                action = 'Updated order';
+              }
+
+              const entry: OrderActivityEntry = {
+                staffName: updates.updatedBy,
+                action,
+                date: new Date().toISOString(),
+              };
+              merged.activityLog = [...(o.activityLog || []), entry];
+            }
+            return merged;
+          }),
         });
         if (businessId) {
           const updated = get().orders.find((o) => o.id === id);

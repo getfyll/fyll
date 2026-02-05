@@ -5,7 +5,6 @@ import { useRouter } from 'expo-router';
 import { X, Calendar } from 'lucide-react-native';
 import useFyllStore from '@/lib/state/fyll-store';
 import { cn } from '@/lib/cn';
-import Animated, { FadeInDown } from 'react-native-reanimated';
 
 export default function NewExpenseScreen() {
   const router = useRouter();
@@ -62,7 +61,7 @@ export default function NewExpenseScreen() {
 
         <ScrollView className="flex-1 px-5" showsVerticalScrollIndicator={false}>
           {/* Amount */}
-          <Animated.View entering={FadeInDown.duration(400)} className="mt-6 items-center">
+          <View className="mt-6 items-center">
             <Text className="text-gray-500 text-sm font-medium mb-2">Amount</Text>
             <View className="flex-row items-center">
               <Text className="text-gray-900 text-4xl font-bold mr-1">$</Text>
@@ -76,10 +75,10 @@ export default function NewExpenseScreen() {
                 style={{ fontSize: 48 }}
               />
             </View>
-          </Animated.View>
+          </View>
 
           {/* Category */}
-          <Animated.View entering={FadeInDown.delay(100).duration(400)} className="mt-8">
+          <View className="mt-8">
             <Text className="text-gray-900 font-bold text-base mb-3">Category</Text>
             <View className="flex-row flex-wrap gap-2">
               {expenseCategories.map((cat) => (
@@ -102,10 +101,10 @@ export default function NewExpenseScreen() {
                 </Pressable>
               ))}
             </View>
-          </Animated.View>
+          </View>
 
           {/* Description */}
-          <Animated.View entering={FadeInDown.delay(200).duration(400)} className="mt-6">
+          <View className="mt-6">
             <Text className="text-gray-900 font-bold text-base mb-3">Description</Text>
             <TextInput
               placeholder="What was this expense for?"
@@ -117,10 +116,10 @@ export default function NewExpenseScreen() {
               className="bg-gray-100 rounded-xl px-4 py-3 text-gray-900 text-sm"
               style={{ minHeight: 100 }}
             />
-          </Animated.View>
+          </View>
 
           {/* Date */}
-          <Animated.View entering={FadeInDown.delay(300).duration(400)} className="mt-6">
+          <View className="mt-6">
             <Text className="text-gray-900 font-bold text-base mb-3">Date</Text>
             <View className="bg-gray-100 rounded-xl px-4 py-3 flex-row items-center">
               <Calendar size={20} color="#6B7280" strokeWidth={2} />
@@ -132,7 +131,7 @@ export default function NewExpenseScreen() {
                 className="flex-1 ml-3 text-gray-900 text-sm"
               />
             </View>
-          </Animated.View>
+          </View>
 
           <View className="h-24" />
         </ScrollView>

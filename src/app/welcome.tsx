@@ -4,7 +4,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Sparkles, Package, ShoppingCart, BarChart3, ShieldCheck } from 'lucide-react-native';
 import { useThemeColors } from '@/lib/theme';
-import Animated, { FadeInDown } from 'react-native-reanimated';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { FyllLogo } from '@/components/FyllLogo';
 import useAuthStore from '@/lib/state/auth-store';
@@ -50,7 +49,7 @@ export default function WelcomeScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View className="flex-1 px-6 pt-6">
-          <Animated.View entering={FadeInDown.delay(100)} className="items-center mb-10">
+          <View className="items-center mb-10">
             <View
               className="w-20 h-20 rounded-3xl items-center justify-center"
               style={{ backgroundColor: colors.bg.secondary }}
@@ -66,16 +65,14 @@ export default function WelcomeScreen() {
                 Set up your workspace and start running your store in minutes.
               </Text>
             </View>
-          </Animated.View>
+          </View>
 
           <View className="mb-10">
             {features.map((feature, index) => {
               const Icon = feature.icon;
               return (
-                <Animated.View
-                  key={feature.title}
-                  entering={FadeInDown.delay(200 + index * 120)}
-                  className="flex-row items-start mb-5 rounded-2xl p-4"
+                <View
+                  key={feature.title}                  className="flex-row items-start mb-5 rounded-2xl p-4"
                   style={{ backgroundColor: colors.bg.secondary }}
                 >
                   <View
@@ -92,12 +89,12 @@ export default function WelcomeScreen() {
                       {feature.description}
                     </Text>
                   </View>
-                </Animated.View>
+                </View>
               );
             })}
           </View>
 
-          <Animated.View entering={FadeInDown.delay(700)}>
+          <View>
             <Pressable
               onPress={handleGetStarted}
               className="rounded-xl items-center justify-center active:opacity-80"
@@ -105,7 +102,7 @@ export default function WelcomeScreen() {
             >
               <Text className="text-white font-semibold text-base">Get Started</Text>
             </Pressable>
-          </Animated.View>
+          </View>
         </View>
       </ScrollView>
     </SafeAreaView>

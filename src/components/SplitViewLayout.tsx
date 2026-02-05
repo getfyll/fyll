@@ -3,7 +3,6 @@ import { View, ScrollView, Pressable, Text, Image, Modal, Platform } from 'react
 import { useBreakpoint } from '@/lib/useBreakpoint';
 import { useThemeColors } from '@/lib/theme';
 import { X, ChevronRight, PanelLeftClose, PanelLeftOpen, Package } from 'lucide-react-native';
-import Animated, { FadeIn, FadeOut, SlideInRight, SlideOutRight } from 'react-native-reanimated';
 
 interface SplitViewLayoutProps {
   children: ReactNode;
@@ -77,10 +76,7 @@ export function SplitViewLayout({
 
       {/* Detail Pane */}
       {hasDetail && !isDetailCollapsed && (
-        <Animated.View
-          entering={SlideInRight.duration(200)}
-          exiting={SlideOutRight.duration(200)}
-          style={{
+        <View          style={{
             flex: 1,
             backgroundColor: colors.bg.secondary,
             minWidth: 320,
@@ -148,7 +144,7 @@ export function SplitViewLayout({
           >
             {detailContent}
           </ScrollView>
-        </Animated.View>
+        </View>
       )}
 
       {/* Collapsed State - Show Toggle Button */}
@@ -362,7 +358,7 @@ export function DetailActionButton({
         alignItems: 'center',
         justifyContent: 'center',
         height: 48,
-        borderRadius: 12,
+        borderRadius: 9999,
         backgroundColor: bgColor,
         paddingHorizontal: 16,
         gap: 8,

@@ -5,7 +5,6 @@ import { useRouter } from 'expo-router';
 import { ChevronLeft, ClipboardCheck, Package, AlertTriangle, History, Eye, Search, ChevronDown, ChevronRight, Check } from 'lucide-react-native';
 import useFyllStore, { AuditLogItem } from '@/lib/state/fyll-store';
 import useAuthStore from '@/lib/state/auth-store';
-import Animated, { FadeInDown, FadeInRight, Layout } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 
 // Force Light Theme Colors
@@ -393,10 +392,8 @@ export default function InventoryAuditScreen() {
               </View>
             ) : (
               products.map((product, pIndex) => (
-                <Animated.View
-                  key={product.id}
-                  entering={FadeInDown.delay(pIndex * 50).springify()}
-                  className="mb-3"
+                <View
+                  key={product.id}                  className="mb-3"
                 >
                   <View className="bg-white rounded-xl border border-gray-200 p-4">
                     <Text className="text-gray-900 font-bold text-base mb-3">{product.name}</Text>
@@ -439,7 +436,7 @@ export default function InventoryAuditScreen() {
                       );
                     })}
                   </View>
-                </Animated.View>
+                </View>
               ))
             )}
             <View className="h-24" />
@@ -482,11 +479,8 @@ export default function InventoryAuditScreen() {
               sortedAuditLogs.map((log, index) => {
                 const isExpanded = expandedAuditId === log.id;
                 return (
-                  <Animated.View
-                    key={log.id}
-                    entering={FadeInDown.delay(index * 50).springify()}
-                    layout={Layout.springify()}
-                    className="mb-3"
+                  <View
+                    key={log.id}                    className="mb-3"
                   >
                     <Pressable
                       onPress={() => setExpandedAuditId(isExpanded ? null : log.id)}
@@ -573,7 +567,7 @@ export default function InventoryAuditScreen() {
                         </View>
                       )}
                     </Pressable>
-                  </Animated.View>
+                  </View>
                 );
               })
             )}
@@ -642,11 +636,8 @@ export default function InventoryAuditScreen() {
                 const discrepancy = !isNaN(count) ? count - item.expectedStock : 0;
 
                 return (
-                  <Animated.View
-                    key={item.variantId}
-                    entering={FadeInRight.delay(index * 30).springify()}
-                    layout={Layout.springify()}
-                    className="mb-3"
+                  <View
+                    key={item.variantId}                    className="mb-3"
                   >
                     <View
                       className="rounded-xl p-4"
@@ -705,7 +696,7 @@ export default function InventoryAuditScreen() {
                         )}
                       </View>
                     </View>
-                  </Animated.View>
+                  </View>
                 );
               })}
               <View className="h-32" />
@@ -755,7 +746,7 @@ export default function InventoryAuditScreen() {
         </View>
 
         <ScrollView style={{ flex: 1, paddingHorizontal: 20, paddingTop: 24, backgroundColor: colors.bg.secondary }} showsVerticalScrollIndicator={false}>
-          <Animated.View entering={FadeInDown.springify()} className="items-center mb-8">
+          <View className="items-center mb-8">
             <View
               className="w-24 h-24 rounded-3xl items-center justify-center mb-4"
               style={{ backgroundColor: 'rgba(17, 17, 17, 0.1)' }}
@@ -766,10 +757,10 @@ export default function InventoryAuditScreen() {
             <Text style={{ color: colors.text.tertiary }} className="text-sm text-center mt-2 px-8">
               Count your physical inventory and reconcile any discrepancies with the system
             </Text>
-          </Animated.View>
+          </View>
 
           {/* 3 Button Layout */}
-          <Animated.View entering={FadeInDown.delay(100).springify()}>
+          <View>
             <Pressable
               onPress={startAudit}
               className="rounded-xl items-center active:opacity-80 mb-4"
@@ -780,9 +771,9 @@ export default function InventoryAuditScreen() {
                 <Text className="text-white font-bold text-base ml-2">Start New Audit</Text>
               </View>
             </Pressable>
-          </Animated.View>
+          </View>
 
-          <Animated.View entering={FadeInDown.delay(200).springify()}>
+          <View>
             <Pressable
               onPress={() => setShowHistory(true)}
               className="rounded-xl items-center active:opacity-70 mb-4"
@@ -793,9 +784,9 @@ export default function InventoryAuditScreen() {
                 <Text style={{ color: colors.text.primary }} className="font-bold text-base ml-2">View Audit History</Text>
               </View>
             </Pressable>
-          </Animated.View>
+          </View>
 
-          <Animated.View entering={FadeInDown.delay(300).springify()}>
+          <View>
             <Pressable
               onPress={() => setShowCurrentInventory(true)}
               className="rounded-xl items-center active:opacity-70 mb-4"
@@ -806,9 +797,9 @@ export default function InventoryAuditScreen() {
                 <Text style={{ color: colors.text.primary }} className="font-bold text-base ml-2">Current Inventory</Text>
               </View>
             </Pressable>
-          </Animated.View>
+          </View>
 
-          <Animated.View entering={FadeInDown.delay(400).springify()}>
+          <View>
             <View style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light }} className="rounded-xl p-4">
               <View className="flex-row items-center mb-3">
                 <AlertTriangle size={20} color="#F59E0B" strokeWidth={2} />
@@ -841,7 +832,7 @@ export default function InventoryAuditScreen() {
                 </View>
               </View>
             </View>
-          </Animated.View>
+          </View>
 
           <View className="h-24" />
         </ScrollView>

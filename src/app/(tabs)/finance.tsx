@@ -2,14 +2,13 @@ import React, { useState, useMemo } from 'react';
 import { View, Text, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Plus, TrendingUp, TrendingDown, Receipt, Truck, Lock } from 'lucide-react-native';
 import useFyllStore, { Expense, Procurement, formatCurrency } from '@/lib/state/fyll-store';
 import { cn } from '@/lib/cn';
-import Animated, { FadeInDown, FadeInRight } from 'react-native-reanimated';
 import { GlassCard } from '@/components/GlassCard';
 import * as Haptics from 'expo-haptics';
+import { useTabBarHeight } from '@/lib/useTabBarHeight';
 
 type TabType = 'overview' | 'expenses' | 'procurement';
 
@@ -25,9 +24,7 @@ function ExpenseRow({ expense, delay = 0 }: ExpenseRowProps) {
   });
 
   return (
-    <Animated.View
-      entering={FadeInRight.delay(delay).springify()}
-      className="flex-row items-center py-3"
+    <View      className="flex-row items-center py-3"
       style={{ borderBottomWidth: 1, borderBottomColor: '#F3F4F6' }}
     >
       <View className="w-10 h-10 rounded-xl items-center justify-center mr-3" style={{ backgroundColor: '#FEE2E2' }}>
@@ -41,7 +38,7 @@ function ExpenseRow({ expense, delay = 0 }: ExpenseRowProps) {
         <Text className="text-red-500 font-bold text-sm">-{formatCurrency(expense.amount)}</Text>
         <Text className="text-gray-400 text-xs">{date}</Text>
       </View>
-    </Animated.View>
+    </View>
   );
 }
 
@@ -59,9 +56,7 @@ function ProcurementRow({ procurement, delay = 0 }: ProcurementRowProps) {
   const itemCount = procurement.items.reduce((sum, item) => sum + item.quantity, 0);
 
   return (
-    <Animated.View
-      entering={FadeInRight.delay(delay).springify()}
-      className="flex-row items-center py-3"
+    <View      className="flex-row items-center py-3"
       style={{ borderBottomWidth: 1, borderBottomColor: '#F3F4F6' }}
     >
       <View className="w-10 h-10 rounded-xl items-center justify-center mr-3" style={{ backgroundColor: '#DBEAFE' }}>
@@ -75,13 +70,13 @@ function ProcurementRow({ procurement, delay = 0 }: ProcurementRowProps) {
         <Text className="text-blue-600 font-bold text-sm">{formatCurrency(procurement.totalCost)}</Text>
         <Text className="text-gray-400 text-xs">{date}</Text>
       </View>
-    </Animated.View>
+    </View>
   );
 }
 
 export default function FinanceScreen() {
   const router = useRouter();
-  const tabBarHeight = useBottomTabBarHeight();
+  const tabBarHeight = useTabBarHeight();
   const orders = useFyllStore((s) => s.orders);
   const expenses = useFyllStore((s) => s.expenses);
   const procurements = useFyllStore((s) => s.procurements);
@@ -187,7 +182,7 @@ export default function FinanceScreen() {
           {activeTab === 'overview' && (
             <View className="pt-4">
               {/* Net Profit Hero */}
-              <Animated.View entering={FadeInDown.springify()} className="mb-4">
+              <View className="mb-4">
                 <View className="rounded-2xl overflow-hidden">
                   <LinearGradient
                     colors={financials.netProfit >= 0 ? ['#059669', '#10B981'] : ['#EF4444', '#DC2626']}
@@ -212,10 +207,10 @@ export default function FinanceScreen() {
                     <Text className="text-white/60 text-sm mt-1">After all expenses</Text>
                   </LinearGradient>
                 </View>
-              </Animated.View>
+              </View>
 
               {/* P&L Breakdown */}
-              <Animated.View entering={FadeInDown.delay(100).springify()}>
+              <View>
                 <GlassCard>
                   <Text className="text-gray-800 font-bold text-base mb-4">Profit & Loss</Text>
 
@@ -229,10 +224,10 @@ export default function FinanceScreen() {
                     <Text className="text-red-500 font-semibold">-{formatCurrency(financials.totalExpenses)}</Text>
                   </View>
                 </GlassCard>
-              </Animated.View>
+              </View>
 
               {/* Expense Breakdown */}
-              <Animated.View entering={FadeInDown.delay(200).springify()} className="mt-4">
+              <View className="mt-4">
                 <GlassCard>
                   <Text className="text-gray-800 font-bold text-base mb-4">Expense Breakdown</Text>
                   {Object.entries(financials.expenseByCategory).map(([category, amount]) => (
@@ -245,7 +240,7 @@ export default function FinanceScreen() {
                     <Text className="text-gray-400 text-sm text-center py-4">No expenses recorded</Text>
                   )}
                 </GlassCard>
-              </Animated.View>
+              </View>
             </View>
           )}
 

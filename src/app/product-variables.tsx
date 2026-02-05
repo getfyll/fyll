@@ -5,7 +5,6 @@ import { useRouter } from 'expo-router';
 import { ArrowLeft, Plus, Trash2, Edit3, Check, X, Palette, Tag } from 'lucide-react-native';
 import useFyllStore, { ProductVariable } from '@/lib/state/fyll-store';
 import useAuthStore from '@/lib/state/auth-store';
-import Animated, { FadeInDown, FadeInRight, FadeOutRight, Layout, SlideInRight } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { cn } from '@/lib/cn';
 import { Button } from '@/components/Button';
@@ -210,16 +209,16 @@ export default function ProductVariablesScreen() {
 
           <ScrollView className="flex-1 px-5" style={{ backgroundColor: colors.bg.secondary }} showsVerticalScrollIndicator={false}>
             {/* Info Card */}
-            <Animated.View entering={FadeInDown.springify()}>
+            <View>
               <View className="rounded-xl p-4 mt-4 border" style={{ backgroundColor: colors.bg.card, borderColor: colors.border.light }}>
                 <Text style={{ color: colors.text.tertiary }} className="text-sm leading-5">
                   Product variables define attributes like Color, Size, or Material. Each variable can have multiple values that you can assign to product variants.
                 </Text>
               </View>
-            </Animated.View>
+            </View>
 
             {/* Add New Variable Button */}
-            <Animated.View entering={FadeInDown.delay(50).springify()}>
+            <View>
               <Button
                 onPress={() => {
                   if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -230,11 +229,11 @@ export default function ProductVariablesScreen() {
               >
                 Add Variable
               </Button>
-            </Animated.View>
+            </View>
 
             {/* Variables List */}
             {productVariables.length === 0 ? (
-              <Animated.View entering={FadeInDown.delay(100).springify()}>
+              <View>
                 <View className="rounded-xl p-6 mt-4 border items-center" style={{ backgroundColor: colors.bg.card, borderColor: colors.border.light }}>
                   <View
                     className="w-16 h-16 rounded-2xl items-center justify-center mb-4"
@@ -247,14 +246,11 @@ export default function ProductVariablesScreen() {
                     Add variables like Color or Size to create product variants
                   </Text>
                 </View>
-              </Animated.View>
+              </View>
             ) : (
               productVariables.map((variable, index) => (
-                <Animated.View
-                  key={variable.id}
-                  entering={FadeInDown.delay(100 + index * 50).springify()}
-                  layout={Layout.springify()}
-                  className="mt-4"
+                <View
+                  key={variable.id}                  className="mt-4"
                 >
                   <View className="rounded-xl p-4 border" style={{ backgroundColor: colors.bg.card, borderColor: colors.border.light }}>
                     {/* Variable Header */}
@@ -291,12 +287,8 @@ export default function ProductVariablesScreen() {
                           const isEditing = editingValueId === `${variable.id}-${value}`;
 
                           return (
-                            <Animated.View
-                              key={`${variable.id}-${value}`}
-                              entering={SlideInRight.springify()}
-                              exiting={FadeOutRight.springify()}
-                              layout={Layout.springify()}
-                              className="mb-2"
+                            <View
+                              key={`${variable.id}-${value}`}                              className="mb-2"
                             >
                               {isEditing ? (
                                 <View
@@ -352,7 +344,7 @@ export default function ProductVariablesScreen() {
                                   </View>
                                 </View>
                               )}
-                            </Animated.View>
+                            </View>
                           );
                         })
                       )}
@@ -410,7 +402,7 @@ export default function ProductVariablesScreen() {
                       </Pressable>
                     )}
                   </View>
-                </Animated.View>
+                </View>
               ))
             )}
 

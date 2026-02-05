@@ -49,6 +49,7 @@ export default function OrderDetailScreen() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeletePrompt, setShowDeletePrompt] = useState(false);
   const [showStatusModal, setShowStatusModal] = useState(false);
+  const [pendingStatus, setPendingStatus] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editPhone, setEditPhone] = useState('');
   const [editEmail, setEditEmail] = useState('');
@@ -155,9 +156,43 @@ export default function OrderDetailScreen() {
     return { productName: product?.name || 'Unknown', variantName, sku: variant?.sku || '' };
   };
 
+  // Filter out generic "Updated order" entries when there's a more specific action at the same time
+  const filteredActivityLog = useMemo(() => {
+    if (!order.activityLog) return [];
+
+    return order.activityLog.filter((entry, index, arr) => {
+      // Keep all non-"Updated order" entries
+      if (entry.action !== 'Updated order') return true;
+
+      // For "Updated order" entries, check if there's a more specific entry at the same time
+      const hasSpecificEntry = arr.some((other, otherIndex) =>
+        otherIndex !== index &&
+        other.staffName === entry.staffName &&
+        Math.abs(new Date(other.date).getTime() - new Date(entry.date).getTime()) < 2000 && // Within 2 seconds
+        other.action !== 'Updated order'
+      );
+
+      // Only keep "Updated order" if there's no more specific entry
+      return !hasSpecificEntry;
+    });
+  }, [order.activityLog]);
+
   const handleUpdateStatus = (newStatus: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setPendingStatus(newStatus);
+  };
+
+  const handleSaveStatus = () => {
+    if (!pendingStatus) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    updateOrder(order.id, { status: newStatus, updatedBy: currentUser?.name, updatedAt: new Date().toISOString() }, businessId);
+    const updatedBy = currentUser?.name || currentUser?.email || 'Staff';
+    updateOrder(order.id, { status: pendingStatus, updatedBy, updatedAt: new Date().toISOString() }, businessId);
+    setPendingStatus(null);
+  };
+
+  const handleCancelStatusChange = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setPendingStatus(null);
   };
 
   const handleOpenEdit = () => {
@@ -251,7 +286,7 @@ export default function OrderDetailScreen() {
       items: editItems,
       subtotal: editedSubtotal,
       totalAmount: editedTotal,
-      updatedBy: currentUser?.name,
+      updatedBy: currentUser?.name || currentUser?.email || 'Staff',
       updatedAt: new Date().toISOString(),
     }, businessId);
     setShowEditModal(false);
@@ -587,10 +622,10 @@ export default function OrderDetailScreen() {
               <Text style={{ color: colors.text.primary }} className="font-bold text-base">Logistics</Text>
               <Pressable
                 onPress={handleOpenLogistics}
-                className="px-3 py-1.5 rounded-lg active:opacity-70"
-                style={{ backgroundColor: colors.bg.secondary }}
+                className="px-3 py-1.5 rounded-full active:opacity-70"
+                style={{ backgroundColor: '#111111' }}
               >
-                <Text style={{ color: colors.text.primary }} className="text-sm font-medium">{order.logistics ? 'Edit' : 'Add'}</Text>
+                <Text style={{ color: '#FFFFFF' }} className="text-sm font-medium">{order.logistics ? 'Edit' : 'Add'}</Text>
               </Pressable>
             </View>
 
@@ -643,14 +678,12 @@ export default function OrderDetailScreen() {
                   <Text style={{ color: colors.text.primary }} className="font-bold text-base">Refund</Text>
                 <Pressable
                   onPress={handleOpenRefund}
-                  className="px-3 py-1.5 rounded-lg active:opacity-70"
+                  className="px-3 py-1.5 rounded-full active:opacity-70"
                   style={{
-                    backgroundColor: hasRefund ? 'rgba(239, 68, 68, 0.15)' : colors.accent.primary,
-                    borderWidth: hasRefund ? 0 : 1,
-                    borderColor: hasRefund ? 'transparent' : colors.border.light,
+                    backgroundColor: hasRefund ? 'rgba(239, 68, 68, 0.15)' : '#111111',
                   }}
                 >
-                  <Text style={{ color: hasRefund ? '#EF4444' : '#fff' }} className="text-sm font-medium">
+                  <Text style={{ color: hasRefund ? '#EF4444' : '#FFFFFF' }} className="text-sm font-medium">
                     {hasRefund ? 'View Refund' : 'Process Refund'}
                   </Text>
                 </Pressable>
@@ -691,10 +724,10 @@ export default function OrderDetailScreen() {
               <Text style={{ color: colors.text.primary }} className="font-bold text-base">Cases</Text>
               <Pressable
                 onPress={handleCreateCase}
-                className="px-3 py-1.5 rounded-lg active:opacity-70"
-                style={{ backgroundColor: colors.bg.secondary }}
+                className="px-3 py-1.5 rounded-full active:opacity-70"
+                style={{ backgroundColor: '#111111' }}
               >
-                <Text style={{ color: colors.text.primary }} className="text-sm font-medium">Create Case</Text>
+                <Text style={{ color: '#FFFFFF' }} className="text-sm font-medium">Create Case</Text>
               </Pressable>
             </View>
 
@@ -736,13 +769,15 @@ export default function OrderDetailScreen() {
 
             <View className="gap-2">
               {orderStatuses.map((status) => {
-                const isSelected = order.status === status.name;
+                const isCurrentStatus = order.status === status.name;
+                const isPending = pendingStatus === status.name;
+                const isSelected = isPending || (isCurrentStatus && !pendingStatus);
                 return (
                   <Pressable
                     key={status.id}
                     onPress={() => handleUpdateStatus(status.name)}
                     className={cn(
-                      'flex-row items-center px-4 py-3 rounded-xl',
+                      'flex-row items-center px-4 py-3 rounded-full',
                       isSelected ? '' : 'border'
                     )}
                     style={isSelected ? { backgroundColor: status.color } : { backgroundColor: colors.bg.secondary, borderColor: colors.border.light }}
@@ -768,7 +803,7 @@ export default function OrderDetailScreen() {
                     >
                       {status.name}
                     </Text>
-                    {isSelected && (
+                    {isCurrentStatus && !isPending && (
                       <View className="bg-white/30 px-2 py-0.5 rounded-full">
                         <Text className="text-white text-xs font-medium">Current</Text>
                       </View>
@@ -777,26 +812,89 @@ export default function OrderDetailScreen() {
                 );
               })}
             </View>
+
+            {/* Save/Cancel Buttons */}
+            {pendingStatus && pendingStatus !== order.status && (
+              <View className="mt-4 gap-2">
+                <Pressable
+                  onPress={handleSaveStatus}
+                  className="rounded-full px-4 py-3 active:opacity-80"
+                  style={{ backgroundColor: '#22C55E' }}
+                >
+                  <Text className="text-white font-bold text-center text-sm">Save Status Change</Text>
+                </Pressable>
+                <Pressable
+                  onPress={handleCancelStatusChange}
+                  className="rounded-full px-4 py-3 active:opacity-70"
+                  style={{ backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.border.light }}
+                >
+                  <Text style={{ color: colors.text.primary }} className="font-semibold text-center text-sm">Cancel</Text>
+                </Pressable>
+              </View>
+            )}
           </View>
 
-          {/* Staff Attribution */}
-          {(order.createdBy || order.updatedBy) && (
+          {/* Staff Activity Trail */}
+          {(order.createdBy || order.updatedBy || (order.activityLog && order.activityLog.length > 0)) && (
             <View className="mx-5 mt-4">
               <View className="rounded-2xl p-4" style={{ backgroundColor: colors.bg.secondary }}>
-                <View className="flex-row items-center mb-2">
+                <View className="flex-row items-center mb-3">
                   <UserIcon size={16} color={colors.text.tertiary} strokeWidth={2} />
-                  <Text style={{ color: colors.text.tertiary }} className="font-semibold text-xs uppercase ml-2">Staff Activity</Text>
+                  <Text style={{ color: colors.text.tertiary }} className="font-semibold text-xs uppercase ml-2 tracking-wider">Staff Activity</Text>
                 </View>
+
+                {/* Created by entry */}
                 {order.createdBy && (
-                  <View className="flex-row items-center justify-between mb-1">
-                    <Text style={{ color: colors.text.muted }} className="text-xs">Created by</Text>
-                    <Text style={{ color: colors.text.secondary }} className="text-xs font-medium">{order.createdBy}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border.light }}>
+                    <UserIcon size={14} color={colors.text.muted} strokeWidth={2} style={{ marginTop: 1 }} />
+                    <View style={{ flex: 1, marginLeft: 8 }}>
+                      <Text style={{ color: colors.text.primary }} className="text-xs font-semibold">{order.createdBy}</Text>
+                      <Text style={{ color: colors.text.muted }} className="text-xs">Created order</Text>
+                      {order.createdAt && (
+                        <Text style={{ color: colors.text.tertiary }} className="text-xs mt-0.5">
+                          {new Date(order.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} at {new Date(order.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                        </Text>
+                      )}
+                    </View>
                   </View>
                 )}
-                {order.updatedBy && (
-                  <View className="flex-row items-center justify-between">
-                    <Text style={{ color: colors.text.muted }} className="text-xs">Last updated by</Text>
-                    <Text style={{ color: colors.text.secondary }} className="text-xs font-medium">{order.updatedBy}</Text>
+
+                {/* Activity log entries */}
+                {filteredActivityLog.map((entry, index) => (
+                  <View
+                    key={`${entry.date}-${index}`}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'flex-start',
+                      paddingVertical: 6,
+                      borderBottomWidth: index < filteredActivityLog.length - 1 ? 1 : 0,
+                      borderBottomColor: colors.border.light,
+                    }}
+                  >
+                    <UserIcon size={14} color={colors.text.muted} strokeWidth={2} style={{ marginTop: 1 }} />
+                    <View style={{ flex: 1, marginLeft: 8 }}>
+                      <Text style={{ color: colors.text.primary }} className="text-xs font-semibold">{entry.staffName}</Text>
+                      <Text style={{ color: colors.text.muted }} className="text-xs">{entry.action}</Text>
+                      <Text style={{ color: colors.text.tertiary }} className="text-xs mt-0.5">
+                        {new Date(entry.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} at {new Date(entry.date).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+
+                {/* Fallback for old orders without activity log */}
+                {filteredActivityLog.length === 0 && order.updatedBy && (
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 6 }}>
+                    <UserIcon size={14} color={colors.text.muted} strokeWidth={2} style={{ marginTop: 1 }} />
+                    <View style={{ flex: 1, marginLeft: 8 }}>
+                      <Text style={{ color: colors.text.primary }} className="text-xs font-semibold">{order.updatedBy}</Text>
+                      <Text style={{ color: colors.text.muted }} className="text-xs">Last updated order</Text>
+                      {order.updatedAt && (
+                        <Text style={{ color: colors.text.tertiary }} className="text-xs mt-0.5">
+                          {new Date(order.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} at {new Date(order.updatedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                        </Text>
+                      )}
+                    </View>
                   </View>
                 )}
               </View>
@@ -840,14 +938,13 @@ export default function OrderDetailScreen() {
               <View className="px-5 py-4">
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                   {orderStatuses.map((status) => {
-                    const isSelected = order.status === status.name;
+                    const isCurrentStatus = order.status === status.name;
+                    const isPending = pendingStatus === status.name;
+                    const isSelected = isPending || (isCurrentStatus && !pendingStatus);
                     return (
                       <Pressable
                         key={status.id}
-                        onPress={() => {
-                          handleUpdateStatus(status.name);
-                          setShowStatusModal(false);
-                        }}
+                        onPress={() => handleUpdateStatus(status.name)}
                         className="rounded-full px-3 py-2 active:opacity-80"
                         style={isSelected ? { backgroundColor: status.color } : { backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.border.light }}
                       >
@@ -858,6 +955,32 @@ export default function OrderDetailScreen() {
                     );
                   })}
                 </View>
+
+                {/* Save/Cancel Buttons */}
+                {pendingStatus && pendingStatus !== order.status && (
+                  <View className="mt-4 gap-2">
+                    <Pressable
+                      onPress={() => {
+                        handleSaveStatus();
+                        setShowStatusModal(false);
+                      }}
+                      className="rounded-full px-4 py-3 active:opacity-80"
+                      style={{ backgroundColor: '#22C55E' }}
+                    >
+                      <Text className="text-white font-bold text-center">Save Status Change</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => {
+                        handleCancelStatusChange();
+                        setShowStatusModal(false);
+                      }}
+                      className="rounded-full px-4 py-3 active:opacity-70"
+                      style={{ backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.border.light }}
+                    >
+                      <Text style={{ color: colors.text.primary }} className="font-semibold text-center">Cancel</Text>
+                    </Pressable>
+                  </View>
+                )}
               </View>
             </Pressable>
           </Pressable>
@@ -886,14 +1009,14 @@ export default function OrderDetailScreen() {
               <View className="flex-row gap-3">
                 <Pressable
                   onPress={() => setShowDeletePrompt(false)}
-                  className="flex-1 rounded-xl items-center justify-center"
+                  className="flex-1 rounded-full items-center justify-center"
                   style={{ height: 48, backgroundColor: '#F3F4F6' }}
                 >
                   <Text className="text-gray-700 font-semibold">Cancel</Text>
                 </Pressable>
                 <Pressable
                   onPress={confirmDelete}
-                  className="flex-1 rounded-xl items-center justify-center"
+                  className="flex-1 rounded-full items-center justify-center"
                   style={{ height: 48, backgroundColor: '#EF4444' }}
                 >
                   <Text className="text-white font-semibold">Delete</Text>
@@ -1107,7 +1230,7 @@ export default function OrderDetailScreen() {
                       <Text style={{ color: colors.text.primary }} className="text-sm font-medium">Products</Text>
                       <Pressable
                         onPress={() => setShowProductSearch(!showProductSearch)}
-                        className="px-3 py-1.5 rounded-lg flex-row items-center active:opacity-70"
+                        className="px-3 py-1.5 rounded-full flex-row items-center active:opacity-70"
                         style={{ backgroundColor: colors.bg.secondary }}
                       >
                         <Plus size={14} color={colors.text.primary} strokeWidth={2} />
@@ -1589,13 +1712,13 @@ export default function OrderDetailScreen() {
                       setEditDatePickedUp(null);
                       setShowDatePicker(false);
                     }}
-                    className="flex-1 py-3 rounded-xl items-center bg-gray-200"
+                    className="flex-1 py-3 rounded-full items-center bg-gray-200"
                   >
                     <Text className="text-gray-700 font-semibold">Clear</Text>
                   </Pressable>
                   <Pressable
                     onPress={() => setShowDatePicker(false)}
-                    className="flex-1 py-3 rounded-xl items-center bg-gray-900"
+                    className="flex-1 py-3 rounded-full items-center bg-gray-900"
                   >
                     <Text className="text-white font-semibold">Done</Text>
                   </Pressable>
@@ -1807,7 +1930,7 @@ export default function OrderDetailScreen() {
                   {Platform.OS === 'ios' && (
                     <Pressable
                       onPress={() => setShowRefundDatePicker(false)}
-                      className="mt-4 w-full py-3 rounded-xl items-center bg-gray-900"
+                      className="mt-4 w-full py-3 rounded-full items-center bg-gray-900"
                     >
                       <Text className="text-white font-semibold">Done</Text>
                     </Pressable>

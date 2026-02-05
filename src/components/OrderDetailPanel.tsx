@@ -12,7 +12,7 @@ import {
   Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Package, Edit2, Phone, Mail, MapPin, Calendar, Tag, CreditCard, Truck, RefreshCcw, Printer, Trash2, FileText, Camera, ChevronRight, X } from 'lucide-react-native';
+import { Package, Edit2, Phone, Mail, MapPin, Calendar, Tag, CreditCard, Truck, RefreshCcw, Printer, Trash2, FileText, Camera, ChevronRight, X, User as UserIcon } from 'lucide-react-native';
 import useFyllStore, { Case, formatCurrency, Refund } from '@/lib/state/fyll-store';
 import useAuthStore from '@/lib/state/auth-store';
 import { useThemeColors } from '@/lib/theme';
@@ -376,10 +376,10 @@ export function OrderDetailPanel({ orderId, onClose }: OrderDetailPanelProps) {
         <View className="flex-row items-center justify-end mb-3">
           <Pressable
             onPress={handleEdit}
-            className="px-3 py-1.5 rounded-lg active:opacity-70"
-            style={{ backgroundColor: colors.bg.secondary }}
+            className="px-4 py-1.5 rounded-full active:opacity-70"
+            style={{ backgroundColor: '#111111' }}
           >
-            <Text style={{ color: colors.text.primary }} className="text-sm font-medium">
+            <Text style={{ color: '#FFFFFF' }} className="text-sm font-medium">
               {order.logistics ? 'Edit' : 'Add'}
             </Text>
           </Pressable>
@@ -427,10 +427,10 @@ export function OrderDetailPanel({ orderId, onClose }: OrderDetailPanelProps) {
         <View className="flex-row items-center justify-end mb-3">
           <Pressable
             onPress={handleEdit}
-            className="px-3 py-1.5 rounded-lg active:opacity-70"
-            style={{ backgroundColor: colors.bg.secondary }}
+            className="px-4 py-1.5 rounded-full active:opacity-70"
+            style={{ backgroundColor: '#111111' }}
           >
-            <Text style={{ color: colors.text.primary }} className="text-sm font-medium">
+            <Text style={{ color: '#FFFFFF' }} className="text-sm font-medium">
               {order.prescription ? 'Edit' : 'Add'}
             </Text>
           </Pressable>
@@ -467,11 +467,9 @@ export function OrderDetailPanel({ orderId, onClose }: OrderDetailPanelProps) {
         <View className="flex-row items-center justify-end mb-3">
           <Pressable
             onPress={handleOpenRefund}
-            className="px-3 py-1.5 rounded-lg active:opacity-80"
+            className="px-4 py-1.5 rounded-full active:opacity-80"
             style={{
-              backgroundColor: hasRefund ? 'rgba(239, 68, 68, 0.12)' : colors.accent.primary,
-              borderWidth: hasRefund ? 0 : 1,
-              borderColor: hasRefund ? 'transparent' : colors.border.light,
+              backgroundColor: hasRefund ? 'rgba(239, 68, 68, 0.12)' : '#111111',
             }}
           >
             <Text style={{ color: hasRefund ? '#EF4444' : '#FFFFFF' }} className="text-sm font-medium">
@@ -709,14 +707,14 @@ export function OrderDetailPanel({ orderId, onClose }: OrderDetailPanelProps) {
                         setRefundDate(new Date());
                         setShowRefundDatePicker(false);
                       }}
-                      className="flex-1 py-3 rounded-xl items-center"
+                      className="flex-1 py-3 rounded-full items-center"
                       style={{ backgroundColor: '#F1F5F9' }}
                     >
                       <Text className="font-semibold" style={{ color: '#1F2937' }}>Today</Text>
                     </Pressable>
                     <Pressable
                       onPress={() => setShowRefundDatePicker(false)}
-                      className="flex-1 py-3 rounded-xl items-center"
+                      className="flex-1 py-3 rounded-full items-center"
                       style={{ backgroundColor: '#111111' }}
                     >
                       <Text className="font-semibold" style={{ color: '#FFFFFF' }}>Done</Text>
@@ -737,10 +735,10 @@ export function OrderDetailPanel({ orderId, onClose }: OrderDetailPanelProps) {
           </Text>
           <Pressable
             onPress={handleCreateCase}
-            className="px-3 py-1.5 rounded-lg active:opacity-70"
-            style={{ backgroundColor: colors.bg.secondary }}
+            className="px-4 py-1.5 rounded-full active:opacity-70"
+            style={{ backgroundColor: '#111111' }}
           >
-            <Text style={{ color: colors.text.primary }} className="text-sm font-medium">Create Case</Text>
+            <Text style={{ color: '#FFFFFF' }} className="text-sm font-medium">Create Case</Text>
           </Pressable>
         </View>
 
@@ -765,6 +763,62 @@ export function OrderDetailPanel({ orderId, onClose }: OrderDetailPanelProps) {
           </View>
         )}
       </DetailSection>
+
+      {/* Staff Activity */}
+      {(order.createdBy || order.updatedBy || (order.activityLog && order.activityLog.length > 0)) && (
+        <DetailSection title="Staff Activity">
+          {/* Created by entry */}
+          {order.createdBy && (
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border.light }}>
+              <UserIcon size={14} color={colors.text.tertiary} strokeWidth={2} style={{ marginTop: 2 }} />
+              <View style={{ flex: 1, marginLeft: 8 }}>
+                <Text style={{ color: colors.text.primary, fontSize: 13, fontWeight: '500' }}>{order.createdBy}</Text>
+                <Text style={{ color: colors.text.muted, fontSize: 11 }}>Created order</Text>
+                <Text style={{ color: colors.text.tertiary, fontSize: 10, marginTop: 1 }}>
+                  {new Date(order.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} at {new Date(order.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                </Text>
+              </View>
+            </View>
+          )}
+          {/* Activity log entries */}
+          {order.activityLog?.map((entry, index) => (
+            <View
+              key={`${entry.date}-${index}`}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'flex-start',
+                paddingVertical: 6,
+                borderBottomWidth: index < (order.activityLog?.length ?? 0) - 1 ? 1 : 0,
+                borderBottomColor: colors.border.light,
+              }}
+            >
+              <UserIcon size={14} color={colors.text.tertiary} strokeWidth={2} style={{ marginTop: 2 }} />
+              <View style={{ flex: 1, marginLeft: 8 }}>
+                <Text style={{ color: colors.text.primary, fontSize: 13, fontWeight: '500' }}>{entry.staffName}</Text>
+                <Text style={{ color: colors.text.muted, fontSize: 11 }}>{entry.action}</Text>
+                <Text style={{ color: colors.text.tertiary, fontSize: 10, marginTop: 1 }}>
+                  {new Date(entry.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} at {new Date(entry.date).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                </Text>
+              </View>
+            </View>
+          ))}
+          {/* Fallback: show updatedBy if no activity log yet */}
+          {!order.activityLog?.length && order.updatedBy && (
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 6 }}>
+              <UserIcon size={14} color={colors.text.tertiary} strokeWidth={2} style={{ marginTop: 2 }} />
+              <View style={{ flex: 1, marginLeft: 8 }}>
+                <Text style={{ color: colors.text.primary, fontSize: 13, fontWeight: '500' }}>{order.updatedBy}</Text>
+                <Text style={{ color: colors.text.muted, fontSize: 11 }}>Last updated</Text>
+                {order.updatedAt && (
+                  <Text style={{ color: colors.text.tertiary, fontSize: 10, marginTop: 1 }}>
+                    {new Date(order.updatedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} at {new Date(order.updatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                )}
+              </View>
+            </View>
+          )}
+        </DetailSection>
+      )}
 
       {/* Update Status */}
       <DetailSection title="Update Status">
@@ -808,7 +862,7 @@ export function OrderDetailPanel({ orderId, onClose }: OrderDetailPanelProps) {
             alignItems: 'center',
             justifyContent: 'center',
             height: 48,
-            borderRadius: 12,
+            borderRadius: 999,
             backgroundColor: '#111111',
           }}
         >
@@ -824,7 +878,7 @@ export function OrderDetailPanel({ orderId, onClose }: OrderDetailPanelProps) {
         />
         <Pressable
           onPress={handleDelete}
-          className="rounded-xl items-center justify-center active:opacity-80"
+          className="rounded-full items-center justify-center active:opacity-80"
           style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', height: 48 }}
         >
           <View className="flex-row items-center">
@@ -907,14 +961,14 @@ export function OrderDetailPanel({ orderId, onClose }: OrderDetailPanelProps) {
             <View className="px-5 py-4 flex-row gap-3">
               <Pressable
                 onPress={() => setPendingDelete(false)}
-                className="flex-1 rounded-xl items-center"
+                className="flex-1 rounded-full items-center"
                 style={{ backgroundColor: colors.bg.secondary, height: 48, justifyContent: 'center' }}
               >
                 <Text style={{ color: colors.text.tertiary }} className="font-medium">Cancel</Text>
               </Pressable>
               <Pressable
                 onPress={confirmDelete}
-                className="flex-1 rounded-xl items-center"
+                className="flex-1 rounded-full items-center"
                 style={{ backgroundColor: '#EF4444', height: 48, justifyContent: 'center' }}
               >
                 <Text className="text-white font-semibold">Delete</Text>

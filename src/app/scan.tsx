@@ -6,7 +6,6 @@ import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-ca
 import { X, Zap, ZapOff, Package, ShoppingCart, AlertCircle, Plus } from 'lucide-react-native';
 import useFyllStore, { formatCurrency } from '@/lib/state/fyll-store';
 import { cn } from '@/lib/cn';
-import Animated, { SlideInUp } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 
 const { width } = Dimensions.get('window');
@@ -274,9 +273,7 @@ export default function ScanScreen() {
 
       {/* Scanned Result Modal */}
       {scanned && (
-        <Animated.View
-          entering={SlideInUp.springify()}
-          className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl"
+        <View          className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl"
           style={{ paddingBottom: insets.bottom + 20 }}
         >
           <View className="w-12 h-1.5 bg-gray-300 rounded-full self-center mt-3 mb-4" />
@@ -384,7 +381,7 @@ export default function ScanScreen() {
               </Pressable>
             </View>
           ) : null}
-        </Animated.View>
+        </View>
       )}
     </View>
   );

@@ -11,7 +11,6 @@ import {
   HelpCircle,
   Flag,
 } from 'lucide-react-native';
-import Animated, { FadeInRight, Layout } from 'react-native-reanimated';
 import { useThemeColors } from '@/lib/theme';
 import useFyllStore, { CASE_STATUS_COLORS, CASE_PRIORITY_COLORS, CaseType, CasePriority } from '@/lib/state/fyll-store';
 import type { Case } from '@/lib/state/fyll-store';
@@ -127,10 +126,7 @@ export function CaseListItem({ caseItem, onPress, index = 0, compact = false }: 
   const priorityColor = caseItem.priority ? CASE_PRIORITY_COLORS[caseItem.priority] : null;
 
   return (
-    <Animated.View
-      entering={FadeInRight.delay(index * 50).springify()}
-      layout={Layout.springify()}
-    >
+    <View    >
       <Pressable
         onPress={onPress}
         className="rounded-3xl px-5 py-4 mb-3 active:opacity-80"
@@ -213,7 +209,7 @@ export function CaseListItem({ caseItem, onPress, index = 0, compact = false }: 
           </Text>
         </View>
       </Pressable>
-    </Animated.View>
+    </View>
   );
 }
 

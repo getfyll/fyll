@@ -14,7 +14,6 @@
   "dependencies": {
     "@babel/plugin-proposal-export-namespace-from": "^7.18.9",
     "@bottom-tabs/react-navigation": "^0.12.2",
-    "@codeherence/react-native-header": "^1.0.0",
     "@expo-google-fonts/dm-sans": "^0.4.2",
     "@expo/html-elements": "^0.13.7",
     "@expo/metro-runtime": "~6.1.2",
@@ -157,6 +156,7 @@
     "@tanstack/eslint-plugin-query": "^5.62.10",
     "@testing-library/react-native": "^13.3.3",
     "@types/jest": "^30.0.0",
+    "@vercel/node": "^3.2.0",
     "@types/react": "~19.1.10",
     "@typescript-eslint/eslint-plugin": "^8.29.1",
     "@typescript-eslint/parser": "^8.29.1",
@@ -178,6 +178,9 @@
     "react-native-css-interop": "0.1.22",
     "expo-router": {
       "@react-navigation/native": "7.1.28"
+    },
+    "@codeherence/react-native-header": {
+      "react-native-reanimated": "$react-native-reanimated"
     }
   },
   "patchedDependencies": {

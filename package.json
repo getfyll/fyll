@@ -181,6 +181,12 @@
     },
     "@codeherence/react-native-header": {
       "react-native-reanimated": "$react-native-reanimated"
+    },
+    "@shopify/react-native-skia": {
+      "react-native-reanimated": "$react-native-reanimated"
+    },
+    "zeego": {
+      "react-native-ios-utilities": "$react-native-ios-utilities"
     }
   },
   "patchedDependencies": {

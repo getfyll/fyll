@@ -1,11 +1,21 @@
-import React from 'react';
-import { Tabs } from 'expo-router';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Tabs, usePathname } from 'expo-router';
 import { View, Platform } from 'react-native';
-import { LayoutDashboard, Package, ShoppingCart, MoreHorizontal, BarChart3, Users } from 'lucide-react-native';
+import { LayoutDashboard, Package, ShoppingCart, MoreHorizontal, BarChart3, Users, Briefcase, MessageSquare, TrendingUp, ListTodo } from 'lucide-react-native';
 import { useThemeColors } from '@/lib/theme';
 import { useBreakpoint } from '@/lib/useBreakpoint';
 import { DesktopSidebar } from '@/components/DesktopSidebar';
 import useAuthStore, { ROLE_PERMISSIONS } from '@/lib/state/auth-store';
+import { useQuery } from '@tanstack/react-query';
+import { collaborationData } from '@/lib/supabase/collaboration';
+import { isTeamThreadEntityId } from '@/lib/team-threads';
+import useFyllStore from '@/lib/state/fyll-store';
+import { storage } from '@/lib/storage';
+import { canShowFinanceNavigation } from '@/lib/finance-access';
+
+const ORDERS_TAB_BADGE_SEEN_KEY_PREFIX = 'orders-tab-badge-seen';
+const getOrdersTabBadgeSeenKey = (businessId: string) =>
+  `${ORDERS_TAB_BADGE_SEEN_KEY_PREFIX}:${businessId}`;
 
 function TabBarIcon({
   Icon,
@@ -39,10 +49,88 @@ function TabBarIcon({
 
 export default function TabLayout() {
   const colors = useThemeColors();
-  const { isDesktop, isMobile } = useBreakpoint();
+  const pathname = usePathname();
+  const { isDesktop, isMobile, isTablet } = useBreakpoint();
   const currentUser = useAuthStore((s) => s.currentUser);
+  const businessId = useAuthStore((s) => s.businessId ?? s.currentUser?.businessId ?? null);
+  const isOfflineMode = useAuthStore((s) => s.isOfflineMode);
+  const [ordersTabSeenAt, setOrdersTabSeenAt] = useState(0);
   const userRole = currentUser?.role ?? 'staff';
   const canViewInsights = ROLE_PERMISSIONS[userRole]?.canViewInsights ?? false;
+  const canViewFinance = canShowFinanceNavigation(userRole);
+  const threadCountsQuery = useQuery({
+    queryKey: ['collaboration-thread-counts', businessId, 'order'],
+    enabled: Boolean(businessId) && !isOfflineMode,
+    queryFn: () => collaborationData.getUnreadNotificationCountsByEntity(businessId!, 'order'),
+    refetchInterval: 15000,
+  });
+  const teamThreadCountsQuery = useQuery({
+    queryKey: ['collaboration-thread-counts', businessId, 'case'],
+    enabled: Boolean(businessId) && !isOfflineMode,
+    queryFn: () => collaborationData.getUnreadNotificationCountsByEntity(businessId!, 'case'),
+    refetchInterval: 15000,
+  });
+  const taskThreadCountsQuery = useQuery({
+    queryKey: ['collaboration-thread-counts', businessId, 'task'],
+    enabled: Boolean(businessId) && !isOfflineMode,
+    queryFn: () => collaborationData.getUnreadNotificationCountsByEntity(businessId!, 'task'),
+    refetchInterval: 15000,
+  });
+  const totalUnreadThreads = useMemo(() => {
+    const orderCounts = threadCountsQuery.data ?? {};
+    const teamCaseCounts = teamThreadCountsQuery.data ?? {};
+    const orderTotal = Object.values(orderCounts).reduce((sum, count) => sum + count, 0);
+    const teamTotal = Object.entries(teamCaseCounts).reduce((sum, [entityId, count]) => {
+      return isTeamThreadEntityId(entityId) ? sum + count : sum;
+    }, 0);
+    return orderTotal + teamTotal;
+  }, [teamThreadCountsQuery.data, threadCountsQuery.data]);
+  const totalUnreadTaskThreads = useMemo(() => {
+    const taskCounts = taskThreadCountsQuery.data ?? {};
+    return Object.values(taskCounts).reduce((sum, count) => sum + count, 0);
+  }, [taskThreadCountsQuery.data]);
+
+  const orders = useFyllStore((s) => s.orders);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    if (!businessId) {
+      setOrdersTabSeenAt(0);
+      return;
+    }
+
+    void storage.getItem(getOrdersTabBadgeSeenKey(businessId)).then((value) => {
+      if (isCancelled) return;
+      const parsed = Number(value ?? '0');
+      setOrdersTabSeenAt(Number.isFinite(parsed) ? parsed : 0);
+    }).catch(() => {
+      if (isCancelled) return;
+      setOrdersTabSeenAt(0);
+    });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [businessId]);
+
+  useEffect(() => {
+    if (!businessId) return;
+    if (!/^\/orders(?:\/|$)/.test(pathname)) return;
+
+    const seenAt = Date.now();
+    setOrdersTabSeenAt((previous) => Math.max(previous, seenAt));
+    void storage.setItem(getOrdersTabBadgeSeenKey(businessId), String(seenAt));
+  }, [businessId, pathname]);
+
+  const newOrdersCount = useMemo(() => {
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    return orders.filter((o) => {
+      const createdAtMs = new Date(o.createdAt).getTime();
+      if (!Number.isFinite(createdAtMs)) return false;
+      return createdAtMs > cutoff && createdAtMs > ordersTabSeenAt;
+    }).length;
+  }, [orders, ordersTabSeenAt]);
 
   const isWeb = Platform.OS === 'web';
   const tabBarHeight = isWeb ? 80 : (Platform.OS === 'ios' ? 88 : 70);
@@ -121,10 +209,42 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="services"
+        options={{
+          title: 'Services',
+          tabBarIcon: ({ color, focused }) => <TabBarIcon Icon={Briefcase} color={color} focused={focused} />,
+          headerShown: false,
+          // Keep Services out of bottom nav on phone + tablet; desktop uses sidebar.
+          href: isMobile || isTablet ? null : undefined,
+        }}
+      />
+      <Tabs.Screen
         name="orders"
         options={{
           title: 'Orders',
           tabBarIcon: ({ color, focused }) => <TabBarIcon Icon={ShoppingCart} color={color} focused={focused} />,
+          tabBarBadge: newOrdersCount > 0 ? (newOrdersCount > 99 ? '99+' : newOrdersCount) : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: '#3B82F6',
+            color: '#FFFFFF',
+            fontSize: 10,
+            fontWeight: '700',
+          },
+          headerShown: false,
+        }}
+      />
+      <Tabs.Screen
+        name="threads"
+        options={{
+          title: 'Threads',
+          tabBarIcon: ({ color, focused }) => <TabBarIcon Icon={MessageSquare} color={color} focused={focused} />,
+          tabBarBadge: totalUnreadThreads > 0 ? (totalUnreadThreads > 99 ? '99+' : totalUnreadThreads) : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: '#EF4444',
+            color: '#FFFFFF',
+            fontSize: 10,
+            fontWeight: '700',
+          },
           headerShown: false,
         }}
       />
@@ -143,7 +263,8 @@ export default function TabLayout() {
           title: 'Insights',
           tabBarIcon: ({ color, focused }) => <TabBarIcon Icon={BarChart3} color={color} focused={focused} />,
           headerShown: false,
-          href: canViewInsights ? '/insights' : null,
+          // Show on iPad/tablet and desktop, hide on phones.
+          href: (isTablet || isDesktop) && canViewInsights ? '/insights' : null,
         }}
       />
       <Tabs.Screen
@@ -155,14 +276,53 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="tasks"
+        options={{
+          title: 'Tasks',
+          tabBarIcon: ({ color, focused }) => <TabBarIcon Icon={ListTodo} color={color} focused={focused} />,
+          tabBarBadge: totalUnreadTaskThreads > 0 ? (totalUnreadTaskThreads > 99 ? '99+' : totalUnreadTaskThreads) : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: '#EF4444',
+            color: '#FFFFFF',
+            fontSize: 10,
+            fontWeight: '700',
+          },
+          headerShown: false,
+          href: isMobile ? null : '/tasks',
+        }}
+      />
+      <Tabs.Screen
         name="finance"
         options={{
-          href: null,
+          title: 'Finance',
+          tabBarIcon: ({ color, focused }) => <TabBarIcon Icon={TrendingUp} color={color} focused={focused} />,
+          headerShown: false,
+          href: canViewFinance && !isMobile && !isTablet ? '/finance' : null,
         }}
       />
       <Tabs.Screen
         name="two"
         options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="fulfillment"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="cases"
+        options={{
+          headerShown: false,
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="settings-panel"
+        options={{
+          headerShown: false,
           href: null,
         }}
       />

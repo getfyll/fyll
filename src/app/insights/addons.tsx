@@ -11,7 +11,7 @@ import { formatCurrency } from '@/lib/state/fyll-store';
 import { TimeRange } from '@/lib/analytics-utils';
 import { useStatsColors } from '@/lib/theme';
 
-export default function AddonsInsightScreen() {
+export default function AddonsInsightScreen({ inline }: { inline?: boolean }) {
   const colors = useStatsColors();
   const [timeRange, setTimeRange] = useState<TimeRange>('7d');
   const analytics = useAnalytics(timeRange, 'sales');
@@ -37,7 +37,7 @@ export default function AddonsInsightScreen() {
     percentage: Math.round(
       (item.revenue /
         (analytics.topAddOns.reduce((sum, a) => sum + a.revenue, 0) || 1)) *
-        100
+      100
     ),
   }));
 
@@ -58,10 +58,12 @@ export default function AddonsInsightScreen() {
     <View className="flex-1" style={{ backgroundColor: colors.bg.screen }}>
       <Stack.Screen options={{ headerShown: false }} />
       <SafeAreaView className="flex-1" edges={['top']}>
-        <DetailHeader
-          title="Add-ons Analytics"
-          subtitle="Service and add-on performance"
-        />
+        {!inline && (
+          <DetailHeader
+            title="Add-ons Analytics"
+            subtitle="Service and add-on performance"
+          />
+        )}
 
         <ScrollView
           className="flex-1"

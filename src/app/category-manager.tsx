@@ -1,20 +1,28 @@
 import React, { useState } from 'react';
 import { View, Text, Pressable, TextInput, Alert, Modal, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { ArrowLeft, Pencil, Tag, Trash2 } from 'lucide-react-native';
+import { useLocalSearchParams } from 'expo-router';
+import { ChevronLeft, Pencil, Tag, Trash2 } from 'lucide-react-native';
 import useFyllStore from '@/lib/state/fyll-store';
 import useAuthStore from '@/lib/state/auth-store';
 import { useThemeColors } from '@/lib/theme';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import * as Haptics from 'expo-haptics';
+import { getSettingsWebPanelStyles, isFromSettingsRoute } from '@/lib/settings-web-panel';
+import { useSettingsBack } from '@/lib/useSettingsBack';
 
 // Hairline separator colors
 const SEPARATOR_LIGHT = '#EEEEEE';
 const SEPARATOR_DARK = '#333333';
 export default function CategoryManagerScreen() {
-  const router = useRouter();
+  const { from } = useLocalSearchParams<{ from?: string | string[] }>();
+  const goBack = useSettingsBack();
   const colors = useThemeColors();
+  const panelStyles = getSettingsWebPanelStyles(
+    isFromSettingsRoute(from),
+    colors.bg.primary,
+    colors.border.light
+  );
   const isDark = colors.bg.primary === '#111111';
   const separatorColor = isDark ? SEPARATOR_DARK : SEPARATOR_LIGHT;
 
@@ -108,16 +116,17 @@ export default function CategoryManagerScreen() {
   };
 
   return (
-    <View className="flex-1" style={{ backgroundColor: colors.bg.primary }}>
+    <View style={panelStyles.outer}>
+      <View style={panelStyles.inner}>
       <SafeAreaView className="flex-1" edges={['top']}>
         {/* Header */}
         <View className="flex-row items-center justify-between px-5 py-4" style={{ borderBottomWidth: 0.5, borderBottomColor: separatorColor }}>
           <Pressable
-            onPress={() => router.back()}
+            onPress={goBack}
             className="w-10 h-10 rounded-xl items-center justify-center active:opacity-50"
             style={{ backgroundColor: colors.bg.secondary }}
           >
-            <ArrowLeft size={20} color={colors.text.primary} strokeWidth={2} />
+            <ChevronLeft size={20} color={colors.text.primary} strokeWidth={2} />
           </Pressable>
           <Text style={{ color: colors.text.primary }} className="text-lg font-bold">Categories</Text>
           <View className="w-10" />
@@ -142,9 +151,9 @@ export default function CategoryManagerScreen() {
               onPress={handleAddCategory}
               disabled={!newCategoryName.trim()}
               className="mt-3 rounded-xl items-center justify-center active:opacity-80"
-              style={{ backgroundColor: newCategoryName.trim() ? '#111111' : colors.border.light, height: 48 }}
+              style={{ backgroundColor: newCategoryName.trim() ? colors.text.primary : colors.border.light, height: 48 }}
             >
-              <Text style={{ color: newCategoryName.trim() ? '#FFFFFF' : colors.text.muted }} className="font-semibold text-sm">
+              <Text style={{ color: newCategoryName.trim() ? colors.bg.primary : colors.text.muted }} className="font-semibold text-sm">
                 Add Category
               </Text>
             </Pressable>
@@ -218,6 +227,7 @@ export default function CategoryManagerScreen() {
           <View className="h-24" />
         </KeyboardAwareScrollView>
       </SafeAreaView>
+      </View>
 
       <Modal
         visible={!!pendingDeleteCategory}
@@ -233,19 +243,19 @@ export default function CategoryManagerScreen() {
           <Pressable
             onPress={(event) => event.stopPropagation()}
             className="w-[90%] rounded-2xl p-5"
-            style={{ backgroundColor: '#FFFFFF', maxWidth: 420 }}
+            style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light, maxWidth: 420 }}
           >
-            <Text className="text-lg font-bold text-gray-900 mb-2">Delete category?</Text>
-            <Text className="text-sm text-gray-600 mb-4">
+            <Text style={{ color: colors.text.primary }} className="text-lg font-bold mb-2">Delete category?</Text>
+            <Text style={{ color: colors.text.tertiary }} className="text-sm mb-4">
               This will remove "{pendingDeleteCategory}" from all products.
             </Text>
             <View className="flex-row gap-3">
               <Pressable
                 onPress={() => setPendingDeleteCategory(null)}
                 className="flex-1 rounded-xl items-center justify-center"
-                style={{ height: 48, backgroundColor: '#F3F4F6' }}
+                style={{ height: 48, backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.border.light }}
               >
-                <Text className="text-gray-700 font-semibold">Cancel</Text>
+                <Text style={{ color: colors.text.secondary }} className="font-semibold">Cancel</Text>
               </Pressable>
               <Pressable
                 onPress={confirmDeleteCategory}
@@ -273,30 +283,31 @@ export default function CategoryManagerScreen() {
           <Pressable
             onPress={(event) => event.stopPropagation()}
             className="w-[90%] rounded-2xl p-5"
-            style={{ backgroundColor: '#FFFFFF', maxWidth: 420 }}
+            style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light, maxWidth: 420 }}
           >
-            <Text className="text-lg font-bold text-gray-900 mb-2">Edit category</Text>
+            <Text style={{ color: colors.text.primary }} className="text-lg font-bold mb-2">Edit category</Text>
             <TextInput
               placeholder="Category name"
-              placeholderTextColor="#9CA3AF"
+              placeholderTextColor={colors.input.placeholder}
               value={editedCategoryName}
               onChangeText={setEditedCategoryName}
-              className="bg-gray-50 rounded-xl px-4 py-3 text-gray-900 text-base border border-gray-200 mb-4"
+              className="rounded-xl px-4 py-3 text-base mb-4"
+              style={{ backgroundColor: colors.input.bg, color: colors.input.text, borderWidth: 1, borderColor: colors.input.border }}
             />
             <View className="flex-row gap-3">
               <Pressable
                 onPress={() => setPendingEditCategory(null)}
                 className="flex-1 rounded-xl items-center justify-center"
-                style={{ height: 48, backgroundColor: '#F3F4F6' }}
+                style={{ height: 48, backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.border.light }}
               >
-                <Text className="text-gray-700 font-semibold">Cancel</Text>
+                <Text style={{ color: colors.text.secondary }} className="font-semibold">Cancel</Text>
               </Pressable>
               <Pressable
                 onPress={confirmEditCategory}
                 className="flex-1 rounded-xl items-center justify-center"
-                style={{ height: 48, backgroundColor: '#111111' }}
+                style={{ height: 48, backgroundColor: colors.text.primary }}
               >
-                <Text className="text-white font-semibold">Save</Text>
+                <Text style={{ color: colors.bg.primary }} className="font-semibold">Save</Text>
               </Pressable>
             </View>
           </Pressable>

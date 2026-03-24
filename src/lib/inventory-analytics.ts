@@ -1,7 +1,16 @@
 // Inventory analytics utilities for computing stats from products, variants, orders, and restock logs
 
-import type { Product, ProductVariant, Order, RestockLog } from './state/fyll-store';
+import type { Product, Order, RestockLog } from './state/fyll-store';
 import { getDateRange, getPreviousPeriodRange, percentChange, type TimeRange, type ChartDataPoint } from './analytics-utils';
+
+const isServiceProduct = (product: Product): boolean => {
+  if (product.productType === 'service') return true;
+  return Boolean(
+    (product.serviceTags?.length ?? 0) > 0
+    || (product.serviceVariables?.length ?? 0) > 0
+    || (product.serviceFields?.length ?? 0) > 0
+  );
+};
 
 export interface InventoryOverview {
   totalProducts: number;
@@ -106,8 +115,11 @@ export function calculateInventoryOverview(products: Product[], globalThreshold?
   let totalInventoryValue = 0;
   let lowStockItems = 0;
   let outOfStockItems = 0;
+  let totalProducts = 0;
 
   products.forEach((product) => {
+    if (isServiceProduct(product)) return;
+    totalProducts++;
     const threshold = globalThreshold ?? product.lowStockThreshold ?? 5;
 
     product.variants.forEach((variant) => {
@@ -124,7 +136,7 @@ export function calculateInventoryOverview(products: Product[], globalThreshold?
   });
 
   return {
-    totalProducts: products.length,
+    totalProducts,
     totalVariants,
     totalUnitsInStock,
     totalInventoryValue,
@@ -142,6 +154,7 @@ export function getLowStockItems(products: Product[], globalThreshold?: number):
   const items: { productId: string; productName: string; variantName: string; stock: number; threshold: number }[] = [];
 
   products.forEach((product) => {
+    if (isServiceProduct(product)) return;
     const threshold = globalThreshold ?? product.lowStockThreshold ?? 5;
 
     product.variants.forEach((variant) => {
@@ -168,6 +181,7 @@ export function getOutOfStockItems(products: Product[]): { productId: string; pr
   const items: { productId: string; productName: string; variantName: string }[] = [];
 
   products.forEach((product) => {
+    if (isServiceProduct(product)) return;
     product.variants.forEach((variant) => {
       if (variant.stock === 0) {
         const variantName = Object.values(variant.variableValues).join(' / ') || 'Default';

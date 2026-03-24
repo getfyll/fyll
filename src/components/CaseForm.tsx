@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -13,9 +13,23 @@ import {
   Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { X, ChevronDown, Check } from 'lucide-react-native';
+import { X, ChevronDown, Check,
+  Mail,
+  Phone,
+  MessageSquare,
+  Globe,
+  Store,
+  HelpCircle,
+  Flag,
+  RefreshCcw,
+  Undo2,
+  DollarSign,
+  Zap,
+  ShieldCheck,
+} from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { useThemeColors } from '@/lib/theme';
+import { FyllAiButton } from '@/components/FyllAiButton';
 import useFyllStore, {
   Case,
   CaseType,
@@ -31,25 +45,11 @@ import useFyllStore, {
   CASE_PRIORITY_COLORS,
   CASE_SOURCES,
   CaseAttachment,
-  CaseStatusOption,
   generateCaseNumber,
   generateCaseId,
-  formatCurrency,
 } from '@/lib/state/fyll-store';
-import {
-  Mail,
-  Phone,
-  MessageSquare,
-  Globe,
-  Store,
-  HelpCircle,
-  Flag,
-  RefreshCcw,
-  Undo2,
-  DollarSign,
-  Zap,
-  ShieldCheck,
-} from 'lucide-react-native';
+import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 
 // Get icon for case type
 const getCaseTypeIcon = (type: CaseType, color: string, size: number = 18) => {
@@ -76,8 +76,6 @@ const getCaseSourceIcon = (source: CaseSource, color: string, size: number = 18)
     default: return <HelpCircle {...props} />;
   }
 };
-import * as ImagePicker from 'expo-image-picker';
-import * as ImageManipulator from 'expo-image-manipulator';
 
 interface CaseFormProps {
   visible: boolean;
@@ -105,6 +103,13 @@ export function CaseForm({
   const colors = useThemeColors();
   const router = useRouter();
   const isEditing = !!existingCase;
+  const isWeb = Platform.OS === 'web';
+  const isDark = colors.bg.primary === '#111111';
+  const useDesktopCanvas = isWeb && !isDark;
+  const canvasBg = useDesktopCanvas ? '#F3F3F5' : colors.bg.primary;
+  const panelBg = useDesktopCanvas ? '#FFFFFF' : colors.bg.primary;
+  const formBg = isWeb ? (isDark ? colors.bg.secondary : (useDesktopCanvas ? '#F8F8FA' : '#FFFFFF')) : colors.bg.secondary;
+  const formBorder = isWeb ? (isDark ? colors.border.light : '#E5E7EB') : colors.border.light;
 
   const [caseType, setCaseType] = useState<CaseType>('Other');
   const [status, setStatus] = useState<CaseStatus>('Open');
@@ -113,13 +118,26 @@ export function CaseForm({
   const [issueSummary, setIssueSummary] = useState('');
   const [originalMessage, setOriginalMessage] = useState('');
   const [standaloneCustomerName, setStandaloneCustomerName] = useState(customerName || '');
-  const [showTypeDropdown, setShowTypeDropdown] = useState(false);
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [attachments, setAttachments] = useState<CaseAttachment[]>(existingCase?.attachments ?? []);
   const [forceCompression, setForceCompression] = useState(true);
   const caseStatuses = useFyllStore((s) => s.caseStatuses);
   const resolutionTypes = useFyllStore((s) => s.resolutionTypes);
   const resolutionTypeOptions = resolutionTypes.map((rt) => rt.name);
+  const caseTypeOptions = useMemo(() => {
+    const base = [...CASE_TYPES];
+    if (caseType && !base.includes(caseType)) {
+      base.push(caseType);
+    }
+    return base;
+  }, [caseType]);
+  const sourceOptions = useMemo(() => {
+    const base = [...CASE_SOURCES];
+    if (source && !base.includes(source)) {
+      base.push(source);
+    }
+    return base;
+  }, [source]);
   const statusOptions = caseStatuses.length > 0
     ? caseStatuses.map((option) => option.name)
     : Object.keys(CASE_STATUS_COLORS);
@@ -151,6 +169,7 @@ export function CaseForm({
       setSource(existingCase.source || 'Email');
       setIssueSummary(existingCase.issueSummary);
       setOriginalMessage(existingCase.originalCustomerMessage || '');
+      setStandaloneCustomerName(existingCase.customerName || customerName || '');
       setAttachments(existingCase.attachments ?? []);
       if (existingCase.resolution) {
         setShowResolution(true);
@@ -173,7 +192,7 @@ export function CaseForm({
       setResolutionValue('');
       setStandaloneCustomerName(customerName || '');
     }
-  }, [existingCase, visible, caseStatuses, resolutionTypes]);
+  }, [existingCase, visible, caseStatuses, resolutionTypes, customerName]);
 
   // Show resolution section when status is Resolved or Closed
   useEffect(() => {
@@ -235,7 +254,7 @@ export function CaseForm({
     }
 
     // For standalone cases, require customer name
-    const resolvedCustomerName = customerName || standaloneCustomerName.trim();
+    const resolvedCustomerName = standaloneCustomerName.trim() || customerName;
     if (!resolvedCustomerName) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       return;
@@ -244,7 +263,8 @@ export function CaseForm({
     const now = new Date().toISOString();
     let resolution: CaseResolution | undefined;
 
-    if (showResolution && (status === 'Resolved' || status === 'Closed')) {
+    // Save resolution if user has entered resolution details (regardless of status)
+    if (showResolution && (resolutionType || resolutionNotes.trim() || resolutionValue)) {
       resolution = {
         type: resolutionType,
         notes: resolutionNotes,
@@ -252,6 +272,9 @@ export function CaseForm({
         resolvedAt: existingCase?.resolution?.resolvedAt || now,
         resolvedBy: createdBy,
       };
+    } else if (existingCase?.resolution) {
+      // Preserve existing resolution if not editing it
+      resolution = existingCase.resolution;
     }
 
     // Create initial timeline entry for new cases
@@ -293,6 +316,22 @@ export function CaseForm({
     onClose();
   };
 
+  const handleOpenAICase = () => {
+    Haptics.selectionAsync();
+    const linkedCustomer = standaloneCustomerName.trim() || customerName || '';
+    onClose();
+    setTimeout(() => {
+      router.push({
+        pathname: '/ai-case',
+        params: {
+          orderId: orderId ?? '',
+          orderNumber: orderNumber ?? '',
+          customerName: linkedCustomer,
+        },
+      });
+    }, 0);
+  };
+
   const renderDropdown = (
     items: string[],
     selected: string,
@@ -307,11 +346,11 @@ export function CaseForm({
           Haptics.selectionAsync();
       setShow(!show);
     }}
-    className="flex-row items-center justify-between py-3 px-4 rounded-full"
+    className="flex-row items-center justify-between py-3 px-4 rounded-xl"
     style={{
-      backgroundColor: colors.bg.secondary,
+      backgroundColor: formBg,
       borderWidth: 1,
-      borderColor: show ? colors.accent.primary : colors.border.light,
+      borderColor: show ? colors.accent.primary : formBorder,
     }}
   >
         <View className="flex-row items-center gap-2">
@@ -330,11 +369,11 @@ export function CaseForm({
 
       {show && (
         <View
-          className="mt-1 rounded-full overflow-hidden"
+          className="mt-1 rounded-xl overflow-hidden"
           style={{
-            backgroundColor: colors.bg.card,
+            backgroundColor: formBg,
             borderWidth: 1,
-            borderColor: colors.border.light,
+            borderColor: formBorder,
           }}
         >
           {items.map((item) => (
@@ -347,7 +386,9 @@ export function CaseForm({
               }}
               className="flex-row items-center justify-between py-3 px-4"
               style={{
-                backgroundColor: item === selected ? colors.bg.secondary : 'transparent',
+                backgroundColor: item === selected
+                  ? (isWeb ? (isDark ? colors.bg.card : '#F9FAFB') : colors.bg.secondary)
+                  : 'transparent',
               }}
             >
               <View className="flex-row items-center gap-2">
@@ -370,62 +411,119 @@ export function CaseForm({
   );
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
+    <Modal
+      visible={visible}
+      transparent={false}
+      animationType="slide"
+      presentationStyle="fullScreen"
+    >
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         className="flex-1"
-        style={{ backgroundColor: colors.bg.primary }}
+        style={{ backgroundColor: canvasBg }}
       >
-        {/* Header */}
         <View
-          className="flex-row items-center justify-between px-5 py-4"
-          style={{ borderBottomWidth: 1, borderBottomColor: colors.border.light }}
+          style={[
+            { flex: 1, backgroundColor: panelBg },
+            useDesktopCanvas
+              ? {
+                  width: '100%',
+                  maxWidth: 980,
+                  alignSelf: 'center',
+                  borderWidth: 1,
+                  borderColor: '#E6E6E6',
+                  borderRadius: 18,
+                  overflow: 'hidden',
+                  marginVertical: 12,
+                }
+              : null,
+          ]}
         >
-          <View className="flex-row items-center gap-3">
-            <Pressable
-              onPress={() => {
-                Haptics.selectionAsync();
-                onClose();
-              }}
-              className="p-2 -ml-2 active:opacity-70"
-            >
-              <X size={24} color={colors.text.primary} strokeWidth={1.5} />
-            </Pressable>
-            <Text style={{ color: colors.text.primary }} className="text-xl font-bold">
-              {isEditing ? 'Edit Case' : 'New Case'}
-            </Text>
-          </View>
-          <Pressable
-            onPress={handleSave}
-            className="px-5 py-2.5 rounded-full active:opacity-80"
-            style={{ backgroundColor: '#111111' }}
+        <View
+          className="flex-1"
+          style={{
+            backgroundColor: panelBg,
+          }}
+        >
+          {/* Header */}
+          <View
+            className="flex-row items-center justify-between px-5 py-4"
+            style={{
+              backgroundColor: colors.bg.card,
+              borderBottomWidth: 1,
+              borderBottomColor: colors.border.light,
+            }}
           >
-            <Text className="text-white font-semibold">
-              {isEditing ? 'Update' : 'Create'}
-            </Text>
-          </Pressable>
-        </View>
-
-        <ScrollView className="flex-1 px-5 py-4" showsVerticalScrollIndicator={false}>
-          {/* Order Info (read-only) or Customer Name input for standalone */}
-          {orderId && orderNumber ? (
-            <View className="mb-6">
-              <Text style={{ color: colors.text.muted }} className="text-xs uppercase font-semibold mb-2">
-                Linked Order
-              </Text>
-              <View
-                className="p-4 rounded-full"
-                style={{ backgroundColor: colors.bg.secondary }}
+            <View className="flex-row items-center gap-3">
+              <Pressable
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  onClose();
+                }}
+                className="p-2 -ml-2 active:opacity-70"
               >
-                <Text style={{ color: colors.text.primary }} className="font-semibold">
-                  {orderNumber}
-                </Text>
-                <Text style={{ color: colors.text.secondary }} className="text-sm mt-1">
-                  {customerName}
-                </Text>
-              </View>
+                <X size={24} color={colors.text.primary} strokeWidth={1.5} />
+              </Pressable>
+              <Text style={{ color: colors.text.primary }} className="text-xl font-bold">
+                {isEditing ? 'Edit Case' : 'New Case'}
+              </Text>
             </View>
-          ) : (
+            <Pressable
+              onPress={handleSave}
+              className="px-5 py-2.5 rounded-full active:opacity-80"
+              style={{ backgroundColor: isDark ? '#FFFFFF' : '#111111' }}
+            >
+              <Text style={{ color: isDark ? '#111111' : '#FFFFFF' }} className="font-semibold">
+                {isEditing ? 'Update' : 'Create'}
+              </Text>
+            </Pressable>
+          </View>
+
+          <ScrollView
+            className="flex-1"
+            style={{ backgroundColor: panelBg }}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{
+              paddingHorizontal: 20,
+              paddingTop: 20,
+              paddingBottom: 24,
+              width: '100%',
+              maxWidth: 1040,
+              alignSelf: 'center',
+            }}
+          >
+            {/* AI Case Shortcut */}
+            {!isEditing && (
+              <View
+                className="mb-4"
+              >
+                <FyllAiButton
+                  label="Fyll AI Case"
+                  onPress={handleOpenAICase}
+                  height={52}
+                  borderRadius={999}
+                  iconSize={18}
+                  textSize={16}
+                />
+              </View>
+            )}
+
+            {/* Order Info + Customer Name */}
+            {orderId && orderNumber && (
+              <View className="mb-4">
+                <Text style={{ color: colors.text.muted }} className="text-xs uppercase font-semibold mb-2">
+                  Linked Order
+                </Text>
+                <View
+                  className="p-4 rounded-xl"
+                  style={{ backgroundColor: formBg, borderWidth: 1, borderColor: formBorder }}
+                >
+                  <Text style={{ color: colors.text.primary }} className="font-semibold">
+                    {orderNumber}
+                  </Text>
+                </View>
+              </View>
+            )}
             <View className="mb-6">
               <Text style={{ color: colors.text.muted }} className="text-xs uppercase font-semibold mb-2">
                 Customer Name *
@@ -435,17 +533,16 @@ export function CaseForm({
                 onChangeText={setStandaloneCustomerName}
                 placeholder="Enter customer name..."
                 placeholderTextColor={colors.text.muted}
-                className="py-3 px-4 rounded-full"
+                className="py-3 px-4 rounded-xl"
                 style={{
-                  backgroundColor: colors.bg.secondary,
+                  backgroundColor: formBg,
                   color: colors.text.primary,
                   borderWidth: 1,
-                  borderColor: colors.border.light,
+                  borderColor: formBorder,
                   height: 52,
                 }}
               />
             </View>
-          )}
 
           {/* Case Type - Grid Selection */}
           <View className="mb-5">
@@ -453,7 +550,7 @@ export function CaseForm({
               Case Type
             </Text>
             <View className="flex-row flex-wrap gap-2">
-              {CASE_TYPES.map((type) => {
+              {caseTypeOptions.map((type) => {
                 const isSelected = caseType === type;
                 return (
                   <Pressable
@@ -462,11 +559,11 @@ export function CaseForm({
                       Haptics.selectionAsync();
                       setCaseType(type);
                     }}
-                    className="flex-row items-center gap-2 px-4 py-3 rounded-full active:opacity-80"
+                    className="flex-row items-center gap-2 px-4 py-3 rounded-xl active:opacity-80"
                     style={{
-                      backgroundColor: isSelected ? colors.bg.tertiary : colors.bg.secondary,
+                      backgroundColor: isSelected ? colors.bg.tertiary : formBg,
                       borderWidth: isSelected ? 2 : 1,
-                      borderColor: isSelected ? colors.text.primary : colors.border.light,
+                      borderColor: isSelected ? colors.text.primary : formBorder,
                     }}
                   >
                     <View
@@ -495,8 +592,8 @@ export function CaseForm({
               Priority
             </Text>
             <View
-              className="flex-row p-1.5 rounded-full"
-              style={{ backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.border.light }}
+              className="flex-row p-1.5 rounded-xl"
+              style={{ backgroundColor: formBg, borderWidth: 1, borderColor: formBorder }}
             >
               {CASE_PRIORITIES.map((p) => {
                 const isSelected = priority === p;
@@ -508,9 +605,9 @@ export function CaseForm({
                       Haptics.selectionAsync();
                       setPriority(p);
                     }}
-                    className="flex-1 flex-row items-center justify-center gap-1.5 py-3 rounded-full active:opacity-80"
+                    className="flex-1 flex-row items-center justify-center gap-1.5 py-3 rounded-xl active:opacity-80"
                     style={{
-                      backgroundColor: isSelected ? colors.bg.card : 'transparent',
+                      backgroundColor: isSelected ? (isWeb ? (isDark ? colors.bg.card : '#F9FAFB') : colors.bg.card) : 'transparent',
                       borderWidth: isSelected ? 1 : 0,
                       borderColor: isSelected ? priorityColor + '50' : 'transparent',
                     }}
@@ -534,10 +631,10 @@ export function CaseForm({
               Source Channel
             </Text>
             <View
-              className="flex-row flex-wrap p-1.5 rounded-full gap-1"
-              style={{ backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.border.light }}
+              className="flex-row flex-wrap p-1.5 rounded-xl gap-1"
+              style={{ backgroundColor: formBg, borderWidth: 1, borderColor: formBorder }}
             >
-              {CASE_SOURCES.map((s) => {
+              {sourceOptions.map((s) => {
                 const isSelected = source === s;
                 return (
                   <Pressable
@@ -546,11 +643,11 @@ export function CaseForm({
                       Haptics.selectionAsync();
                       setSource(s);
                     }}
-                    className="flex-col items-center justify-center py-3 px-4 rounded-full active:opacity-80"
+                    className="flex-col items-center justify-center py-3 px-4 rounded-xl active:opacity-80"
                     style={{
-                      backgroundColor: isSelected ? colors.bg.card : 'transparent',
+                      backgroundColor: isSelected ? (isWeb ? (isDark ? colors.bg.card : '#F9FAFB') : colors.bg.card) : 'transparent',
                       borderWidth: isSelected ? 1 : 0,
-                      borderColor: isSelected ? colors.border.medium : 'transparent',
+                      borderColor: isSelected ? formBorder : 'transparent',
                       minWidth: 70,
                     }}
                   >
@@ -607,12 +704,12 @@ export function CaseForm({
               onChangeText={setIssueSummary}
               placeholder="Brief description of the issue..."
               placeholderTextColor={colors.text.muted}
-              className="py-3 px-4 rounded-full"
+              className="py-3 px-4 rounded-xl"
               style={{
-                backgroundColor: colors.bg.secondary,
+                backgroundColor: formBg,
                 color: colors.text.primary,
                 borderWidth: 1,
-                borderColor: colors.border.light,
+                borderColor: formBorder,
               }}
             />
           </View>
@@ -629,12 +726,12 @@ export function CaseForm({
               placeholderTextColor={colors.text.muted}
               multiline
               numberOfLines={4}
-              className="py-3 px-4 rounded-full"
+              className="py-3 px-4 rounded-xl"
               style={{
-                backgroundColor: colors.bg.secondary,
+                backgroundColor: formBg,
                 color: colors.text.primary,
                 borderWidth: 1,
-                borderColor: colors.border.light,
+                borderColor: formBorder,
                 minHeight: 100,
                 textAlignVertical: 'top',
               }}
@@ -649,7 +746,7 @@ export function CaseForm({
             <View className="flex-row items-center justify-between mb-3">
               <Pressable
                 onPress={handleAddAttachment}
-                className="px-4 py-2 rounded-full active:opacity-80"
+                className="px-4 py-2 rounded-xl active:opacity-80"
                 style={{ backgroundColor: '#111111' }}
               >
                 <Text className="text-white font-semibold text-xs">Add Image</Text>
@@ -677,7 +774,7 @@ export function CaseForm({
               >
                 {attachments.map((attachment) => (
                   <View key={attachment.id} className="mr-3" style={{ position: 'relative' }}>
-                    <View className="rounded-full overflow-hidden" style={{ borderWidth: 1, borderColor: colors.border.light }}>
+                    <View className="rounded-xl overflow-hidden" style={{ borderWidth: 1, borderColor: formBorder }}>
                       <Image
                         source={{ uri: attachment.preview ?? attachment.uri }}
                         style={{ width: 120, height: 120 }}
@@ -703,11 +800,11 @@ export function CaseForm({
           {/* Resolution Section */}
           {showResolution && (
             <View
-              className="p-4 rounded-full mb-4"
+              className="p-4 rounded-xl mb-4"
               style={{
-                backgroundColor: colors.bg.secondary,
+                backgroundColor: formBg,
                 borderWidth: 1,
-                borderColor: colors.border.light,
+                borderColor: formBorder,
               }}
             >
               <Text style={{ color: colors.text.primary }} className="font-semibold mb-4">
@@ -740,12 +837,12 @@ export function CaseForm({
                     placeholder="0"
                     placeholderTextColor={colors.text.muted}
                     keyboardType="numeric"
-                    className="py-3 px-4 rounded-full"
+                    className="py-3 px-4 rounded-xl"
                     style={{
                       backgroundColor: colors.bg.primary,
                       color: colors.text.primary,
                       borderWidth: 1,
-                      borderColor: colors.border.light,
+                      borderColor: formBorder,
                     }}
                   />
                 </View>
@@ -763,12 +860,12 @@ export function CaseForm({
                   placeholderTextColor={colors.text.muted}
                   multiline
                   numberOfLines={3}
-                  className="py-3 px-4 rounded-full"
+                  className="py-3 px-4 rounded-xl"
                   style={{
                     backgroundColor: colors.bg.primary,
                     color: colors.text.primary,
                     borderWidth: 1,
-                    borderColor: colors.border.light,
+                    borderColor: formBorder,
                     minHeight: 80,
                     textAlignVertical: 'top',
                   }}
@@ -784,11 +881,11 @@ export function CaseForm({
                 Haptics.selectionAsync();
                 setShowResolution(true);
               }}
-              className="py-3 px-4 rounded-full mb-4 active:opacity-70"
+              className="py-3 px-4 rounded-xl mb-4 active:opacity-70"
               style={{
-                backgroundColor: colors.bg.secondary,
+                backgroundColor: formBg,
                 borderWidth: 1,
-                borderColor: colors.border.light,
+                borderColor: formBorder,
                 borderStyle: 'dashed',
               }}
             >
@@ -800,7 +897,9 @@ export function CaseForm({
 
           {/* Spacer for keyboard */}
           <View className="h-20" />
-        </ScrollView>
+          </ScrollView>
+        </View>
+        </View>
       </KeyboardAvoidingView>
     </Modal>
   );

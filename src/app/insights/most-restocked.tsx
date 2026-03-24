@@ -2,14 +2,14 @@ import React, { useState, useMemo } from 'react';
 import { View, Text, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useRouter } from 'expo-router';
-import { Boxes, ChevronRight } from 'lucide-react-native';
+import { ChevronRight } from 'lucide-react-native';
 import useFyllStore from '@/lib/state/fyll-store';
 import { filterRestockLogsByDateRange } from '@/lib/inventory-analytics';
 import { getDateRange, type TimeRange } from '@/lib/analytics-utils';
 import { useStatsColors } from '@/lib/theme';
 import { DetailHeader } from '@/components/stats/DetailHeader';
 
-export default function MostRestockedScreen() {
+export default function MostRestockedScreen({ inline }: { inline?: boolean }) {
   const colors = useStatsColors();
   const router = useRouter();
   const [timeRange, setTimeRange] = useState<TimeRange>('7d');
@@ -67,10 +67,12 @@ export default function MostRestockedScreen() {
     <View className="flex-1" style={{ backgroundColor: colors.bg.screen }}>
       <Stack.Screen options={{ headerShown: false }} />
       <SafeAreaView className="flex-1" edges={['top']}>
-        <DetailHeader
-          title="Most Restocked"
-          subtitle="Products by restock frequency"
-        />
+        {!inline && (
+          <DetailHeader
+            title="Most Restocked"
+            subtitle="Products by restock frequency"
+          />
+        )}
 
         <ScrollView
           className="flex-1"

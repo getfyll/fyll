@@ -15,7 +15,7 @@ import useFyllStore, { formatCurrency } from '@/lib/state/fyll-store';
 import { computeInventoryAnalytics } from '@/lib/inventory-analytics';
 import { useStatsColors } from '@/lib/theme';
 
-export default function InventoryTodayScreen() {
+export default function InventoryTodayScreen({ inline }: { inline?: boolean }) {
   const colors = useStatsColors();
   const router = useRouter();
   const products = useFyllStore((s) => s.products);
@@ -47,14 +47,16 @@ export default function InventoryTodayScreen() {
     <View className="flex-1" style={{ backgroundColor: colors.bg.screen }}>
       <Stack.Screen options={{ headerShown: false }} />
       <SafeAreaView className="flex-1" edges={['top']}>
-        <DetailHeader
-          title="Inventory Overview"
-          subtitle={new Date().toLocaleDateString('en-US', {
-            weekday: 'long',
-            month: 'long',
-            day: 'numeric',
-          })}
-        />
+        {!inline && (
+          <DetailHeader
+            title="Inventory Overview"
+            subtitle={new Date().toLocaleDateString('en-US', {
+              weekday: 'long',
+              month: 'long',
+              day: 'numeric',
+            })}
+          />
+        )}
 
         <ScrollView
           className="flex-1"

@@ -1,14 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, Pressable, TextInput, Alert, Switch, Platform, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { Trash2, Edit2, Check, X, ChevronRight, ChevronLeft, Package, ShoppingCart, Tag, RotateCcw, Info, CreditCard, Truck, Wrench, Users, Moon, Sun, LogOut, Shield, Building2, AlertTriangle, UserCircle, Upload, FileText } from 'lucide-react-native';
-import useFyllStore, { formatCurrency } from '@/lib/state/fyll-store';
-import useAuthStore from '@/lib/state/auth-store';
-import { useThemeColors } from '@/lib/theme';
+import { Trash2, Edit2, Check, X, ChevronRight, ChevronLeft, Package, ShoppingCart, Tag, RotateCcw, Info, CreditCard, Truck, Wrench, Users, Moon, Sun, Laptop, LogOut, Shield, Building2, AlertTriangle, UserCircle, Upload, FileText, BarChart3, TrendingUp, Zap, Search, Sparkles, ListTodo, Bell, BellOff } from 'lucide-react-native';
+import { useWebPushNotifications } from '@/hooks/useWebPushNotifications';
+import useFyllStore, { formatCurrency, type ThemeMode } from '@/lib/state/fyll-store';
+import useAuthStore, { ROLE_PERMISSIONS } from '@/lib/state/auth-store';
+import { useResolvedThemeMode, useThemeColors } from '@/lib/theme';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import * as Haptics from 'expo-haptics';
 import { useTabBarHeight } from '@/lib/useTabBarHeight';
+import { useBreakpoint } from '@/lib/useBreakpoint';
+import { canShowFinanceNavigation, getDefaultFinanceSectionForRole } from '@/lib/finance-access';
+import { DESKTOP_PAGE_HEADER_GUTTER, DESKTOP_PAGE_HEADER_MIN_HEIGHT, getStandardPageHeadingStyle } from '@/lib/page-heading';
 
 type SettingsSection =
   | 'order-statuses'
@@ -29,6 +33,8 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   'resolution-types',
 ];
 
+let settingsMainScrollYMemory = 0;
+
 interface EditableItemProps {
   item: { id: string; name: string; color?: string; defaultPrice?: number; description?: string };
   onUpdate: (name: string, color?: string, defaultPrice?: number, description?: string) => void;
@@ -47,6 +53,13 @@ function EditableItem({
   showDescription = false,
 }: EditableItemProps) {
   const colors = useThemeColors();
+  const primaryPillButtonStyle = {
+    backgroundColor: colors.text.primary,
+    borderRadius: 999,
+  } as const;
+  const primaryPillTextStyle = {
+    color: colors.bg.primary,
+  } as const;
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(item.name);
   const [editColor, setEditColor] = useState(item.color || '#6B7280');
@@ -147,10 +160,10 @@ function EditableItem({
             <View className="flex-row gap-2">
               <Pressable
                 onPress={handleSave}
-                className="flex-1 rounded-xl items-center active:opacity-80"
-                style={{ backgroundColor: '#111111', height: 50, justifyContent: 'center' }}
+                className="flex-1 rounded-full items-center active:opacity-80"
+                style={[primaryPillButtonStyle, { height: 50, justifyContent: 'center' }]}
               >
-                <Text className="text-white font-semibold text-sm">Save</Text>
+                <Text style={primaryPillTextStyle} className="font-semibold text-sm">Save</Text>
               </Pressable>
               <Pressable
                 onPress={() => {
@@ -160,8 +173,8 @@ function EditableItem({
                   setEditDescription(item.description || '');
                   setIsEditing(false);
                 }}
-                className="px-4 rounded-xl items-center active:opacity-70"
-                style={{ backgroundColor: colors.bg.secondary, height: 50, justifyContent: 'center' }}
+                className="px-4 rounded-full items-center active:opacity-70"
+                style={{ backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.border.light, height: 50, justifyContent: 'center' }}
               >
                 <X size={18} color={colors.text.tertiary} strokeWidth={2} />
               </Pressable>
@@ -284,6 +297,11 @@ export default function SettingsScreen() {
   const { section: sectionParam } = useLocalSearchParams<{ section?: SettingsSection }>();
   const colors = useThemeColors();
   const tabBarHeight = useTabBarHeight();
+  const { isDesktop, isMobile } = useBreakpoint();
+  const isWebDesktop = Platform.OS === 'web' && isDesktop;
+  const pageHeadingStyle = getStandardPageHeadingStyle(isMobile);
+  const desktopHeaderMinHeight = DESKTOP_PAGE_HEADER_MIN_HEIGHT;
+  const webDesktopGutterPad = isWebDesktop ? DESKTOP_PAGE_HEADER_GUTTER : 0;
   const orderStatuses = useFyllStore((s) => s.orderStatuses);
   const saleSources = useFyllStore((s) => s.saleSources);
   const productVariables = useFyllStore((s) => s.productVariables);
@@ -295,6 +313,7 @@ export default function SettingsScreen() {
   const saveGlobalSettings = useFyllStore((s) => s.saveGlobalSettings);
   const customers = useFyllStore((s) => s.customers);
   const themeMode = useFyllStore((s) => s.themeMode);
+  const resolvedThemeMode = useResolvedThemeMode();
   const setThemeMode = useFyllStore((s) => s.setThemeMode);
   const businessId = useAuthStore((s) => s.businessId);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
@@ -313,6 +332,22 @@ export default function SettingsScreen() {
   const setGlobalLowStockThreshold = useFyllStore((s) => s.setGlobalLowStockThreshold);
   const [tempThreshold, setTempThreshold] = useState(globalLowStockThreshold.toString());
   const [showLowStockModal, setShowLowStockModal] = useState(false);
+
+  const themeOptions: { mode: ThemeMode; label: string }[] = [
+    { mode: 'system', label: 'System' },
+    { mode: 'light', label: 'Light' },
+    { mode: 'dark', label: 'Dark' },
+  ];
+
+  const { isReady: notifReady, promptForPermission } = useWebPushNotifications();
+  const [notifPermission, setNotifPermission] = useState<string | null>(null);
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    const check = () => setNotifPermission(window.Notification?.permission ?? null);
+    check();
+    window.addEventListener('focus', check);
+    return () => window.removeEventListener('focus', check);
+  }, []);
 
   const addOrderStatus = useFyllStore((s) => s.addOrderStatus);
   const updateOrderStatus = useFyllStore((s) => s.updateOrderStatus);
@@ -409,14 +444,14 @@ export default function SettingsScreen() {
           <View className="px-5 py-4 flex-row gap-3">
             <Pressable
               onPress={() => setPendingDeleteSetting(null)}
-              className="flex-1 rounded-xl items-center"
-              style={{ backgroundColor: colors.bg.secondary, height: 48, justifyContent: 'center' }}
+              className="flex-1 rounded-full items-center"
+              style={{ backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.border.light, height: 48, justifyContent: 'center' }}
             >
               <Text style={{ color: colors.text.tertiary }} className="font-medium">Cancel</Text>
             </Pressable>
             <Pressable
               onPress={confirmDeleteSetting}
-              className="flex-1 rounded-xl items-center"
+              className="flex-1 rounded-full items-center"
               style={{ backgroundColor: '#EF4444', height: 48, justifyContent: 'center' }}
             >
               <Text className="text-white font-semibold">Delete</Text>
@@ -429,6 +464,10 @@ export default function SettingsScreen() {
 
   // Auth
   const currentUser = useAuthStore((s) => s.currentUser);
+  const userRole = currentUser?.role ?? 'staff';
+  const canViewInsights = ROLE_PERMISSIONS[userRole]?.canViewInsights ?? false;
+  const canViewFinance = canShowFinanceNavigation(userRole);
+  const financeSettingsRoute = `/finance?section=${getDefaultFinanceSectionForRole(userRole)}&from=settings`;
 
   const handleSaveGlobalSettings = async () => {
     if (!businessId) {
@@ -495,14 +534,74 @@ export default function SettingsScreen() {
     }
     setShowLowStockModal(false);
   };
+
+  const handleRefreshApp = () => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.location.reload();
+      return;
+    }
+    Alert.alert('Refresh App', 'Close the app and reopen it to refresh on iPhone.');
+  };
+
   const teamMembers = useAuthStore((s) => s.teamMembers);
   const logout = useAuthStore((s) => s.logout);
+  const openSettingsPanel = (panel: string, nativeRoute: string | { pathname: string; params?: Record<string, string> }) => {
+    const decodeParam = (raw: string) => {
+      try {
+        return decodeURIComponent(raw);
+      } catch {
+        return raw;
+      }
+    };
+    const webRouteParams: Record<string, string> = { panel, from: 'settings' };
+
+    if (typeof nativeRoute === 'string') {
+      const query = nativeRoute.split('?')[1];
+      if (query) {
+        query
+          .split('&')
+          .filter(Boolean)
+          .forEach((pair) => {
+            const [rawKey, rawValue = ''] = pair.split('=');
+            if (!rawKey) return;
+            const key = decodeParam(rawKey);
+            const value = decodeParam(rawValue);
+            if (key.length > 0 && value.length > 0) {
+              webRouteParams[key] = value;
+            }
+          });
+      }
+    } else if (nativeRoute?.params) {
+      Object.entries(nativeRoute.params).forEach(([key, value]) => {
+        if (typeof value === 'string' && value.trim().length > 0) {
+          webRouteParams[key] = value;
+        }
+      });
+    }
+
+    if (Platform.OS === 'web') {
+      router.push({ pathname: '/settings-panel', params: webRouteParams });
+      return;
+    }
+    router.push(nativeRoute as never);
+  };
 
   const [activeSection, setActiveSection] = useState<SettingsSection | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const [newItemName, setNewItemName] = useState('');
   const [newItemColor, setNewItemColor] = useState('#3B82F6');
   const [newItemPrice, setNewItemPrice] = useState('');
   const [newItemDescription, setNewItemDescription] = useState('');
+  const mainMenuScrollYRef = useRef(settingsMainScrollYMemory);
+  const primaryPillButtonStyle = {
+    backgroundColor: colors.text.primary,
+    borderRadius: 999,
+  } as const;
+  const primaryPillTextStyle = {
+    color: colors.bg.primary,
+  } as const;
+  const settingsMainContentWrapStyle = ({ flex: 1 } as const);
+  const settingsSectionContentWrapStyle = ({ flex: 1 } as const);
 
   const colorOptions = [
     '#EF4444',
@@ -536,7 +635,7 @@ export default function SettingsScreen() {
       if (Platform.OS !== 'web') {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       }
-    } catch (e) {
+    } catch {
       // Haptics might fail, continue anyway
     }
 
@@ -554,7 +653,7 @@ export default function SettingsScreen() {
     const trimmedName = newItemName.trim();
     if (!trimmedName) return;
 
-    const nameExists = (items: Array<{ name: string }>) =>
+    const nameExists = (items: { name: string }[]) =>
       items.some((item) => item.name.trim().toLowerCase() === trimmedName.toLowerCase());
 
     const id = Math.random().toString(36).substring(2, 15);
@@ -594,7 +693,7 @@ export default function SettingsScreen() {
         break;
       case 'custom-services':
         if (nameExists(customServices)) {
-          Alert.alert('Duplicate', 'This custom service already exists.');
+          Alert.alert('Duplicate', 'This add-on already exists.');
           return;
         }
         addCustomService({ id, name: newItemName.trim(), defaultPrice: parseFloat(newItemPrice) || 0 });
@@ -644,7 +743,7 @@ export default function SettingsScreen() {
       switch (activeSection) {
         case 'order-statuses':
           return (
-            <View className="px-5 pt-4">
+            <View className="pl-5 pr-7 pt-4">
               <View className="rounded-xl p-4 mb-4" style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light }}>
                 <Text style={{ color: colors.text.primary }} className="font-bold text-sm mb-3">Add New Status</Text>
               <View className="rounded-xl px-4 mb-3" style={{ backgroundColor: colors.input.bg, borderWidth: 1, borderColor: colors.input.border, height: 50, justifyContent: 'center' }}>
@@ -678,10 +777,10 @@ export default function SettingsScreen() {
               </View>
               <Pressable
                 onPress={handleAddItem}
-                className="rounded-xl items-center active:opacity-80"
-                style={{ backgroundColor: '#111111', height: 50, justifyContent: 'center' }}
+                className="rounded-full items-center active:opacity-80"
+                style={[primaryPillButtonStyle, { height: 50, justifyContent: 'center' }]}
               >
-                <Text className="text-white font-semibold">Add Status</Text>
+                <Text style={primaryPillTextStyle} className="font-semibold">Add Status</Text>
               </Pressable>
             </View>
 
@@ -704,7 +803,7 @@ export default function SettingsScreen() {
 
       case 'case-statuses':
         return (
-          <View className="px-5 pt-4">
+          <View className="pl-5 pr-7 pt-4">
             <View className="rounded-xl p-4 mb-4" style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light }}>
               <Text style={{ color: colors.text.primary }} className="font-bold text-sm mb-3">Add Case Status</Text>
               <View className="rounded-xl px-4 mb-3" style={{ backgroundColor: colors.input.bg, borderWidth: 1, borderColor: colors.input.border, height: 50, justifyContent: 'center' }}>
@@ -748,10 +847,10 @@ export default function SettingsScreen() {
               </View>
               <Pressable
                 onPress={handleAddItem}
-                className="rounded-xl items-center active:opacity-80"
-                style={{ backgroundColor: '#111111', height: 50, justifyContent: 'center' }}
+                className="rounded-full items-center active:opacity-80"
+                style={[primaryPillButtonStyle, { height: 50, justifyContent: 'center' }]}
               >
-                <Text className="text-white font-semibold">Add Status</Text>
+                <Text style={primaryPillTextStyle} className="font-semibold">Add Status</Text>
               </Pressable>
             </View>
 
@@ -775,7 +874,7 @@ export default function SettingsScreen() {
 
       case 'sale-sources':
         return (
-          <View className="px-5 pt-4">
+          <View className="pl-5 pr-7 pt-4">
             <View className="rounded-xl p-4 mb-4" style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light }}>
               <Text style={{ color: colors.text.primary }} className="font-bold text-sm mb-3">Add New Source</Text>
               <View className="rounded-xl px-4 mb-3" style={{ backgroundColor: colors.input.bg, borderWidth: 1, borderColor: colors.input.border, height: 50, justifyContent: 'center' }}>
@@ -790,10 +889,10 @@ export default function SettingsScreen() {
               </View>
               <Pressable
                 onPress={handleAddItem}
-                className="rounded-xl items-center active:opacity-80"
-                style={{ backgroundColor: '#111111', height: 50, justifyContent: 'center' }}
+                className="rounded-full items-center active:opacity-80"
+                style={[primaryPillButtonStyle, { height: 50, justifyContent: 'center' }]}
               >
-                <Text className="text-white font-semibold">Add Source</Text>
+                <Text style={primaryPillTextStyle} className="font-semibold">Add Source</Text>
               </Pressable>
             </View>
 
@@ -815,12 +914,12 @@ export default function SettingsScreen() {
 
       case 'custom-services':
         return (
-          <View className="px-5 pt-4">
+          <View className="pl-5 pr-7 pt-4">
             <View className="rounded-xl p-4 mb-4" style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light }}>
-              <Text style={{ color: colors.text.primary }} className="font-bold text-sm mb-3">Add New Service</Text>
+              <Text style={{ color: colors.text.primary }} className="font-bold text-sm mb-3">Add New Add-on</Text>
               <View className="rounded-xl px-4 mb-3" style={{ backgroundColor: colors.input.bg, borderWidth: 1, borderColor: colors.input.border, height: 50, justifyContent: 'center' }}>
                 <TextInput
-                  placeholder="Service name"
+                  placeholder="Add-on name"
                   placeholderTextColor={colors.input.placeholder}
                   value={newItemName}
                   onChangeText={setNewItemName}
@@ -841,10 +940,10 @@ export default function SettingsScreen() {
               </View>
               <Pressable
                 onPress={handleAddItem}
-                className="rounded-xl items-center active:opacity-80"
-                style={{ backgroundColor: '#111111', height: 50, justifyContent: 'center' }}
+                className="rounded-full items-center active:opacity-80"
+                style={[primaryPillButtonStyle, { height: 50, justifyContent: 'center' }]}
               >
-                <Text className="text-white font-semibold">Add Service</Text>
+                <Text style={primaryPillTextStyle} className="font-semibold">Add Add-on</Text>
               </Pressable>
             </View>
 
@@ -867,7 +966,7 @@ export default function SettingsScreen() {
 
       case 'payment-methods':
         return (
-          <View className="px-5 pt-4">
+          <View className="pl-5 pr-7 pt-4">
             <View className="rounded-xl p-4 mb-4" style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light }}>
               <Text style={{ color: colors.text.primary }} className="font-bold text-sm mb-3">Add New Payment Method</Text>
               <View className="rounded-xl px-4 mb-3" style={{ backgroundColor: colors.input.bg, borderWidth: 1, borderColor: colors.input.border, height: 50, justifyContent: 'center' }}>
@@ -882,10 +981,10 @@ export default function SettingsScreen() {
               </View>
               <Pressable
                 onPress={handleAddItem}
-                className="rounded-xl items-center active:opacity-80"
-                style={{ backgroundColor: '#111111', height: 50, justifyContent: 'center' }}
+                className="rounded-full items-center active:opacity-80"
+                style={[primaryPillButtonStyle, { height: 50, justifyContent: 'center' }]}
               >
-                <Text className="text-white font-semibold">Add Payment Method</Text>
+                <Text style={primaryPillTextStyle} className="font-semibold">Add Payment Method</Text>
               </Pressable>
             </View>
 
@@ -907,7 +1006,7 @@ export default function SettingsScreen() {
 
       case 'logistics-carriers':
         return (
-          <View className="px-5 pt-4">
+          <View className="pl-5 pr-7 pt-4">
             <View className="rounded-xl p-4 mb-4" style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light }}>
               <Text style={{ color: colors.text.primary }} className="font-bold text-sm mb-3">Add New Carrier</Text>
               <View className="rounded-xl px-4 mb-3" style={{ backgroundColor: colors.input.bg, borderWidth: 1, borderColor: colors.input.border, height: 50, justifyContent: 'center' }}>
@@ -922,10 +1021,10 @@ export default function SettingsScreen() {
               </View>
               <Pressable
                 onPress={handleAddItem}
-                className="rounded-xl items-center active:opacity-80"
-                style={{ backgroundColor: '#111111', height: 50, justifyContent: 'center' }}
+                className="rounded-full items-center active:opacity-80"
+                style={[primaryPillButtonStyle, { height: 50, justifyContent: 'center' }]}
               >
-                <Text className="text-white font-semibold">Add Carrier</Text>
+                <Text style={primaryPillTextStyle} className="font-semibold">Add Carrier</Text>
               </Pressable>
             </View>
 
@@ -947,7 +1046,7 @@ export default function SettingsScreen() {
 
       case 'resolution-types':
         return (
-          <View className="px-5 pt-4">
+          <View className="pl-5 pr-7 pt-4">
             <View className="rounded-xl p-4 mb-4" style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light }}>
               <Text style={{ color: colors.text.primary }} className="font-bold text-sm mb-3">Add Resolution Type</Text>
               <View className="rounded-xl px-4 mb-3" style={{ backgroundColor: colors.input.bg, borderWidth: 1, borderColor: colors.input.border, height: 50, justifyContent: 'center' }}>
@@ -972,10 +1071,10 @@ export default function SettingsScreen() {
               </View>
               <Pressable
                 onPress={handleAddItem}
-                className="rounded-xl items-center active:opacity-80"
-                style={{ backgroundColor: '#111111', height: 50, justifyContent: 'center' }}
+                className="rounded-full items-center active:opacity-80"
+                style={[primaryPillButtonStyle, { height: 50, justifyContent: 'center' }]}
               >
-                <Text className="text-white font-semibold">Add Resolution Type</Text>
+                <Text style={primaryPillTextStyle} className="font-semibold">Add Resolution Type</Text>
               </Pressable>
             </View>
 
@@ -1001,11 +1100,60 @@ export default function SettingsScreen() {
     }
   };
 
+  // All settings items for search
+  const searchItems: { id: string; title: string; description?: string; icon: React.ReactNode; onPress?: () => void; rightText?: string }[] = [
+    ...(currentUser ? [
+      { id: 'account-info', title: 'Account Info', description: 'Email, role, business details', icon: <Info size={18} color={colors.text.tertiary} strokeWidth={2} />, onPress: () => openSettingsPanel('debug-business', '/debug-business?from=settings') },
+      { id: 'my-account', title: 'My Account', description: 'Profile and password', icon: <UserCircle size={18} color="#3B82F6" strokeWidth={2} />, onPress: () => openSettingsPanel('account-settings', '/account-settings?from=settings') },
+    ] : []),
+    { id: 'business-settings', title: 'Business Settings', description: 'Logo, phone, website', icon: <Building2 size={18} color="#10B981" strokeWidth={2} />, onPress: () => openSettingsPanel('business-settings', '/business-settings?from=settings') },
+    { id: 'import-ai', title: 'AI Import Assistant', description: 'Import orders, customers, products, and expenses', icon: <Sparkles size={18} color="#8B5CF6" strokeWidth={2} />, onPress: () => openSettingsPanel('import-ai', '/import-ai?from=settings') },
+    ...(currentUser?.role === 'admin' ? [
+      { id: 'team-members', title: 'Team Members', description: 'Roles and permissions', icon: <Shield size={18} color="#EF4444" strokeWidth={2} />, rightText: `${teamMembers.length}`, onPress: () => openSettingsPanel('team', '/team?from=settings') },
+      { id: 'invitations', title: 'Invitations', description: 'VIP access, invite limits, history', icon: <Shield size={18} color="#F59E0B" strokeWidth={2} />, onPress: () => openSettingsPanel('invitations', '/invitations?from=settings') },
+    ] : []),
+    { id: 'tasks', title: 'Tasks', description: 'Assign work, due dates, recurring ops', icon: <ListTodo size={18} color="#2563EB" strokeWidth={2} />, onPress: () => openSettingsPanel('tasks', '/tasks') },
+    { id: 'customer-list', title: 'Customer List', description: 'Contacts and history', icon: <Users size={18} color="#10B981" strokeWidth={2} />, rightText: `${customers.length}`, onPress: () => openSettingsPanel('customers', { pathname: '/customers', params: { from: 'settings' } }) },
+    { id: 'import-customers', title: 'Import Customers', description: 'Upload contacts via CSV', icon: <Upload size={18} color="#10B981" strokeWidth={2} />, onPress: () => openSettingsPanel('import-customers', '/import-customers?from=settings') },
+    { id: 'order-statuses', title: 'Order Statuses', description: 'Workflow stages', icon: <ShoppingCart size={18} color="#F59E0B" strokeWidth={2} />, rightText: `${orderStatuses.length}`, onPress: () => setActiveSection('order-statuses') },
+    { id: 'sale-sources', title: 'Sale Sources', description: 'Where orders come from', icon: <Tag size={18} color="#059669" strokeWidth={2} />, rightText: `${saleSources.length}`, onPress: () => setActiveSection('sale-sources') },
+    { id: 'payment-methods', title: 'Payment Methods', description: 'Bank transfer, POS, website', icon: <CreditCard size={18} color="#3B82F6" strokeWidth={2} />, rightText: `${paymentMethods.length}`, onPress: () => setActiveSection('payment-methods') },
+    { id: 'order-automation', title: 'Order Automation', description: 'Auto-complete stale orders', icon: <Zap size={18} color="#F59E0B" strokeWidth={2} />, onPress: () => openSettingsPanel('order-automation', '/order-automation?from=settings') },
+    { id: 'import-orders', title: 'Import Orders', description: 'Upload orders via CSV', icon: <Upload size={18} color="#10B981" strokeWidth={2} />, onPress: () => openSettingsPanel('import-orders', '/import-orders?from=settings') },
+    ...(canViewInsights && currentUser?.role === 'admin' ? [
+      { id: 'insights', title: 'Insights Dashboard', description: 'Sales, customers, and trends', icon: <BarChart3 size={18} color="#3B82F6" strokeWidth={2} />, onPress: () => openSettingsPanel('insights', '/insights?from=settings') },
+    ] : []),
+    ...(canViewFinance ? [
+      { id: 'finance', title: 'Finance', description: 'Overview, expenses, procurement, settings', icon: <TrendingUp size={18} color="#10B981" strokeWidth={2} />, onPress: () => openSettingsPanel('finance', financeSettingsRoute) },
+    ] : []),
+    { id: 'service-catalog', title: 'Service Catalog', description: 'All services and pricing', icon: <Wrench size={18} color={colors.text.secondary} strokeWidth={2} />, onPress: () => openSettingsPanel('services', '/services?from=settings') },
+    { id: 'addons', title: 'Add-ons', description: 'Lens coating, express delivery', icon: <Wrench size={18} color="#8B5CF6" strokeWidth={2} />, rightText: `${customServices.length}`, onPress: () => setActiveSection('custom-services') },
+    { id: 'all-cases', title: 'All Cases', description: 'View and manage cases', icon: <FileText size={18} color="#8B5CF6" strokeWidth={2} />, onPress: () => openSettingsPanel('cases', '/(tabs)/cases?from=settings') },
+    { id: 'case-statuses', title: 'Case Statuses', description: 'Customize workflow stages', icon: <FileText size={18} color="#F59E0B" strokeWidth={2} />, rightText: `${caseStatuses.length}`, onPress: () => setActiveSection('case-statuses') },
+    { id: 'resolution-types', title: 'Resolution Types', description: 'How cases are resolved', icon: <Check size={18} color="#10B981" strokeWidth={2} />, rightText: `${resolutionTypes.length}`, onPress: () => setActiveSection('resolution-types') },
+    { id: 'logistics-carriers', title: 'Logistics Carriers', description: 'Delivery partners', icon: <Truck size={18} color="#F59E0B" strokeWidth={2} />, rightText: `${logisticsCarriers.length}`, onPress: () => setActiveSection('logistics-carriers') },
+    { id: 'low-stock-alert', title: 'Low Stock Alert', description: useGlobalLowStockThreshold ? `On · ${globalLowStockThreshold} units` : 'Off · Tap to configure', icon: <AlertTriangle size={18} color="#F59E0B" strokeWidth={2} />, onPress: () => { setTempThreshold(globalLowStockThreshold.toString()); setShowLowStockModal(true); } },
+    { id: 'categories', title: 'Categories', description: 'Product groups', icon: <Tag size={18} color="#3B82F6" strokeWidth={2} />, rightText: `${categories.length}`, onPress: () => openSettingsPanel('category-manager', '/category-manager?from=settings') },
+    { id: 'product-variables', title: 'Product Variables', description: 'Color, size, material', icon: <Package size={18} color="#A855F7" strokeWidth={2} />, rightText: `${productVariables.length}`, onPress: () => openSettingsPanel('product-variables', '/product-variables?from=settings') },
+    { id: 'import-products', title: 'Import Products', description: 'Upload CSV', icon: <Upload size={18} color="#10B981" strokeWidth={2} />, onPress: () => openSettingsPanel('import-products', '/import-products?from=settings') },
+    ...(currentUser ? [
+      { id: 'log-out', title: 'Log Out', description: 'Sign out of your account', icon: <LogOut size={18} color={colors.text.tertiary} strokeWidth={2} />, onPress: handleLogout },
+    ] : []),
+  ];
+
+  const filteredSearchItems = searchQuery.trim()
+    ? searchItems.filter(
+        (item) =>
+          item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (item.description && item.description.toLowerCase().includes(searchQuery.toLowerCase()))
+      )
+    : [];
+
   if (activeSection) {
     const titles: Record<SettingsSection, string> = {
       'order-statuses': 'Order Statuses',
       'sale-sources': 'Sale Sources',
-      'custom-services': 'Custom Services',
+      'custom-services': 'Add-ons',
       'payment-methods': 'Payment Methods',
       'logistics-carriers': 'Logistics Carriers',
       'case-statuses': 'Case Statuses',
@@ -1014,36 +1162,42 @@ export default function SettingsScreen() {
 
     return (
       <View className="flex-1" style={{ backgroundColor: colors.bg.primary }}>
-        <SafeAreaView className="flex-1" edges={['top']}>
-          <View className="px-5 pt-6 pb-3 flex-row items-center" style={{ borderBottomWidth: 1, borderBottomColor: colors.border.light }}>
-            <Pressable
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setActiveSection(null);
-              }}
-              className="w-10 h-10 rounded-xl items-center justify-center mr-3 active:opacity-50"
-              style={{ backgroundColor: colors.bg.secondary }}
+        <SafeAreaView className="flex-1" edges={isWebDesktop ? [] : ['top']}>
+          <View style={settingsSectionContentWrapStyle}>
+          <View style={isWebDesktop ? { paddingHorizontal: webDesktopGutterPad, borderBottomWidth: 1, borderBottomColor: colors.border.light } : { borderBottomWidth: 1, borderBottomColor: colors.border.light }}>
+            <View
+              className={isWebDesktop ? 'px-5 pt-5 pb-4 flex-row items-center' : 'px-5 pt-6 pb-3 flex-row items-center'}
+              style={isWebDesktop ? { maxWidth: 1440, width: '100%', alignSelf: 'flex-start', minHeight: desktopHeaderMinHeight } : undefined}
             >
-              <ChevronLeft size={20} color={colors.text.primary} strokeWidth={2} />
-            </Pressable>
-            <View className="flex-1">
-              <Text style={{ color: colors.text.primary }} className="text-xl font-bold">{titles[activeSection]}</Text>
-              {sectionSaveStatus === 'success' && (
-                <Text style={{ color: colors.text.tertiary }} className="text-xs mt-1">Saved</Text>
-              )}
-              {sectionSaveStatus === 'error' && (
-                <Text style={{ color: '#EF4444' }} className="text-xs mt-1">Save failed</Text>
-              )}
+              <Pressable
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setActiveSection(null);
+                }}
+                className="w-10 h-10 rounded-xl items-center justify-center mr-3 active:opacity-50"
+                style={{ backgroundColor: colors.bg.secondary }}
+              >
+                <ChevronLeft size={20} color={colors.text.primary} strokeWidth={2} />
+              </Pressable>
+              <View className="flex-1">
+                <Text style={{ color: colors.text.primary }} className="text-xl font-bold">{titles[activeSection]}</Text>
+                {sectionSaveStatus === 'success' && (
+                  <Text style={{ color: colors.text.tertiary }} className="text-xs mt-1">Saved</Text>
+                )}
+                {sectionSaveStatus === 'error' && (
+                  <Text style={{ color: '#EF4444' }} className="text-xs mt-1">Save failed</Text>
+                )}
+              </View>
+              <Pressable
+                onPress={handleSectionSave}
+                className="px-4 rounded-full items-center justify-center active:opacity-80"
+                style={[primaryPillButtonStyle, { height: 42, minWidth: 104 }]}
+              >
+                <Text style={primaryPillTextStyle} className="text-sm font-semibold">
+                  {sectionSaveStatus === 'saving' ? 'Saving…' : 'Save'}
+                </Text>
+              </Pressable>
             </View>
-            <Pressable
-              onPress={handleSectionSave}
-              className="px-4 rounded-xl items-center justify-center active:opacity-80"
-              style={{ backgroundColor: '#111111', height: 42, minWidth: 104 }}
-            >
-              <Text className="text-white text-sm font-semibold">
-                {sectionSaveStatus === 'saving' ? 'Saving…' : 'Save'}
-              </Text>
-            </Pressable>
           </View>
           <KeyboardAwareScrollView
             className="flex-1"
@@ -1055,6 +1209,7 @@ export default function SettingsScreen() {
             {renderSectionContent()}
             <View className="h-24" />
           </KeyboardAwareScrollView>
+          </View>
         </SafeAreaView>
 
         {renderDeleteSettingModal()}
@@ -1064,10 +1219,91 @@ export default function SettingsScreen() {
 
   return (
     <View className="flex-1" style={{ backgroundColor: colors.bg.primary }}>
-      <SafeAreaView className="flex-1" edges={['top']}>
-        <View className="px-5 pt-6 pb-3" style={{ borderBottomWidth: 1, borderBottomColor: colors.border.light }}>
-          <Text style={{ color: colors.text.tertiary }} className="text-xs font-medium uppercase tracking-wider">Menu</Text>
-          <Text style={{ color: colors.text.primary }} className="text-2xl font-bold">More</Text>
+      <SafeAreaView className="flex-1" edges={isWebDesktop ? [] : ['top']}>
+        <View style={settingsMainContentWrapStyle}>
+        <View>
+          {isWebDesktop ? (
+            <View className="px-5 pt-3" style={{ paddingTop: 20 }}>
+              <View
+                className="flex-row items-start justify-between"
+                style={{
+                  borderBottomWidth: 1,
+                  borderBottomColor: colors.border.light,
+                  marginHorizontal: -20,
+                  paddingHorizontal: 20,
+                  paddingBottom: 10,
+                }}
+              >
+                <View style={{ flex: 1 }}>
+                  <View className="flex-row items-start justify-between">
+                    <View>
+                      <Text style={{ color: colors.text.tertiary }} className="text-xs font-medium uppercase tracking-wider">Menu</Text>
+                      <Text style={{ color: colors.text.primary, ...pageHeadingStyle }}>More</Text>
+                    </View>
+                    <Pressable
+                      onPress={handleRefreshApp}
+                      className="w-10 h-10 rounded-xl items-center justify-center active:opacity-70"
+                      style={{ backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.border.light }}
+                    >
+                      <RotateCcw size={16} color={colors.text.primary} strokeWidth={2} />
+                    </Pressable>
+                  </View>
+                  <View className="flex-row items-center mt-2 rounded-full px-3" style={{ backgroundColor: colors.input.bg, borderWidth: 1, borderColor: colors.input.border, height: 42, marginBottom: 6 }}>
+                    <Search size={15} color={colors.text.muted} strokeWidth={2} />
+                    <TextInput
+                      value={searchQuery}
+                      onChangeText={setSearchQuery}
+                      placeholder="Search settings…"
+                      placeholderTextColor={colors.input.placeholder}
+                      style={{ flex: 1, color: colors.input.text, fontSize: 14, marginLeft: 8 }}
+                      selectionColor={colors.text.primary}
+                      returnKeyType="search"
+                      clearButtonMode="while-editing"
+                    />
+                    {searchQuery ? (
+                      <Pressable onPress={() => setSearchQuery('')} className="p-1 active:opacity-70">
+                        <X size={14} color={colors.text.muted} strokeWidth={2} />
+                      </Pressable>
+                    ) : null}
+                  </View>
+                </View>
+              </View>
+            </View>
+          ) : (
+            <View className="px-5 pt-6 pb-3" style={{ borderBottomWidth: 1, borderBottomColor: colors.border.light }}>
+              <View className="flex-row items-start justify-between">
+                <View>
+                  <Text style={{ color: colors.text.tertiary }} className="text-xs font-medium uppercase tracking-wider">Menu</Text>
+                  <Text style={{ color: colors.text.primary, ...pageHeadingStyle }}>More</Text>
+                </View>
+                <Pressable
+                  onPress={handleRefreshApp}
+                  className="w-10 h-10 rounded-xl items-center justify-center active:opacity-70"
+                  style={{ backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.border.light }}
+                >
+                  <RotateCcw size={16} color={colors.text.primary} strokeWidth={2} />
+                </Pressable>
+              </View>
+              <View className="flex-row items-center mt-3 rounded-full px-3" style={{ backgroundColor: colors.input.bg, borderWidth: 1, borderColor: colors.input.border, height: 42, marginBottom: 6 }}>
+                <Search size={15} color={colors.text.muted} strokeWidth={2} />
+                <TextInput
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  placeholder="Search settings…"
+                  placeholderTextColor={colors.input.placeholder}
+                  style={{ flex: 1, color: colors.input.text, fontSize: 14, marginLeft: 8 }}
+                  selectionColor={colors.text.primary}
+                  returnKeyType="search"
+                  clearButtonMode="while-editing"
+                />
+                {searchQuery ? (
+                  <Pressable onPress={() => setSearchQuery('')} className="p-1 active:opacity-70">
+                    <X size={14} color={colors.text.muted} strokeWidth={2} />
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
+          )}
         </View>
 
         <KeyboardAwareScrollView
@@ -1075,9 +1311,44 @@ export default function SettingsScreen() {
           showsVerticalScrollIndicator={false}
           enableOnAndroid
           extraScrollHeight={100}
-          contentContainerStyle={{ paddingBottom: tabBarHeight + 16 }}
+          contentOffset={{ x: 0, y: mainMenuScrollYRef.current }}
+          scrollEventThrottle={16}
+          onScroll={(event) => {
+            const nextY = event.nativeEvent.contentOffset.y;
+            mainMenuScrollYRef.current = nextY;
+            settingsMainScrollYMemory = nextY;
+          }}
+          contentContainerStyle={{
+            paddingBottom: tabBarHeight + 16,
+            paddingRight: Platform.OS === 'web' && isDesktop ? 24 : 0,
+          }}
         >
-          {currentUser && (
+          {searchQuery.trim() ? (
+            <View className="gap-2">
+              {filteredSearchItems.length > 0 ? (
+                filteredSearchItems.map((item) => (
+                  <SettingsRow
+                    key={item.id}
+                    title={item.title}
+                    description={item.description}
+                    icon={item.icon}
+                    rightText={item.rightText}
+                    onPress={item.onPress}
+                    showChevron={!!item.onPress}
+                  />
+                ))
+              ) : (
+                <View className="items-center py-12">
+                  <Search size={32} color={colors.text.muted} strokeWidth={1.5} />
+                  <Text style={{ color: colors.text.tertiary }} className="text-sm font-medium mt-3">No results for "{searchQuery}"</Text>
+                  <Text style={{ color: colors.text.muted }} className="text-xs mt-1">Try a different keyword</Text>
+                </View>
+              )}
+              <View className="h-8" />
+            </View>
+          ) : null}
+
+          {!searchQuery.trim() && currentUser && (
             <>
               <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mb-3 tracking-wider">Account</Text>
               <View className="gap-2">
@@ -1085,47 +1356,98 @@ export default function SettingsScreen() {
                   title="Account Info"
                   description="Email, role, business details"
                   icon={<Info size={18} color={colors.text.tertiary} strokeWidth={2} />}
-                  onPress={() => router.push('/debug-business')}
+                  onPress={() => openSettingsPanel('debug-business', '/debug-business?from=settings')}
                 />
                 <SettingsRow
                   title="My Account"
                   description="Profile and password"
                   icon={<UserCircle size={18} color="#3B82F6" strokeWidth={2} />}
-                  onPress={() => router.push('/account-settings')}
+                  onPress={() => openSettingsPanel('account-settings', '/account-settings?from=settings')}
                 />
               </View>
             </>
           )}
 
+          {!searchQuery.trim() && (<>
           <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mt-4 mb-3 tracking-wider">Business</Text>
+          <View className="gap-2">
           <SettingsRow
             title="Business Settings"
-            description="Name, logo, branding"
+            description="Logo, phone, website"
             icon={<Building2 size={18} color="#10B981" strokeWidth={2} />}
-            onPress={() => router.push('/business-settings')}
+            onPress={() => openSettingsPanel('business-settings', '/business-settings?from=settings')}
           />
+          {canViewInsights && currentUser?.role === 'admin' ? (
+            <SettingsRow
+              title="Insights Dashboard"
+              description="Sales, customers, and trends"
+              icon={<BarChart3 size={18} color="#3B82F6" strokeWidth={2} />}
+              onPress={() => openSettingsPanel('insights', '/insights?from=settings')}
+            />
+          ) : null}
+          {canViewFinance ? (
+            <SettingsRow
+              title="Finance"
+              description="Overview, expenses, procurement, settings"
+              icon={<TrendingUp size={18} color="#10B981" strokeWidth={2} />}
+              onPress={() => openSettingsPanel('finance', financeSettingsRoute)}
+            />
+          ) : null}
+          <SettingsRow
+            title="Tasks"
+            description="Assign work, due dates, recurring ops"
+            icon={<ListTodo size={18} color="#2563EB" strokeWidth={2} />}
+            onPress={() => openSettingsPanel('tasks', '/tasks')}
+          />
+          </View>
 
           {currentUser?.role === 'admin' && (
             <>
               <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mt-4 mb-3 tracking-wider">Team</Text>
-              <SettingsRow
-                title="Team Members"
-                description="Roles and permissions"
-                icon={<Shield size={18} color="#EF4444" strokeWidth={2} />}
-                rightText={`${teamMembers.length}`}
-                onPress={() => router.push('/team')}
-              />
+              <View className="gap-2">
+                <SettingsRow
+                  title="Team Members"
+                  description="Roles and permissions"
+                  icon={<Shield size={18} color="#EF4444" strokeWidth={2} />}
+                  rightText={`${teamMembers.length}`}
+                  onPress={() => openSettingsPanel('team', '/team?from=settings')}
+                />
+                <SettingsRow
+                  title="Invitations"
+                  description="VIP access, invite limits, history"
+                  icon={<Shield size={18} color="#F59E0B" strokeWidth={2} />}
+                  onPress={() => openSettingsPanel('invitations', '/invitations?from=settings')}
+                />
+              </View>
             </>
           )}
 
+          <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mt-4 mb-3 tracking-wider">Data</Text>
+          <View className="gap-2">
+            <SettingsRow
+              title="AI Import Assistant"
+              description="Orders, customers, products, expenses"
+              icon={<Sparkles size={18} color="#8B5CF6" strokeWidth={2} />}
+              onPress={() => openSettingsPanel('import-ai', '/import-ai?from=settings')}
+            />
+          </View>
+
           <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mt-4 mb-3 tracking-wider">Customers</Text>
-          <SettingsRow
-            title="Customer List"
-            description="Contacts and history"
-            icon={<Users size={18} color="#10B981" strokeWidth={2} />}
-            rightText={`${customers.length}`}
-            onPress={() => router.push('/customers')}
-          />
+          <View className="gap-2">
+            <SettingsRow
+              title="Customer List"
+              description="Contacts and history"
+              icon={<Users size={18} color="#10B981" strokeWidth={2} />}
+              rightText={`${customers.length}`}
+              onPress={() => openSettingsPanel('customers', { pathname: '/customers', params: { from: 'settings' } })}
+            />
+            <SettingsRow
+              title="Import Customers"
+              description="Upload contacts via CSV"
+              icon={<Upload size={18} color="#10B981" strokeWidth={2} />}
+              onPress={() => openSettingsPanel('import-customers', '/import-customers?from=settings')}
+            />
+          </View>
 
           <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mt-4 mb-3 tracking-wider">Orders & Sales</Text>
           <View className="gap-2">
@@ -1150,15 +1472,44 @@ export default function SettingsScreen() {
               rightText={`${paymentMethods.length}`}
               onPress={() => setActiveSection('payment-methods')}
             />
+            <SettingsRow
+              title="Order Automation"
+              description="Auto-complete stale orders"
+              icon={<Zap size={18} color="#F59E0B" strokeWidth={2} />}
+              onPress={() => openSettingsPanel('order-automation', '/order-automation?from=settings')}
+            />
+            <SettingsRow
+              title="Import Orders"
+              description="Upload orders via CSV"
+              icon={<Upload size={18} color="#10B981" strokeWidth={2} />}
+              onPress={() => openSettingsPanel('import-orders', '/import-orders?from=settings')}
+            />
           </View>
 
-          <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mt-4 mb-3 tracking-wider">Operations</Text>
+          <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mt-4 mb-3 tracking-wider">Services</Text>
           <View className="gap-2">
             <SettingsRow
-              title="Cases"
-              description="Post-order issues"
+              title="Service Catalog"
+              description="All services and pricing"
+              icon={<Wrench size={18} color={colors.text.secondary} strokeWidth={2} />}
+              onPress={() => openSettingsPanel('services', '/services?from=settings')}
+            />
+            <SettingsRow
+              title="Add-ons"
+              description="Lens coating, express delivery"
+              icon={<Wrench size={18} color="#8B5CF6" strokeWidth={2} />}
+              rightText={`${customServices.length}`}
+              onPress={() => setActiveSection('custom-services')}
+            />
+          </View>
+
+          <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mt-4 mb-3 tracking-wider">Cases</Text>
+          <View className="gap-2">
+            <SettingsRow
+              title="All Cases"
+              description="View and manage cases"
               icon={<FileText size={18} color="#8B5CF6" strokeWidth={2} />}
-              onPress={() => router.push('/cases')}
+              onPress={() => openSettingsPanel('cases', '/(tabs)/cases?from=settings')}
             />
             <SettingsRow
               title="Case Statuses"
@@ -1176,15 +1527,8 @@ export default function SettingsScreen() {
             />
           </View>
 
-          <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mt-4 mb-3 tracking-wider">Services & Logistics</Text>
+          <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mt-4 mb-3 tracking-wider">Logistics</Text>
           <View className="gap-2">
-            <SettingsRow
-              title="Custom Services"
-              description="Lens coating, express delivery"
-              icon={<Wrench size={18} color="#8B5CF6" strokeWidth={2} />}
-              rightText={`${customServices.length}`}
-              onPress={() => setActiveSection('custom-services')}
-            />
             <SettingsRow
               title="Logistics Carriers"
               description="Delivery partners"
@@ -1212,49 +1556,144 @@ export default function SettingsScreen() {
               description="Product groups"
               icon={<Tag size={18} color="#3B82F6" strokeWidth={2} />}
               rightText={`${categories.length}`}
-              onPress={() => router.push('/category-manager')}
+              onPress={() => openSettingsPanel('category-manager', '/category-manager?from=settings')}
             />
             <SettingsRow
               title="Product Variables"
               description="Color, size, material"
               icon={<Package size={18} color="#A855F7" strokeWidth={2} />}
               rightText={`${productVariables.length}`}
-              onPress={() => router.push('/product-variables')}
+              onPress={() => openSettingsPanel('product-variables', '/product-variables?from=settings')}
             />
             <SettingsRow
               title="Import Products"
               description="Upload CSV"
               icon={<Upload size={18} color="#10B981" strokeWidth={2} />}
-              onPress={() => router.push('/import-products')}
+              onPress={() => openSettingsPanel('import-products', '/import-products?from=settings')}
             />
           </View>
 
           <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mt-4 mb-3 tracking-wider">Appearance</Text>
-          <SettingsRow
-            title={themeMode === 'dark' ? 'Dark Mode' : 'Light Mode'}
-            description={themeMode === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-            icon={
-              themeMode === 'dark'
-                ? <Moon size={18} color="#8B5CF6" strokeWidth={2} />
-                : <Sun size={18} color="#F59E0B" strokeWidth={2} />
-            }
-            showChevron={false}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              setThemeMode(themeMode === 'dark' ? 'light' : 'dark');
-            }}
-            rightElement={
-              <Switch
-                value={themeMode === 'dark'}
-                onValueChange={(value) => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setThemeMode(value ? 'dark' : 'light');
-                }}
-                trackColor={{ false: '#E5E5E5', true: '#8B5CF6' }}
-                thumbColor="#FFFFFF"
-              />
-            }
-          />
+          <View
+            className="rounded-2xl p-4 border"
+            style={{ backgroundColor: colors.bg.card, borderColor: colors.border.light }}
+          >
+            <View className="flex-row items-center mb-3">
+              <View
+                className="w-9 h-9 rounded-lg items-center justify-center mr-3"
+                style={{ backgroundColor: colors.bg.secondary }}
+              >
+                {themeMode === 'system'
+                  ? <Laptop size={18} color="#6366F1" strokeWidth={2} />
+                  : resolvedThemeMode === 'dark'
+                  ? <Moon size={18} color="#8B5CF6" strokeWidth={2} />
+                  : <Sun size={18} color="#F59E0B" strokeWidth={2} />}
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.text.primary }} className="font-semibold text-sm">
+                  Theme
+                </Text>
+                <Text style={{ color: colors.text.tertiary }} className="text-[11px] mt-0.5">
+                  {themeMode === 'system'
+                    ? `Following device: ${resolvedThemeMode === 'dark' ? 'Dark' : 'Light'}`
+                    : `Manually set: ${themeMode === 'dark' ? 'Dark' : 'Light'}`}
+                </Text>
+              </View>
+            </View>
+
+            <View
+              className="rounded-full p-1"
+              style={{ backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.border.light }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                {themeOptions.map((option) => {
+                  const isSelected = themeMode === option.mode;
+                  return (
+                    <Pressable
+                      key={option.mode}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setThemeMode(option.mode);
+                      }}
+                      className="rounded-full active:opacity-80"
+                      style={{
+                        flex: 1,
+                        height: 36,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: isSelected ? colors.bg.card : 'transparent',
+                        borderWidth: isSelected ? 1 : 0,
+                        borderColor: isSelected ? colors.border.light : 'transparent',
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: isSelected ? colors.text.primary : colors.text.tertiary,
+                          fontSize: 12,
+                          fontWeight: '700',
+                        }}
+                      >
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          </View>
+
+          {Platform.OS === 'web' && notifPermission !== null && (
+            <>
+              <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mt-4 mb-3 tracking-wider">Notifications</Text>
+              <View
+                className="rounded-2xl p-4 border"
+                style={{ backgroundColor: colors.bg.card, borderColor: colors.border.light }}
+              >
+                <View className="flex-row items-center gap-3">
+                  <View
+                    className="w-9 h-9 rounded-lg items-center justify-center"
+                    style={{ backgroundColor: notifPermission === 'granted' ? '#10B98120' : colors.bg.secondary }}
+                  >
+                    {notifPermission === 'granted'
+                      ? <Bell size={18} color="#10B981" strokeWidth={2} />
+                      : <BellOff size={18} color={colors.text.tertiary} strokeWidth={2} />}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.text.primary }} className="font-semibold text-sm">
+                      Push Notifications
+                    </Text>
+                    <Text style={{ color: notifPermission === 'granted' ? '#10B981' : notifPermission === 'denied' ? '#EF4444' : colors.text.tertiary }} className="text-[11px] mt-0.5">
+                      {notifPermission === 'granted' ? 'Enabled — you\'ll receive alerts' : notifPermission === 'denied' ? 'Blocked — enable in browser settings' : 'Not yet enabled'}
+                    </Text>
+                  </View>
+                  {notifPermission !== 'granted' && notifPermission !== 'denied' && (
+                    <Pressable
+                      onPress={() => {
+                        promptForPermission();
+                        setTimeout(() => setNotifPermission(window.Notification?.permission ?? null), 1500);
+                      }}
+                      disabled={!notifReady}
+                      className="rounded-full px-3 items-center justify-center active:opacity-80"
+                      style={{ height: 34, backgroundColor: '#2563EB', opacity: notifReady ? 1 : 0.5 }}
+                    >
+                      <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>Enable</Text>
+                    </Pressable>
+                  )}
+                  {notifPermission === 'denied' && (
+                    <Pressable
+                      onPress={() => {
+                        if (typeof window !== 'undefined') window.open('https://support.apple.com/guide/safari/customize-settings-for-a-website-ibrw7f78f7fe/mac', '_blank');
+                      }}
+                      className="rounded-full px-3 items-center justify-center active:opacity-80"
+                      style={{ height: 34, backgroundColor: colors.bg.secondary }}
+                    >
+                      <Text style={{ color: colors.text.tertiary, fontSize: 12, fontWeight: '600' }}>How to fix</Text>
+                    </Pressable>
+                  )}
+                </View>
+              </View>
+            </>
+          )}
 
           <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold uppercase mt-4 mb-3 tracking-wider">Sync</Text>
           <SettingsRow
@@ -1266,10 +1705,10 @@ export default function SettingsScreen() {
               <Pressable
                 onPress={handleSaveGlobalSettings}
                 disabled={saveStatus === 'saving'}
-                className="rounded-xl px-3 items-center justify-center active:opacity-80"
-                style={{ backgroundColor: '#111111', height: 36, minWidth: 80 }}
+                className="rounded-full px-3 items-center justify-center active:opacity-80"
+                style={[primaryPillButtonStyle, { height: 36, minWidth: 80 }]}
               >
-                <Text className="text-white font-semibold text-xs">
+                <Text style={primaryPillTextStyle} className="font-semibold text-xs">
                   {saveStatus === 'saving' ? 'Saving…' : 'Save'}
                 </Text>
               </Pressable>
@@ -1296,13 +1735,7 @@ export default function SettingsScreen() {
               title="Refresh App"
               description="Reload app data"
               icon={<RotateCcw size={18} color={colors.text.tertiary} strokeWidth={2} />}
-              onPress={() => {
-                if (Platform.OS === 'web' && typeof window !== 'undefined') {
-                  window.location.reload();
-                  return;
-                }
-                Alert.alert('Refresh App', 'Close the app and reopen it to refresh on iPhone.');
-              }}
+              onPress={handleRefreshApp}
             />
             {currentUser && (
               <SettingsRow
@@ -1314,7 +1747,10 @@ export default function SettingsScreen() {
             )}
           </View>
 
-          <View className="h-24" />
+          <View className="h-8" />
+          </>)}
+
+          <View className="h-16" />
         </KeyboardAwareScrollView>
 
         <Modal
@@ -1382,14 +1818,15 @@ export default function SettingsScreen() {
 
               <Pressable
                 onPress={handleSaveLowStock}
-                className="rounded-xl items-center justify-center active:opacity-80"
-                style={{ backgroundColor: '#111111', height: 48 }}
+                className="rounded-full items-center justify-center active:opacity-80"
+                style={[primaryPillButtonStyle, { height: 48 }]}
               >
-                <Text className="text-white font-semibold">Save</Text>
+                <Text style={primaryPillTextStyle} className="font-semibold">Save</Text>
               </Pressable>
             </View>
           </View>
         </Modal>
+        </View>
       </SafeAreaView>
 
       {renderDeleteSettingModal()}

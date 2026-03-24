@@ -1,13 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, Pressable, TextInput, Modal, Share, Alert, ActivityIndicator, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { ChevronLeft, Plus, Trash2, Edit2, User as UserIcon, Shield, X, Mail, Clock, Copy, Send, UserCog } from 'lucide-react-native';
+import { useLocalSearchParams } from 'expo-router';
+import { ChevronLeft, Trash2, Edit2, User as UserIcon, Shield, X, Mail, Clock, Copy, Send, UserCog } from 'lucide-react-native';
 import { useThemeColors } from '@/lib/theme';
 import useAuthStore, { TeamMember, TeamRole, PendingInvite } from '@/lib/state/auth-store';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
 import * as Linking from 'expo-linking';
+import { useSettingsBack } from '@/lib/useSettingsBack';
 
 const roleLabels: Record<TeamRole, string> = {
   admin: 'Admin',
@@ -34,8 +35,16 @@ const roleIcons: Record<TeamRole, React.ReactNode> = {
 };
 
 export default function TeamManagementScreen() {
-  const router = useRouter();
+  const { from } = useLocalSearchParams<{ from?: string | string[] }>();
+  const goBack = useSettingsBack();
   const colors = useThemeColors();
+  const primaryPillButtonStyle = {
+    backgroundColor: colors.text.primary,
+    borderRadius: 999,
+  } as const;
+  const primaryPillTextStyle = {
+    color: colors.bg.primary,
+  } as const;
 
   const currentUser = useAuthStore((s) => s.currentUser);
   const teamMembers = useAuthStore((s) => s.teamMembers);
@@ -66,6 +75,22 @@ export default function TeamManagementScreen() {
   const [isInviteSubmitting, setIsInviteSubmitting] = useState(false);
 
   const isAdmin = currentUser?.role === 'admin';
+  const openedFromSettings = Array.isArray(from) ? from[0] === 'settings' : from === 'settings';
+  const showWebSettingsPanel = Platform.OS === 'web' && openedFromSettings;
+  const screenOuterStyle = {
+    backgroundColor: colors.bg.primary,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+  } as const;
+  const screenInnerStyle = {
+    flex: 1,
+    backgroundColor: colors.bg.primary,
+    ...(showWebSettingsPanel
+      ? {
+          width: '100%' as const,
+        }
+      : {}),
+  } as const;
   const pendingInvitesFiltered = pendingInvites.filter(
     (invite) => !teamMembers.some(
       (member) => member.email.toLowerCase() === invite.email.toLowerCase()
@@ -196,7 +221,7 @@ export default function TeamManagementScreen() {
       await Share.share({
         message: `You've been invited to join Fyll ERP as ${roleLabels[invite.role]}!\n\nJoin here: ${joinLink}\n\nInvite code: ${invite.inviteCode}\n\nThis code expires in 7 days.`,
       });
-    } catch (error) {
+    } catch {
       // User cancelled share
     }
   };
@@ -282,11 +307,12 @@ export default function TeamManagementScreen() {
 
   if (!isAdmin) {
     return (
-      <View className="flex-1" style={{ backgroundColor: colors.bg.primary }}>
+      <View className="flex-1" style={screenOuterStyle}>
+        <View style={screenInnerStyle}>
         <SafeAreaView className="flex-1" edges={['top']}>
           <View className="px-5 pt-4 pb-3 flex-row items-center">
             <Pressable
-              onPress={() => router.back()}
+              onPress={goBack}
               className="w-10 h-10 rounded-xl items-center justify-center mr-3 active:opacity-50"
               style={{ backgroundColor: colors.bg.secondary }}
             >
@@ -304,18 +330,20 @@ export default function TeamManagementScreen() {
             </Text>
           </View>
         </SafeAreaView>
+        </View>
       </View>
     );
   }
 
   return (
-    <View className="flex-1" style={{ backgroundColor: colors.bg.primary }}>
+    <View className="flex-1" style={screenOuterStyle}>
+      <View style={screenInnerStyle}>
       <SafeAreaView className="flex-1" edges={['top']}>
         {/* Header */}
         <View className="px-5 pt-4 pb-3 flex-row items-center justify-between" style={{ borderBottomWidth: 1, borderBottomColor: colors.border.light }}>
           <View className="flex-row items-center">
             <Pressable
-              onPress={() => router.back()}
+              onPress={goBack}
               className="w-10 h-10 rounded-xl items-center justify-center mr-3 active:opacity-50"
               style={{ backgroundColor: colors.bg.secondary }}
             >
@@ -331,11 +359,11 @@ export default function TeamManagementScreen() {
               resetInviteForm();
               setShowInviteModal(true);
             }}
-            className="flex-row items-center px-4 rounded-xl active:opacity-80"
-            style={{ backgroundColor: '#111111', height: 42 }}
+            className="flex-row items-center px-4 rounded-full active:opacity-80"
+            style={[primaryPillButtonStyle, { height: 42 }]}
           >
-            <Mail size={16} color="#FFFFFF" strokeWidth={2} />
-            <Text className="text-white font-semibold ml-2 text-sm">Invite</Text>
+            <Mail size={16} color={colors.bg.primary} strokeWidth={2} />
+            <Text style={primaryPillTextStyle} className="font-semibold ml-2 text-sm">Invite</Text>
           </Pressable>
         </View>
 
@@ -492,8 +520,18 @@ export default function TeamManagementScreen() {
         </ScrollView>
 
         {/* Invite Modal */}
-        <Modal visible={showInviteModal} transparent animationType="none">
-          <View className="flex-1 justify-end" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+        <Modal
+          visible={showInviteModal}
+          transparent
+          animationType="none"
+          onRequestClose={() => { setShowInviteModal(false); resetInviteForm(); }}
+        >
+          <Pressable
+            className="flex-1 justify-end"
+            style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+            onPress={() => { setShowInviteModal(false); resetInviteForm(); }}
+          >
+            <Pressable onPress={() => {}}>
             <View className="rounded-t-3xl px-5 pt-6 pb-10" style={{ backgroundColor: colors.bg.primary }}>
               <View className="flex-row items-center justify-between mb-6">
                 <Text style={{ color: colors.text.primary }} className="text-xl font-bold">
@@ -539,19 +577,19 @@ export default function TeamManagementScreen() {
                   <View className="flex-row gap-3">
                     <Pressable
                       onPress={() => handleCopyInviteCode(lastCreatedInvite.inviteCode)}
-                      className="flex-1 flex-row items-center justify-center rounded-xl active:opacity-80"
-                      style={{ backgroundColor: colors.bg.secondary, height: 50 }}
+                      className="flex-1 flex-row items-center justify-center rounded-full active:opacity-80"
+                      style={{ backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.border.light, height: 50 }}
                     >
                       <Copy size={18} color={colors.text.primary} strokeWidth={2} />
                       <Text style={{ color: colors.text.primary }} className="font-semibold ml-2">Copy</Text>
                     </Pressable>
                     <Pressable
                       onPress={() => handleShareInvite(lastCreatedInvite)}
-                      className="flex-1 flex-row items-center justify-center rounded-xl active:opacity-80"
-                      style={{ backgroundColor: '#111111', height: 50 }}
+                      className="flex-1 flex-row items-center justify-center rounded-full active:opacity-80"
+                      style={[primaryPillButtonStyle, { height: 50 }]}
                     >
-                      <Send size={18} color="#FFFFFF" strokeWidth={2} />
-                      <Text className="text-white font-semibold ml-2">Share</Text>
+                      <Send size={18} color={colors.bg.primary} strokeWidth={2} />
+                      <Text style={primaryPillTextStyle} className="font-semibold ml-2">Share</Text>
                     </Pressable>
                   </View>
                 </View>
@@ -631,27 +669,38 @@ export default function TeamManagementScreen() {
                   <Pressable
                     onPress={handleCreateInvite}
                     disabled={isInviteSubmitting}
-                    className="rounded-xl items-center justify-center active:opacity-80"
-                    style={{ backgroundColor: '#111111', height: 50, opacity: isInviteSubmitting ? 0.7 : 1 }}
+                    className="rounded-full items-center justify-center active:opacity-80"
+                    style={[primaryPillButtonStyle, { height: 50, opacity: isInviteSubmitting ? 0.7 : 1 }]}
                   >
                     {isInviteSubmitting ? (
                       <View className="flex-row items-center">
-                        <ActivityIndicator color="#FFFFFF" />
-                        <Text className="text-white font-semibold ml-2">Creating...</Text>
+                        <ActivityIndicator color={colors.bg.primary} />
+                        <Text style={primaryPillTextStyle} className="font-semibold ml-2">Creating...</Text>
                       </View>
                     ) : (
-                      <Text className="text-white font-semibold">Send Invite</Text>
+                      <Text style={primaryPillTextStyle} className="font-semibold">Send Invite</Text>
                     )}
                   </Pressable>
                 </View>
               )}
             </View>
-          </View>
+            </Pressable>
+          </Pressable>
         </Modal>
 
         {/* Edit Modal */}
-        <Modal visible={showEditModal} transparent animationType="none">
-          <View className="flex-1 justify-end" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+        <Modal
+          visible={showEditModal}
+          transparent
+          animationType="none"
+          onRequestClose={() => { setShowEditModal(false); resetEditForm(); }}
+        >
+          <Pressable
+            className="flex-1 justify-end"
+            style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+            onPress={() => { setShowEditModal(false); resetEditForm(); }}
+          >
+            <Pressable onPress={() => {}}>
             <View className="rounded-t-3xl px-5 pt-6 pb-10" style={{ backgroundColor: colors.bg.primary }}>
               <View className="flex-row items-center justify-between mb-6">
                 <Text style={{ color: colors.text.primary }} className="text-xl font-bold">Edit Member</Text>
@@ -764,15 +813,17 @@ export default function TeamManagementScreen() {
               {/* Save Button */}
               <Pressable
                 onPress={handleSaveEdit}
-                className="rounded-xl items-center justify-center active:opacity-80"
-                style={{ backgroundColor: '#111111', height: 50 }}
+                className="rounded-full items-center justify-center active:opacity-80"
+                style={[primaryPillButtonStyle, { height: 50 }]}
               >
-                <Text className="text-white font-semibold">Save Changes</Text>
+                <Text style={primaryPillTextStyle} className="font-semibold">Save Changes</Text>
               </Pressable>
             </View>
-          </View>
+            </Pressable>
+          </Pressable>
         </Modal>
       </SafeAreaView>
+      </View>
     </View>
   );
 }

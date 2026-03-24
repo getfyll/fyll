@@ -14,11 +14,10 @@ import { DetailHeader } from '@/components/stats/DetailHeader';
 import { BreakdownTable } from '@/components/stats/BreakdownTable';
 import { SparklineChart } from '@/components/stats/SparklineChart';
 import { useAnalytics } from '@/hooks/useAnalytics';
-import { formatCurrency } from '@/lib/state/fyll-store';
-import useFyllStore from '@/lib/state/fyll-store';
+import useFyllStore, { formatCurrency } from '@/lib/state/fyll-store';
 import { useStatsColors } from '@/lib/theme';
 
-export default function TodayInsightScreen() {
+export default function TodayInsightScreen({ inline }: { inline?: boolean }) {
   const colors = useStatsColors();
   const analytics = useAnalytics('7d', 'sales');
   const orders = useFyllStore((s) => s.orders);
@@ -44,14 +43,16 @@ export default function TodayInsightScreen() {
     <View className="flex-1" style={{ backgroundColor: colors.bg.screen }}>
       <Stack.Screen options={{ headerShown: false }} />
       <SafeAreaView className="flex-1" edges={['top']}>
-        <DetailHeader
-          title="Today's Summary"
-          subtitle={new Date().toLocaleDateString('en-US', {
-            weekday: 'long',
-            month: 'long',
-            day: 'numeric',
-          })}
-        />
+        {!inline && (
+          <DetailHeader
+            title="Today's Summary"
+            subtitle={new Date().toLocaleDateString('en-US', {
+              weekday: 'long',
+              month: 'long',
+              day: 'numeric',
+            })}
+          />
+        )}
 
         <ScrollView
           className="flex-1"

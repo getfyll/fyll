@@ -1,12 +1,21 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, Pressable, ScrollView, Platform } from 'react-native';
-import { usePathname, useRouter } from 'expo-router';
-import { LayoutDashboard, Package, ShoppingCart, MoreHorizontal, BarChart3, Users, LogOut, Database } from 'lucide-react-native';
+import { useGlobalSearchParams, usePathname, useRouter } from 'expo-router';
+import { LayoutDashboard, Package, ShoppingCart, MoreHorizontal, BarChart3, Users, LogOut, Database, FileText, Briefcase, MessageSquare, ChevronsLeft, ChevronsRight, TrendingUp, TrendingDown, ChevronDown, ChevronUp, Receipt, Truck, Calculator, Settings, ListTodo } from 'lucide-react-native';
 import { useThemeColors } from '@/lib/theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import useAuthStore, { ROLE_PERMISSIONS } from '@/lib/state/auth-store';
 import * as Haptics from 'expo-haptics';
 import { SvgXml } from 'react-native-svg';
+import { useQuery } from '@tanstack/react-query';
+import { collaborationData } from '@/lib/supabase/collaboration';
+import { isTeamThreadEntityId } from '@/lib/team-threads';
+import {
+  canShowFinanceNavigation,
+  getAllowedFinanceSections,
+  getDefaultFinanceSectionForRole,
+  type FinanceSection,
+} from '@/lib/finance-access';
 
 type PermissionKey = keyof typeof ROLE_PERMISSIONS['admin'];
 
@@ -17,38 +26,141 @@ interface NavItem {
   requiresPermission?: PermissionKey;
 }
 
+type FinanceSubKey = FinanceSection | 'calculator';
+
+type FinanceSubItem = {
+  key: FinanceSubKey;
+  label: string;
+  icon: typeof LayoutDashboard;
+  enabled: boolean;
+};
+
 const navItems: NavItem[] = [
   { name: 'Home', href: '/', icon: LayoutDashboard },
   { name: 'Inventory', href: '/inventory', icon: Package },
+  { name: 'Services', href: '/services', icon: Briefcase },
   { name: 'Orders', href: '/orders', icon: ShoppingCart },
+  { name: 'Threads', href: '/threads', icon: MessageSquare },
+  { name: 'Tasks', href: '/tasks', icon: ListTodo },
+  { name: 'Cases', href: '/cases', icon: FileText },
   { name: 'Customers', href: '/customers', icon: Users },
   { name: 'Insights', href: '/insights', icon: BarChart3, requiresPermission: 'canViewInsights' },
+  { name: 'Finance', href: '/finance', icon: TrendingUp, requiresPermission: 'canViewRevenue' },
   { name: 'More', href: '/settings', icon: MoreHorizontal },
+];
+
+const financeSubItems: FinanceSubItem[] = [
+  { key: 'overview', label: 'Overview', icon: TrendingUp, enabled: true },
+  { key: 'expenses', label: 'Expenses', icon: Receipt, enabled: true },
+  { key: 'refunds', label: 'Refunds', icon: TrendingDown, enabled: true },
+  { key: 'procurement', label: 'Procurement', icon: Truck, enabled: true },
+  { key: 'calculator', label: 'Calculator', icon: Calculator, enabled: false },
+  { key: 'settings', label: 'Settings', icon: Settings, enabled: true },
 ];
 
 export function DesktopSidebar() {
   const colors = useThemeColors();
   const router = useRouter();
   const pathname = usePathname();
+  const { section } = useGlobalSearchParams<{ section?: string | string[] }>();
   const insets = useSafeAreaInsets();
   const isDark = colors.bg.primary === '#111111';
 
   const currentUser = useAuthStore((s) => s.currentUser);
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isFinanceMenuOpen, setIsFinanceMenuOpen] = useState(true);
+  const businessId = useAuthStore((s) => s.businessId ?? s.currentUser?.businessId ?? null);
+  const isOfflineMode = useAuthStore((s) => s.isOfflineMode);
   const logout = useAuthStore((s) => s.logout);
   const userRole = currentUser?.role ?? 'staff';
+  const canAccessFinanceNav = canShowFinanceNavigation(userRole);
+  const allowedFinanceSections = useMemo(
+    () => new Set(getAllowedFinanceSections(userRole)),
+    [userRole]
+  );
+  const visibleFinanceSubItems = useMemo(() => {
+    return financeSubItems.filter((item) => {
+      if (item.key === 'calculator') return userRole === 'admin';
+      return allowedFinanceSections.has(item.key);
+    });
+  }, [allowedFinanceSections, userRole]);
+  const threadCountsQuery = useQuery({
+    queryKey: ['collaboration-thread-counts', businessId, 'order'],
+    enabled: Boolean(businessId) && !isOfflineMode,
+    queryFn: () => collaborationData.getUnreadNotificationCountsByEntity(businessId!, 'order'),
+    refetchInterval: 15000,
+  });
+  const teamThreadCountsQuery = useQuery({
+    queryKey: ['collaboration-thread-counts', businessId, 'case'],
+    enabled: Boolean(businessId) && !isOfflineMode,
+    queryFn: () => collaborationData.getUnreadNotificationCountsByEntity(businessId!, 'case'),
+    refetchInterval: 15000,
+  });
+  const taskThreadCountsQuery = useQuery({
+    queryKey: ['collaboration-thread-counts', businessId, 'task'],
+    enabled: Boolean(businessId) && !isOfflineMode,
+    queryFn: () => collaborationData.getUnreadNotificationCountsByEntity(businessId!, 'task'),
+    refetchInterval: 15000,
+  });
+  const totalUnreadThreads = useMemo(() => {
+    const orderCounts = threadCountsQuery.data ?? {};
+    const teamCaseCounts = teamThreadCountsQuery.data ?? {};
+    const orderTotal = Object.values(orderCounts).reduce((sum, count) => sum + count, 0);
+    const teamTotal = Object.entries(teamCaseCounts).reduce((sum, [entityId, count]) => {
+      return isTeamThreadEntityId(entityId) ? sum + count : sum;
+    }, 0);
+    return orderTotal + teamTotal;
+  }, [teamThreadCountsQuery.data, threadCountsQuery.data]);
+  const totalUnreadTasks = useMemo(() => {
+    const taskCounts = taskThreadCountsQuery.data ?? {};
+    return Object.values(taskCounts).reduce((sum, count) => sum + count, 0);
+  }, [taskThreadCountsQuery.data]);
 
-  const handleNavigation = (href: string) => {
+  useEffect(() => {
+    if (pathname.includes('finance')) {
+      setIsFinanceMenuOpen(true);
+    }
+  }, [pathname]);
+
+  const activeFinanceSection: FinanceSection = (() => {
+    const currentSection = Array.isArray(section) ? section[0] : section;
+    if (currentSection === 'expenses') return 'expenses';
+    if (currentSection === 'refunds') return 'refunds';
+    if (currentSection === 'procurement') return 'procurement';
+    if (currentSection === 'settings') return 'settings';
+    if (currentSection === 'overview') return 'overview';
+    return getDefaultFinanceSectionForRole(userRole);
+  })();
+
+  const triggerTapHaptic = () => {
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
+  };
+
+  const navigateToFinanceSection = (targetSection: FinanceSection) => {
+    triggerTapHaptic();
+    router.push(`/(tabs)/finance?section=${targetSection}` as any);
+  };
+
+  const handleNavigation = (href: string) => {
+    triggerTapHaptic();
+    const defaultFinanceSection = getDefaultFinanceSectionForRole(userRole);
 
     // Map routes to tab routes
     const routeMap: Record<string, string> = {
       '/': '/(tabs)',
       '/inventory': '/(tabs)/inventory',
+      '/services': '/(tabs)/services',
       '/orders': '/(tabs)/orders',
+      '/threads': '/(tabs)/threads',
+      '/tasks': '/(tabs)/tasks',
+      '/customers': '/(tabs)/customers',
       '/insights': '/(tabs)/insights',
+      '/finance': `/(tabs)/finance?section=${defaultFinanceSection}`,
       '/settings': '/(tabs)/settings',
+      '/cases': '/(tabs)/cases',
+      '/(tabs)/cases': '/(tabs)/cases',
     };
 
     const targetRoute = routeMap[href] || href;
@@ -63,6 +175,7 @@ export function DesktopSidebar() {
     router.replace('/login');
   };
 
+  const sidebarWidth = isCollapsed ? 88 : 260;
 
   const isActive = (href: string) => {
     if (href === '/') {
@@ -75,7 +188,7 @@ export function DesktopSidebar() {
   return (
     <View
       style={{
-        width: 260,
+        width: sidebarWidth,
         backgroundColor: colors.bg.primary,
         borderRightWidth: 1,
         borderRightColor: colors.border.light,
@@ -86,20 +199,63 @@ export function DesktopSidebar() {
       {/* Logo/Brand */}
       <View
         style={{
-          paddingHorizontal: 20,
+          paddingHorizontal: isCollapsed ? 12 : 20,
           paddingVertical: 16,
           borderBottomWidth: 1,
           borderBottomColor: colors.border.light,
           marginBottom: 8,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: isCollapsed ? 'center' : 'space-between',
         }}
       >
-        <SvgXml
-          xml={`<svg width="120" height="40" viewBox="0 0 344 195" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M27.2814 190.462V91.8673H78.4995H79.4995V90.8673V70.5023V69.5023H78.4995H27.2814V58.7533C27.2814 48.4452 29.5154 40.4114 33.8725 34.546L33.8726 34.546L33.8804 34.5351C38.1419 28.6347 45.6793 25.5504 56.829 25.5504C62.3428 25.5504 66.9479 26.068 70.6648 27.0817L70.6854 27.0873L70.7063 27.0921C74.5027 27.9549 77.3729 28.8909 79.3577 29.8834L80.5143 30.4617L80.7831 29.1968L85.2217 8.30955L85.3942 7.4978L84.6281 7.17862C82.4396 6.26676 78.6987 5.2942 73.4771 4.24979C68.3435 3.18796 62.1805 2.66317 55.0014 2.66317C36.5665 2.66317 22.8382 7.49247 14.0498 17.3545C5.30253 26.9965 1 40.6716 1 58.2311V190.462V191.462H2H26.2814H27.2814V190.462ZM101.618 167.36L100.5 166.852L100.229 168.049L95.7903 187.631L95.617 188.396L96.3183 188.747C97.0819 189.128 98.2703 189.582 99.8435 190.106L99.8579 190.111L99.8724 190.115C101.641 190.646 103.494 191.088 105.432 191.441C107.547 191.968 109.665 192.322 111.785 192.5C113.908 192.852 115.951 193.03 117.914 193.03C125.128 193.03 131.583 192.15 137.267 190.375C143.129 188.598 148.378 185.841 153.006 182.103C157.625 178.372 161.782 173.591 165.483 167.778C169.351 162.149 173.032 155.396 176.529 147.528L176.533 147.519C185.423 126.948 193.702 104.9 201.369 81.3759L201.37 81.3738C209.036 57.6773 216.005 33.0244 222.277 7.41531L222.58 6.17744H221.306H196.241H195.444L195.266 6.95389C190.918 25.9141 186.308 44.3515 181.438 62.2663C176.774 79.422 171.312 96.739 165.051 114.217C161.251 106.035 157.597 97.5585 154.089 88.7884C150.266 79.2297 146.703 69.6713 143.401 60.1134C140.099 50.5532 137.057 41.2547 134.277 32.2179C131.67 23.1809 129.411 14.755 127.501 6.93999L127.315 6.17744H126.53H100.421H99.1265L99.4532 7.42986C105.73 31.4914 113.576 55.2903 122.99 78.8265L122.994 78.8348C132.512 102.024 142.718 124.014 153.614 144.802C149.35 154.066 144.629 160.632 139.494 164.608L139.486 164.614L139.479 164.62C134.318 168.782 127.084 170.926 117.653 170.926C114.793 170.926 111.837 170.505 108.782 169.657L108.763 169.651L108.744 169.647C105.823 168.959 103.453 168.194 101.618 167.36ZM280.241 193.029L281.108 193.049L281.251 192.194L284.645 171.829L284.814 170.813L283.794 170.674C280.004 170.157 276.838 169.557 274.285 168.879C271.801 168.046 269.867 166.902 268.439 165.474C267.022 164.057 265.965 162.136 265.304 159.658C264.638 157.161 264.293 153.948 264.293 149.994V3V1.81327L263.124 2.01448L238.842 6.19192L238.012 6.33479V7.17744V153.91C238.012 166.933 241.179 176.732 247.714 183.086C254.253 189.443 265.186 192.679 280.241 193.029ZM337.583 191.462L338.45 191.482L338.592 190.627L341.986 170.262L342.156 169.246L341.135 169.106C337.346 168.59 334.18 167.99 331.627 167.311C329.142 166.479 327.208 165.335 325.781 163.907C324.363 162.49 323.306 160.569 322.646 158.09C321.98 155.593 321.635 152.381 321.635 148.427V3.00075V1.81402L320.465 2.01523L296.184 6.19267L295.354 6.33554V7.17819V152.343C295.354 165.366 298.52 175.165 305.056 181.519C311.594 187.876 322.527 191.112 337.583 191.462Z" fill="${colors.text.primary}" stroke="${colors.text.primary}" stroke-width="2"/>
-          </svg>`}
-          width={120}
-          height={40}
-        />
+        {!isCollapsed ? (
+          <SvgXml
+            xml={`<svg width="120" height="40" viewBox="0 0 344 195" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M27.2814 190.462V91.8673H78.4995H79.4995V90.8673V70.5023V69.5023H78.4995H27.2814V58.7533C27.2814 48.4452 29.5154 40.4114 33.8725 34.546L33.8726 34.546L33.8804 34.5351C38.1419 28.6347 45.6793 25.5504 56.829 25.5504C62.3428 25.5504 66.9479 26.068 70.6648 27.0817L70.6854 27.0873L70.7063 27.0921C74.5027 27.9549 77.3729 28.8909 79.3577 29.8834L80.5143 30.4617L80.7831 29.1968L85.2217 8.30955L85.3942 7.4978L84.6281 7.17862C82.4396 6.26676 78.6987 5.2942 73.4771 4.24979C68.3435 3.18796 62.1805 2.66317 55.0014 2.66317C36.5665 2.66317 22.8382 7.49247 14.0498 17.3545C5.30253 26.9965 1 40.6716 1 58.2311V190.462V191.462H2H26.2814H27.2814V190.462ZM101.618 167.36L100.5 166.852L100.229 168.049L95.7903 187.631L95.617 188.396L96.3183 188.747C97.0819 189.128 98.2703 189.582 99.8435 190.106L99.8579 190.111L99.8724 190.115C101.641 190.646 103.494 191.088 105.432 191.441C107.547 191.968 109.665 192.322 111.785 192.5C113.908 192.852 115.951 193.03 117.914 193.03C125.128 193.03 131.583 192.15 137.267 190.375C143.129 188.598 148.378 185.841 153.006 182.103C157.625 178.372 161.782 173.591 165.483 167.778C169.351 162.149 173.032 155.396 176.529 147.528L176.533 147.519C185.423 126.948 193.702 104.9 201.369 81.3759L201.37 81.3738C209.036 57.6773 216.005 33.0244 222.277 7.41531L222.58 6.17744H221.306H196.241H195.444L195.266 6.95389C190.918 25.9141 186.308 44.3515 181.438 62.2663C176.774 79.422 171.312 96.739 165.051 114.217C161.251 106.035 157.597 97.5585 154.089 88.7884C150.266 79.2297 146.703 69.6713 143.401 60.1134C140.099 50.5532 137.057 41.2547 134.277 32.2179C131.67 23.1809 129.411 14.755 127.501 6.93999L127.315 6.17744H126.53H100.421H99.1265L99.4532 7.42986C105.73 31.4914 113.576 55.2903 122.99 78.8265L122.994 78.8348C132.512 102.024 142.718 124.014 153.614 144.802C149.35 154.066 144.629 160.632 139.494 164.608L139.486 164.614L139.479 164.62C134.318 168.782 127.084 170.926 117.653 170.926C114.793 170.926 111.837 170.505 108.782 169.657L108.763 169.651L108.744 169.647C105.823 168.959 103.453 168.194 101.618 167.36ZM280.241 193.029L281.108 193.049L281.251 192.194L284.645 171.829L284.814 170.813L283.794 170.674C280.004 170.157 276.838 169.557 274.285 168.879C271.801 168.046 269.867 166.902 268.439 165.474C267.022 164.057 265.965 162.136 265.304 159.658C264.638 157.161 264.293 153.948 264.293 149.994V3V1.81327L263.124 2.01448L238.842 6.19192L238.012 6.33479V7.17744V153.91C238.012 166.933 241.179 176.732 247.714 183.086C254.253 189.443 265.186 192.679 280.241 193.029ZM337.583 191.462L338.45 191.482L338.592 190.627L341.986 170.262L342.156 169.246L341.135 169.106C337.346 168.59 334.18 167.99 331.627 167.311C329.142 166.479 327.208 165.335 325.781 163.907C324.363 162.49 323.306 160.569 322.646 158.09C321.98 155.593 321.635 152.381 321.635 148.427V3.00075V1.81402L320.465 2.01523L296.184 6.19267L295.354 6.33554V7.17819V152.343C295.354 165.366 298.52 175.165 305.056 181.519C311.594 187.876 322.527 191.112 337.583 191.462Z" fill="${colors.text.primary}" stroke="${colors.text.primary}" stroke-width="2"/>
+            </svg>`}
+            width={120}
+            height={40}
+          />
+        ) : (
+          <View
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: colors.bg.secondary,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Text style={{ color: colors.text.primary, fontSize: 18, fontWeight: '800' }}>
+              F
+            </Text>
+          </View>
+        )}
+        <Pressable
+          onPress={() => setIsCollapsed((value) => !value)}
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: 14,
+            backgroundColor: colors.bg.secondary,
+            borderWidth: 1,
+            borderColor: colors.border.light,
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginLeft: isCollapsed ? 0 : 8,
+            position: isCollapsed ? 'absolute' : 'relative',
+            right: isCollapsed ? -6 : undefined,
+            top: isCollapsed ? 6 : undefined,
+          }}
+        >
+          {isCollapsed ? (
+            <ChevronsRight size={15} color={colors.text.muted} strokeWidth={2.4} />
+          ) : (
+            <ChevronsLeft size={15} color={colors.text.muted} strokeWidth={2.4} />
+          )}
+        </Pressable>
       </View>
 
       {/* Navigation Items */}
@@ -110,7 +266,8 @@ export function DesktopSidebar() {
       >
         {navItems.map((item) => {
           // Check permission if required
-          if (item.requiresPermission) {
+          if (item.href === '/finance' && !canAccessFinanceNav) return null;
+          if (item.href !== '/finance' && item.requiresPermission) {
             const permissions = ROLE_PERMISSIONS[userRole];
             const hasPermission = permissions ? permissions[item.requiresPermission] : false;
             if (!hasPermission) return null;
@@ -118,6 +275,123 @@ export function DesktopSidebar() {
 
           const active = isActive(item.href);
           const Icon = item.icon;
+          const activeBg = colors.accent.primary;
+          const activeFg = isDark ? '#111111' : '#FFFFFF';
+          const navBadgeCount = item.href === '/threads'
+            ? totalUnreadThreads
+            : item.href === '/tasks'
+              ? totalUnreadTasks
+              : 0;
+
+          if (item.href === '/finance' && !isCollapsed) {
+            return (
+              <View key={item.href} style={{ marginHorizontal: 12, marginVertical: 4 }}>
+                <Pressable
+                  onPress={() => {
+                    if (active) {
+                      setIsFinanceMenuOpen((previous) => !previous);
+                      return;
+                    }
+                    setIsFinanceMenuOpen(true);
+                    navigateToFinanceSection(getDefaultFinanceSectionForRole(userRole));
+                  }}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    paddingHorizontal: 16,
+                    paddingVertical: 14,
+                    borderRadius: 18,
+                    backgroundColor: active ? colors.bg.secondary : 'transparent',
+                    borderWidth: active ? 1 : 0,
+                    borderColor: colors.border.light,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 26,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginRight: 14,
+                    }}
+                  >
+                    <Icon
+                      size={20}
+                      color={active ? colors.text.primary : colors.text.tertiary}
+                      strokeWidth={active ? 2.5 : 2}
+                    />
+                  </View>
+                  <Text
+                    style={{
+                      fontSize: 15,
+                      fontWeight: active ? '700' : '500',
+                      color: active ? colors.text.primary : colors.text.secondary,
+                    }}
+                  >
+                    {item.name}
+                  </Text>
+                  {isFinanceMenuOpen ? (
+                    <ChevronUp size={18} color={colors.text.tertiary} strokeWidth={2.4} style={{ marginLeft: 'auto' }} />
+                  ) : (
+                    <ChevronDown size={18} color={colors.text.tertiary} strokeWidth={2.4} style={{ marginLeft: 'auto' }} />
+                  )}
+                </Pressable>
+
+                {isFinanceMenuOpen ? (
+                  <View
+                    style={{
+                      marginTop: 8,
+                      marginLeft: 18,
+                      paddingLeft: 12,
+                      borderLeftWidth: 1,
+                      borderLeftColor: colors.border.light,
+                    }}
+                  >
+                    {visibleFinanceSubItems.map((subItem) => {
+                      const SubIcon = subItem.icon;
+                      const isSubActive = active && subItem.key === activeFinanceSection;
+
+                      return (
+                        <Pressable
+                          key={subItem.key}
+                          onPress={() => {
+                            if (!subItem.enabled) return;
+                            if (subItem.key === 'calculator') return;
+                            navigateToFinanceSection(subItem.key);
+                          }}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            paddingHorizontal: 12,
+                            paddingVertical: 12,
+                            marginBottom: 2,
+                            borderRadius: 16,
+                            backgroundColor: isSubActive ? colors.bg.secondary : 'transparent',
+                            opacity: subItem.enabled ? 1 : 0.45,
+                          }}
+                        >
+                          <SubIcon
+                            size={18}
+                            color={isSubActive ? colors.text.primary : colors.text.tertiary}
+                            strokeWidth={isSubActive ? 2.4 : 2}
+                          />
+                          <Text
+                            style={{
+                              fontSize: 13,
+                              fontWeight: isSubActive ? '700' : '500',
+                              color: isSubActive ? colors.text.primary : colors.text.secondary,
+                              marginLeft: 10,
+                            }}
+                          >
+                            {subItem.label}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ) : null}
+              </View>
+            );
+          }
 
           return (
             <Pressable
@@ -127,43 +401,67 @@ export function DesktopSidebar() {
                 flexDirection: 'row',
                 alignItems: 'center',
                 marginHorizontal: 12,
-                marginVertical: 2,
-                paddingHorizontal: 16,
-                paddingVertical: 12,
-                borderRadius: 12,
-                backgroundColor: active ? (isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)') : 'transparent',
+                marginVertical: 4,
+                paddingHorizontal: isCollapsed ? 0 : 16,
+                paddingVertical: isCollapsed ? 12 : 14,
+                borderRadius: 999,
+                backgroundColor: active ? activeBg : 'transparent',
+                justifyContent: isCollapsed ? 'center' : 'flex-start',
+                position: 'relative',
               }}
             >
               <View
                 style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 10,
-                  backgroundColor: active
-                    ? colors.accent.primary
-                    : isDark
-                      ? 'rgba(255,255,255,0.05)'
-                      : 'rgba(0,0,0,0.03)',
+                  width: 26,
                   alignItems: 'center',
                   justifyContent: 'center',
-                  marginRight: 12,
+                  marginRight: isCollapsed ? 0 : 14,
                 }}
               >
                 <Icon
                   size={20}
-                  color={active ? (isDark ? '#000000' : '#FFFFFF') : colors.text.tertiary}
+                  color={active ? activeFg : colors.text.tertiary}
                   strokeWidth={active ? 2.5 : 2}
                 />
               </View>
-              <Text
-                style={{
-                  fontSize: 15,
-                  fontWeight: active ? '600' : '500',
-                  color: active ? colors.text.primary : colors.text.secondary,
-                }}
-              >
-                {item.name}
-              </Text>
+              {!isCollapsed ? (
+                <Text
+                  style={{
+                    fontSize: 15,
+                    fontWeight: active ? '600' : '500',
+                    color: active ? activeFg : colors.text.secondary,
+                  }}
+                >
+                  {item.name}
+                </Text>
+              ) : null}
+              {navBadgeCount > 0 && (
+                <View
+                  style={{
+                    marginLeft: isCollapsed ? 0 : 'auto',
+                    minWidth: 20,
+                    height: 20,
+                    borderRadius: 10,
+                    backgroundColor: '#EF4444',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    paddingHorizontal: 6,
+                    position: isCollapsed ? 'absolute' : 'relative',
+                    right: isCollapsed ? 6 : undefined,
+                    top: isCollapsed ? 4 : undefined,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: '#FFFFFF',
+                      fontSize: 11,
+                      fontWeight: '700',
+                    }}
+                  >
+                    {navBadgeCount > 99 ? '99+' : navBadgeCount}
+                  </Text>
+                </View>
+              )}
             </Pressable>
           );
         })}
@@ -183,7 +481,8 @@ export function DesktopSidebar() {
             style={{
               flexDirection: 'row',
               alignItems: 'center',
-              paddingHorizontal: 16,
+              justifyContent: isCollapsed ? 'center' : 'flex-start',
+              paddingHorizontal: isCollapsed ? 0 : 16,
               paddingVertical: 10,
               marginBottom: 8,
             }}
@@ -196,7 +495,7 @@ export function DesktopSidebar() {
                 backgroundColor: colors.bg.tertiary,
                 alignItems: 'center',
                 justifyContent: 'center',
-                marginRight: 12,
+                marginRight: isCollapsed ? 0 : 12,
               }}
             >
               <Text
@@ -209,27 +508,29 @@ export function DesktopSidebar() {
                 {currentUser.name.charAt(0).toUpperCase()}
               </Text>
             </View>
-            <View style={{ flex: 1 }}>
-              <Text
-                style={{
-                  fontSize: 14,
-                  fontWeight: '600',
-                  color: colors.text.primary,
-                }}
-                numberOfLines={1}
-              >
-                {currentUser.name}
-              </Text>
-              <Text
-                style={{
-                  fontSize: 12,
-                  color: colors.text.muted,
-                  textTransform: 'capitalize',
-                }}
-              >
-                {currentUser.role}
-              </Text>
-            </View>
+            {!isCollapsed ? (
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    fontSize: 14,
+                    fontWeight: '600',
+                    color: colors.text.primary,
+                  }}
+                  numberOfLines={1}
+                >
+                  {currentUser.name}
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 12,
+                    color: colors.text.muted,
+                    textTransform: 'capitalize',
+                  }}
+                >
+                  {currentUser.role}
+                </Text>
+              </View>
+            ) : null}
           </View>
         )}
 
@@ -238,24 +539,27 @@ export function DesktopSidebar() {
           style={{
             flexDirection: 'row',
             alignItems: 'center',
-            paddingHorizontal: 16,
+            justifyContent: isCollapsed ? 'center' : 'flex-start',
+            paddingHorizontal: isCollapsed ? 0 : 16,
             paddingVertical: 12,
-            borderRadius: 12,
+            borderRadius: isCollapsed ? 999 : 12,
             backgroundColor: 'rgba(34, 197, 94, 0.12)',
             marginBottom: 8,
           }}
         >
           <Database size={18} color="#22C55E" strokeWidth={2} />
-          <Text
-            style={{
-              fontSize: 14,
-              fontWeight: '600',
-              color: '#22C55E',
-              marginLeft: 12,
-            }}
-          >
-            Test Supabase
-          </Text>
+          {!isCollapsed ? (
+            <Text
+              style={{
+                fontSize: 14,
+                fontWeight: '600',
+                color: '#22C55E',
+                marginLeft: 12,
+              }}
+            >
+              Test Supabase
+            </Text>
+          ) : null}
         </Pressable>
 
         <Pressable
@@ -263,23 +567,26 @@ export function DesktopSidebar() {
           style={{
             flexDirection: 'row',
             alignItems: 'center',
-            paddingHorizontal: 16,
+            justifyContent: isCollapsed ? 'center' : 'flex-start',
+            paddingHorizontal: isCollapsed ? 0 : 16,
             paddingVertical: 12,
-            borderRadius: 12,
+            borderRadius: isCollapsed ? 999 : 12,
             backgroundColor: 'rgba(239, 68, 68, 0.1)',
           }}
         >
           <LogOut size={18} color="#EF4444" strokeWidth={2} />
-          <Text
-            style={{
-              fontSize: 14,
-              fontWeight: '600',
-              color: '#EF4444',
-              marginLeft: 12,
-            }}
-          >
-            Sign Out
-          </Text>
+          {!isCollapsed ? (
+            <Text
+              style={{
+                fontSize: 14,
+                fontWeight: '600',
+                color: '#EF4444',
+                marginLeft: 12,
+              }}
+            >
+              Sign Out
+            </Text>
+          ) : null}
         </Pressable>
       </View>
     </View>

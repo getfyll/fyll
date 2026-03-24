@@ -7,11 +7,10 @@ import { DetailHeader } from '@/components/stats/DetailHeader';
 import { BreakdownTable } from '@/components/stats/BreakdownTable';
 import { HorizontalBarChart } from '@/components/stats/HorizontalBarChart';
 import { useAnalytics } from '@/hooks/useAnalytics';
-import { formatCurrency } from '@/lib/state/fyll-store';
 import { TimeRange } from '@/lib/analytics-utils';
 import { useStatsColors } from '@/lib/theme';
 
-export default function LocationsInsightScreen() {
+export default function LocationsInsightScreen({ inline }: { inline?: boolean }) {
   const colors = useStatsColors();
   const [timeRange, setTimeRange] = useState<TimeRange>('7d');
   const analytics = useAnalytics(timeRange, 'customers');
@@ -44,10 +43,12 @@ export default function LocationsInsightScreen() {
     <View className="flex-1" style={{ backgroundColor: colors.bg.screen }}>
       <Stack.Screen options={{ headerShown: false }} />
       <SafeAreaView className="flex-1" edges={['top']}>
-        <DetailHeader
-          title="Location Analytics"
-          subtitle="Geographic breakdown of customers"
-        />
+        {!inline && (
+          <DetailHeader
+            title="Location Analytics"
+            subtitle="Geographic breakdown of customers"
+          />
+        )}
 
         <ScrollView
           className="flex-1"

@@ -1,15 +1,20 @@
 import React, { useEffect } from 'react';
 import { View, Text, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import useAuthStore from '@/lib/state/auth-store';
 import useFyllStore from '@/lib/state/fyll-store';
 import { useBusinessSettings } from '@/hooks/useBusinessSettings';
-import { Copy, ArrowLeft } from 'lucide-react-native';
+import { Copy, ChevronLeft } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
+import { getSettingsWebPanelStyles, isFromSettingsRoute } from '@/lib/settings-web-panel';
+import { useSettingsBack } from '@/lib/useSettingsBack';
 
 export default function DebugBusinessScreen() {
   const router = useRouter();
+  const { from } = useLocalSearchParams<{ from?: string | string[] }>();
+  const goBack = useSettingsBack();
+  const panelStyles = getSettingsWebPanelStyles(isFromSettingsRoute(from), '#FFFFFF', '#EEEEEE');
   const currentUser = useAuthStore((s) => s.currentUser);
   const businessId = useAuthStore((s) => s.businessId);
   const products = useFyllStore((s) => s.products);
@@ -29,17 +34,27 @@ export default function DebugBusinessScreen() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+    <View style={panelStyles.outer}>
+      <View style={panelStyles.inner}>
       <SafeAreaView style={{ flex: 1 }}>
         {/* Header */}
         <View style={{ padding: 20, borderBottomWidth: 1, borderBottomColor: '#EEEEEE' }}>
-          <Pressable
-            onPress={() => router.back()}
-            style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}
-          >
-            <ArrowLeft size={20} color="#000000" />
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+            <Pressable
+              onPress={goBack}
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 12,
+                backgroundColor: '#F5F5F5',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <ChevronLeft size={20} color="#000000" strokeWidth={2} />
+            </Pressable>
             <Text style={{ marginLeft: 8, fontSize: 16 }}>Back</Text>
-          </Pressable>
+          </View>
           <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#000000' }}>
             Business Debug Info
           </Text>
@@ -152,6 +167,7 @@ export default function DebugBusinessScreen() {
           </View>
         </ScrollView>
       </SafeAreaView>
+      </View>
     </View>
   );
 }

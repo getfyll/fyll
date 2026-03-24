@@ -5,11 +5,9 @@ import { db } from './firebaseConfig';
 import {
     collection,
     doc,
-    addDoc,
     updateDoc,
     deleteDoc,
     getDocs,
-    query,
     setDoc,
     getDoc
 } from 'firebase/firestore/lite';

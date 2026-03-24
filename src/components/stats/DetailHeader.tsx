@@ -1,7 +1,8 @@
 import React from 'react';
-import { View, Text, Pressable } from 'react-native';
+import { View, Text, Pressable, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
-import { ChevronLeft, Download } from 'lucide-react-native';
+import { getInlineCloseHandler } from '@/lib/inline-navigation';
+import { ArrowLeft, Download } from 'lucide-react-native';
 import { useStatsColors } from '@/lib/theme';
 
 interface DetailHeaderProps {
@@ -32,15 +33,33 @@ export function DetailHeader({
   return (
     <View
       className="flex-row items-center justify-between px-5 py-4"
-      style={{ backgroundColor: colors.bg.screen }}
+      style={{
+        backgroundColor: colors.bg.screen,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.divider,
+      }}
     >
       <View className="flex-row items-center flex-1">
         <Pressable
-          onPress={() => router.back()}
-          className="w-10 h-10 rounded-full items-center justify-center mr-3"
-          style={{ backgroundColor: colors.bg.card }}
+          onPress={() => {
+            const inline = getInlineCloseHandler();
+            if (Platform.OS === 'web' && inline) {
+              inline();
+            } else {
+              router.back();
+            }
+          }}
+          className="active:opacity-70 mr-3"
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 10,
+            backgroundColor: colors.bg.card,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
         >
-          <ChevronLeft size={24} color={colors.text.primary} strokeWidth={2} />
+          <ArrowLeft size={18} color={colors.text.primary} strokeWidth={2} />
         </Pressable>
         <View className="flex-1">
           <Text

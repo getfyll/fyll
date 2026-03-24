@@ -1,5 +1,6 @@
 // Fyll Design System - Light/Dark Theme Support
-import useFyllStore from './state/fyll-store';
+import { Platform, useColorScheme } from 'react-native';
+import useFyllStore, { type ThemeMode } from './state/fyll-store';
 
 export const lightColors = {
   // Core Background - Light Mode (flat, modern card-based layout)
@@ -125,16 +126,42 @@ export const darkColors = {
 
 export type ThemeColors = typeof lightColors;
 
+const lightColorsWeb: ThemeColors = {
+  ...lightColors,
+  bg: {
+    ...lightColors.bg,
+    primary: '#FFFFFF',
+    secondary: '#F7F7F7',
+    tertiary: '#F0F0F0',
+  },
+};
+
 export const useThemeColors = (): ThemeColors => {
+  const resolvedThemeMode = useResolvedThemeMode();
+  if (resolvedThemeMode === 'light') {
+    return Platform.OS === 'web' ? lightColorsWeb : lightColors;
+  }
+  return darkColors;
+};
+
+const resolveThemeMode = (themeMode: ThemeMode, systemScheme: 'light' | 'dark' | null | undefined): 'light' | 'dark' => {
+  if (themeMode === 'system') {
+    return systemScheme === 'dark' ? 'dark' : 'light';
+  }
+  return themeMode;
+};
+
+export const useResolvedThemeMode = (): 'light' | 'dark' => {
   const themeMode = useFyllStore((s) => s.themeMode);
-  return themeMode === 'light' ? lightColors : darkColors;
+  const systemScheme = useColorScheme();
+  return resolveThemeMode(themeMode, systemScheme);
 };
 
 // Stats-specific colors derived from theme (for Insights screens)
 export function useStatsColors() {
-  const themeMode = useFyllStore((s) => s.themeMode);
+  const resolvedThemeMode = useResolvedThemeMode();
   const theme = useThemeColors();
-  const isLight = themeMode === 'light';
+  const isLight = resolvedThemeMode === 'light';
 
   return {
     bg: {

@@ -1,10 +1,13 @@
 import React, { useState, useMemo } from 'react';
-import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { X, Plus, Minus, Trash2, ChevronDown, Package } from 'lucide-react-native';
-import useFyllStore, { ProcurementItem, formatCurrency } from '@/lib/state/fyll-store';
+import { X, Plus, Minus, Trash2, ChevronDown, Package, Paperclip, FileText, Image as ImageIcon } from 'lucide-react-native';
+import * as DocumentPicker from 'expo-document-picker';
+import useFyllStore, { ProcurementItem, ProcurementAttachment, formatCurrency } from '@/lib/state/fyll-store';
+import useAuthStore from '@/lib/state/auth-store';
 import { cn } from '@/lib/cn';
+import { uploadBusinessAttachment } from '@/lib/storage-attachments';
 
 interface ItemFormData extends ProcurementItem {
   tempId: string;
@@ -15,18 +18,23 @@ export default function NewProcurementScreen() {
   const products = useFyllStore((s) => s.products);
   const addProcurement = useFyllStore((s) => s.addProcurement);
   const updateVariantStock = useFyllStore((s) => s.updateVariantStock);
+  const businessId = useAuthStore((s) => s.businessId);
 
+  const [title, setTitle] = useState('');
   const [supplierName, setSupplierName] = useState('');
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<ItemFormData[]>([]);
+  const [attachments, setAttachments] = useState<ProcurementAttachment[]>([]);
   const [showProductSelector, setShowProductSelector] = useState(false);
   const [expandedProduct, setExpandedProduct] = useState<string | null>(null);
+  const [pickingFile, setPickingFile] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const totalCost = useMemo(() => {
     return items.reduce((sum, item) => sum + item.costAtPurchase * item.quantity, 0);
   }, [items]);
 
-  const handleAddItem = (productId: string, variantId: string) => {
+  const handleAddItem = (productId: string, variantId: string, productName: string, variantName: string) => {
     const existing = items.find((i) => i.productId === productId && i.variantId === variantId);
     if (existing) return;
 
@@ -38,6 +46,8 @@ export default function NewProcurementScreen() {
         variantId,
         quantity: 1,
         costAtPurchase: 0,
+        productName,
+        variantName,
       },
     ]);
   };
@@ -50,38 +60,127 @@ export default function NewProcurementScreen() {
     setItems(items.filter((item) => item.tempId !== tempId));
   };
 
-  const handleSubmit = () => {
-    if (!supplierName.trim() || items.length === 0) return;
+  const handlePickFile = async () => {
+    setPickingFile(true);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true,
+        multiple: true,
+      });
 
-    const procurementItems: ProcurementItem[] = items.map(({ productId, variantId, quantity, costAtPurchase }) => ({
-      productId,
-      variantId,
-      quantity,
-      costAtPurchase,
-    }));
+      if (result.canceled) return;
 
-    addProcurement({
-      id: Math.random().toString(36).substring(2, 15),
-      supplierName: supplierName.trim(),
-      items: procurementItems,
-      totalCost,
-      notes: notes.trim(),
-      createdAt: new Date().toISOString(),
-    });
-
-    // Update stock levels
-    items.forEach((item) => {
-      updateVariantStock(item.productId, item.variantId, item.quantity);
-    });
-
-    router.back();
+      const newAttachments: ProcurementAttachment[] = [];
+      for (const asset of result.assets) {
+        newAttachments.push({
+          uri: asset.uri,
+          name: asset.name,
+          mimeType: asset.mimeType ?? undefined,
+          fileSize: typeof asset.size === 'number' ? asset.size : undefined,
+        });
+      }
+      setAttachments((prev) => [...prev, ...newAttachments]);
+    } catch (e) {
+      console.warn('File pick error:', e);
+    } finally {
+      setPickingFile(false);
+    }
   };
 
-  const getItemDetails = (item: ItemFormData) => {
+  const handleRemoveAttachment = (uri: string) => {
+    setAttachments((prev) => prev.filter((a) => a.uri !== uri));
+  };
+
+  const handleSubmit = async () => {
+    if (!supplierName.trim() || items.length === 0) return;
+    if (isSaving) return;
+
+    setIsSaving(true);
+    try {
+      const finalizedAttachments: ProcurementAttachment[] = [];
+      for (const attachment of attachments) {
+        const existingStoragePath = attachment.storagePath?.trim();
+        if (existingStoragePath) {
+          finalizedAttachments.push({
+            ...attachment,
+            uri: existingStoragePath,
+            storagePath: existingStoragePath,
+          });
+          continue;
+        }
+
+        const sourceUri = attachment.uri?.trim();
+        if (!sourceUri) continue;
+
+        if (/^https?:\/\//i.test(sourceUri) || !businessId) {
+          finalizedAttachments.push(attachment);
+          continue;
+        }
+
+        const uploaded = await uploadBusinessAttachment({
+          businessId,
+          folder: 'finance/procurements',
+          uri: sourceUri,
+          fileName: attachment.name,
+          mimeType: attachment.mimeType ?? null,
+        });
+
+        finalizedAttachments.push({
+          ...attachment,
+          uri: uploaded.storagePath,
+          storagePath: uploaded.storagePath,
+          mimeType: uploaded.mimeType ?? attachment.mimeType,
+          fileSize: uploaded.fileSize ?? attachment.fileSize,
+        });
+      }
+
+      const procurementItems: ProcurementItem[] = items.map(({ productId, variantId, quantity, costAtPurchase, productName, variantName }) => ({
+        productId,
+        variantId,
+        quantity,
+        costAtPurchase,
+        productName,
+        variantName,
+      }));
+
+      addProcurement({
+        id: Math.random().toString(36).substring(2, 15),
+        title: title.trim() || undefined,
+        supplierName: supplierName.trim(),
+        items: procurementItems,
+        totalCost,
+        notes: notes.trim(),
+        createdAt: new Date().toISOString(),
+        attachments: finalizedAttachments.length > 0 ? finalizedAttachments : undefined,
+      }, businessId);
+
+      items.forEach((item) => {
+        updateVariantStock(item.productId, item.variantId, item.quantity);
+      });
+
+      router.back();
+    } catch (error) {
+      console.warn('Procurement save failed:', error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const getItemDisplayName = (item: ItemFormData) => {
+    if (item.productName) {
+      return { productName: item.productName, variantName: item.variantName ?? '' };
+    }
     const product = products.find((p) => p.id === item.productId);
     const variant = product?.variants.find((v) => v.id === item.variantId);
     const variantName = variant ? Object.values(variant.variableValues).join(' / ') : '';
-    return { productName: product?.name || 'Unknown', variantName };
+    return { productName: product?.name ?? 'Unknown', variantName };
+  };
+
+  const getFileIcon = (mimeType?: string) => {
+    if (!mimeType) return <FileText size={16} color="#6B7280" strokeWidth={1.5} />;
+    if (mimeType.startsWith('image/')) return <ImageIcon size={16} color="#6B7280" strokeWidth={1.5} />;
+    return <FileText size={16} color="#6B7280" strokeWidth={1.5} />;
   };
 
   const isValid = supplierName.trim() && items.length > 0;
@@ -99,22 +198,38 @@ export default function NewProcurementScreen() {
           </Pressable>
           <Text className="text-lg font-bold text-gray-900">New Procurement</Text>
           <Pressable
-            onPress={handleSubmit}
-            disabled={!isValid}
+            onPress={() => { void handleSubmit(); }}
+            disabled={!isValid || isSaving}
             className={cn(
               'px-4 py-2 rounded-xl',
-              isValid ? 'bg-gray-900 active:opacity-80' : 'bg-gray-200'
+              isValid && !isSaving ? 'bg-gray-900 active:opacity-80' : 'bg-gray-200'
             )}
           >
-            <Text className={cn('font-semibold text-sm', isValid ? 'text-white' : 'text-gray-400')}>
-              Record
-            </Text>
+            {isSaving ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Text className={cn('font-semibold text-sm', isValid ? 'text-white' : 'text-gray-400')}>
+                Record
+              </Text>
+            )}
           </Pressable>
         </View>
 
         <ScrollView className="flex-1 px-5" showsVerticalScrollIndicator={false}>
-          {/* Supplier Info */}
+          {/* Procurement Name */}
           <View className="mt-4">
+            <Text className="text-gray-900 font-bold text-base mb-3">Procurement Name</Text>
+            <TextInput
+              placeholder="e.g. March Glasses Procurement"
+              placeholderTextColor="#9CA3AF"
+              value={title}
+              onChangeText={setTitle}
+              className="bg-gray-100 rounded-xl px-4 py-3 text-gray-900 text-sm"
+            />
+          </View>
+
+          {/* Supplier Info */}
+          <View className="mt-5">
             <Text className="text-gray-900 font-bold text-base mb-3">Supplier Information</Text>
 
             <TextInput
@@ -181,7 +296,7 @@ export default function NewProcurementScreen() {
                           return (
                             <Pressable
                               key={variant.id}
-                              onPress={() => handleAddItem(product.id, variant.id)}
+                              onPress={() => handleAddItem(product.id, variant.id, product.name, variantName)}
                               disabled={isAdded}
                               className={cn(
                                 'flex-row items-center justify-between py-2 px-2 rounded-lg mb-1',
@@ -211,15 +326,13 @@ export default function NewProcurementScreen() {
             {items.length > 0 ? (
               <View className="bg-gray-50 rounded-xl p-3">
                 {items.map((item) => {
-                  const { productName, variantName } = getItemDetails(item);
+                  const { productName, variantName } = getItemDisplayName(item);
                   return (
-                    <View
-                      key={item.tempId}                      className="bg-white rounded-xl p-3 mb-2"
-                    >
+                    <View key={item.tempId} className="bg-white rounded-xl p-3 mb-2">
                       <View className="flex-row items-start justify-between mb-2">
                         <View className="flex-1">
                           <Text className="text-gray-900 font-semibold text-sm">{productName}</Text>
-                          <Text className="text-gray-500 text-xs">{variantName}</Text>
+                          {variantName ? <Text className="text-gray-500 text-xs">{variantName}</Text> : null}
                         </View>
                         <Pressable
                           onPress={() => handleRemoveItem(item.tempId)}
@@ -267,7 +380,7 @@ export default function NewProcurementScreen() {
                         <View className="flex-1">
                           <Text className="text-gray-500 text-xs mb-1">Unit Cost</Text>
                           <View className="flex-row items-center bg-gray-100 rounded-lg px-3 py-2">
-                            <Text className="text-gray-500 text-sm">$</Text>
+                            <Text className="text-gray-500 text-sm">₦</Text>
                             <TextInput
                               value={String(item.costAtPurchase)}
                               onChangeText={(text) =>
@@ -304,10 +417,56 @@ export default function NewProcurementScreen() {
             )}
           </View>
 
+          {/* Attachments */}
+          <View className="mt-6">
+            <View className="flex-row items-center justify-between mb-3">
+              <Text className="text-gray-900 font-bold text-base">Attachments</Text>
+              <Pressable
+                onPress={handlePickFile}
+                disabled={pickingFile}
+                className="border border-gray-200 px-3 py-1.5 rounded-lg flex-row items-center active:opacity-70"
+              >
+                {pickingFile ? (
+                  <ActivityIndicator size="small" color="#374151" />
+                ) : (
+                  <>
+                    <Paperclip size={15} color="#374151" strokeWidth={2} />
+                    <Text className="text-gray-700 font-semibold text-xs ml-1.5">Attach Files</Text>
+                  </>
+                )}
+              </Pressable>
+            </View>
+
+            {attachments.length > 0 ? (
+              <View className="bg-gray-50 rounded-xl p-3 gap-2">
+                {attachments.map((attachment) => (
+                  <View key={attachment.uri} className="flex-row items-center bg-white rounded-xl px-3 py-2.5 gap-3">
+                    <View className="w-8 h-8 rounded-lg bg-gray-100 items-center justify-center">
+                      {getFileIcon(attachment.mimeType)}
+                    </View>
+                    <Text className="flex-1 text-gray-800 text-sm font-medium" numberOfLines={1}>
+                      {attachment.name}
+                    </Text>
+                    <Pressable onPress={() => handleRemoveAttachment(attachment.uri)} className="active:opacity-50">
+                      <X size={16} color="#9CA3AF" strokeWidth={2} />
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <Pressable
+                onPress={handlePickFile}
+                className="bg-gray-50 rounded-xl p-6 items-center border border-dashed border-gray-200 active:opacity-70"
+              >
+                <Paperclip size={20} color="#9CA3AF" strokeWidth={1.5} />
+                <Text className="text-gray-400 text-sm mt-2">Attach invoices, receipts, or docs</Text>
+              </Pressable>
+            )}
+          </View>
+
           {/* Total */}
           {items.length > 0 && (
-            <View              className="mt-6 bg-blue-50 rounded-2xl p-4"
-            >
+            <View className="mt-6 bg-blue-50 rounded-2xl p-4">
               <View className="flex-row items-center justify-between">
                 <View>
                   <Text className="text-blue-900 text-base font-medium">Total Cost</Text>

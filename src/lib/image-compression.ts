@@ -14,12 +14,14 @@ const getImageSize = (uri: string) =>
   });
 
 const compressWebDataUrl = async (
-  dataUrl: string,
+  imageSourceUri: string,
   maxDimension: number,
   quality: number
 ): Promise<string> => {
-  if (typeof document === 'undefined') return dataUrl;
-  if (!dataUrl.startsWith('data:image/')) return dataUrl;
+  if (typeof document === 'undefined') return imageSourceUri;
+  if (imageSourceUri.startsWith('data:') && !imageSourceUri.startsWith('data:image/')) {
+    return imageSourceUri;
+  }
 
   const img = await new Promise<HTMLImageElement>((resolve, reject) => {
     const ImageConstructor =
@@ -33,21 +35,19 @@ const compressWebDataUrl = async (
     const image = new ImageConstructor();
     image.onload = () => resolve(image);
     image.onerror = () => reject(new Error('Failed to load image'));
-    image.src = dataUrl;
+    image.src = imageSourceUri;
   });
 
   const maxSide = Math.max(img.width, img.height);
-  if (maxSide <= maxDimension) return dataUrl;
-
-  const scale = maxDimension / maxSide;
-  const targetWidth = Math.round(img.width * scale);
-  const targetHeight = Math.round(img.height * scale);
+  const scale = maxSide > maxDimension ? (maxDimension / maxSide) : 1;
+  const targetWidth = Math.max(1, Math.round(img.width * scale));
+  const targetHeight = Math.max(1, Math.round(img.height * scale));
 
   const canvas = document.createElement('canvas');
   canvas.width = targetWidth;
   canvas.height = targetHeight;
   const ctx = canvas.getContext('2d');
-  if (!ctx) return dataUrl;
+  if (!ctx) return imageSourceUri;
 
   ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
   return canvas.toDataURL('image/jpeg', quality);

@@ -23,17 +23,23 @@ export interface OrderLabelData {
 
 interface OrderLabel80x90Props {
   data: OrderLabelData;
+  widthMm?: number;
+  heightMm?: number;
 }
 
 /**
- * Preview component for 80x90mm shipping label
+ * Preview component for shipping labels (supports dynamic label sizes)
  * Used for visual preview in the app
  *
  * Order Number Hierarchy:
  * - If websiteOrderRef exists: Show it as primary (ORDER #56844), FYLL ref as secondary
  * - If no websiteOrderRef: Show FYLL order number as primary with "INTERNAL ORDER" label
  */
-export function OrderLabel80x90Preview({ data }: OrderLabel80x90Props) {
+export function OrderLabel80x90Preview({
+  data,
+  widthMm = 80,
+  heightMm = 90,
+}: OrderLabel80x90Props) {
   const hasWebsiteOrder = !!data.websiteOrderRef;
   const primaryOrderLabel = hasWebsiteOrder ? 'ORDER' : 'INTERNAL ORDER';
   const primaryOrderNumber = hasWebsiteOrder ? data.websiteOrderRef! : data.orderNumber;
@@ -44,7 +50,7 @@ export function OrderLabel80x90Preview({ data }: OrderLabel80x90Props) {
       style={{
         width: '100%',
         maxWidth: 320,
-        aspectRatio: 80 / 90,
+        aspectRatio: widthMm / heightMm,
         backgroundColor: '#FFFFFF',
         borderWidth: 1,
         borderColor: '#D1D5DB',
@@ -155,18 +161,15 @@ export function OrderLabel80x90Preview({ data }: OrderLabel80x90Props) {
 }
 
 /**
- * Generate QR Code SVG for the order number
- * Always encodes the FYLL internal order number
-/**
- * Generate HTML for printing 80x90mm shipping label
- * Clean courier-style shipping label layout
- *
- * Order Number Hierarchy:
- * - If websiteOrderRef exists: Show it as primary (ORDER #56844), FYLL ref above QR
- * - If no websiteOrderRef: Show FYLL order number as primary with "INTERNAL ORDER" label
- * - QR code always encodes FYLL internal order number
+ * Generate HTML for printing shipping labels.
+ * Defaults to 80x90mm when no size is provided.
  */
-export function generateOrderLabelHTML(data: OrderLabelData): string {
+export function generateOrderLabelHTML(
+  data: OrderLabelData,
+  size: { widthMm: number; heightMm: number } = { widthMm: 80, heightMm: 90 },
+): string {
+  const widthMm = Number.isFinite(size.widthMm) && size.widthMm > 0 ? size.widthMm : 80;
+  const heightMm = Number.isFinite(size.heightMm) && size.heightMm > 0 ? size.heightMm : 90;
   // QR always encodes the internal FYLL order number
   const qrSvg = generateQrSvg(data.orderNumber, 60);
 
@@ -189,19 +192,19 @@ export function generateOrderLabelHTML(data: OrderLabelData): string {
         <title>Shipping Label - ${escapeHtml(data.orderNumber)}</title>
         <style>
           *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-          @page { size: 80mm 90mm; margin: 0; }
+          @page { size: ${widthMm}mm ${heightMm}mm; margin: 0; }
           @media screen {
-            html, body { width: 80mm; height: 90mm; margin: 0 auto; padding: 0; background: #f5f5f5; }
+            html, body { width: ${widthMm}mm; height: ${heightMm}mm; margin: 0 auto; padding: 0; background: #f5f5f5; }
             body { background: white; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
           }
           @media print {
             * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
-            html, body { width: 80mm !important; height: 90mm !important; margin: 0 !important; padding: 0 !important; background: white !important; overflow: hidden !important; }
+            html, body { width: ${widthMm}mm !important; height: ${heightMm}mm !important; margin: 0 !important; padding: 0 !important; background: white !important; overflow: hidden !important; }
             body { padding: 3mm !important; }
             body > *:not(.label) { display: none !important; visibility: hidden !important; }
             .label { display: flex !important; visibility: visible !important; page-break-before: avoid !important; page-break-after: avoid !important; page-break-inside: avoid !important; }
           }
-          body { font-family: Arial, Helvetica, sans-serif; width: 80mm; height: 90mm; padding: 3mm; background: white; color: black; }
+          body { font-family: Arial, Helvetica, sans-serif; width: ${widthMm}mm; height: ${heightMm}mm; padding: 3mm; background: white; color: black; }
           .label { width: 100%; height: 100%; display: flex; flex-direction: column; }
 
           .sender { margin-bottom: 1.5mm; }

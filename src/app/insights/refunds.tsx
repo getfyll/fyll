@@ -6,12 +6,11 @@ import { RefreshCw, TrendingUp, TrendingDown } from 'lucide-react-native';
 import { DetailHeader } from '@/components/stats/DetailHeader';
 import { BreakdownTable } from '@/components/stats/BreakdownTable';
 import { useAnalytics } from '@/hooks/useAnalytics';
-import { formatCurrency } from '@/lib/state/fyll-store';
-import useFyllStore from '@/lib/state/fyll-store';
-import { TimeRange, getDateRange, hasRefund, getRefundedAmount } from '@/lib/analytics-utils';
+import useFyllStore, { formatCurrency } from '@/lib/state/fyll-store';
+import { TimeRange, getDateRange, getRefundedAmount, getRefundDate, filterOrdersByRefundDateRange } from '@/lib/analytics-utils';
 import { useStatsColors } from '@/lib/theme';
 
-export default function RefundsInsightScreen() {
+export default function RefundsInsightScreen({ inline }: { inline?: boolean }) {
   const colors = useStatsColors();
   const [timeRange, setTimeRange] = useState<TimeRange>('7d');
   const analytics = useAnalytics(timeRange, 'orders');
@@ -24,20 +23,19 @@ export default function RefundsInsightScreen() {
   ];
 
   // Get refunded orders in range
+  // Get refunded orders in range (by REFUND DATE, not order date)
   const { start, end } = getDateRange(timeRange);
-  const refundedOrders = orders.filter((order) => {
-    const orderDate = new Date(order.orderDate ?? order.createdAt);
-    return orderDate >= start && orderDate <= end && hasRefund(order);
-  });
+  const refundedOrders = filterOrdersByRefundDateRange(orders, start, end);
 
   // Format refunded orders for table
   const refundRows = refundedOrders.map((order) => {
     const refundAmount = getRefundedAmount(order);
     const isPartial = refundAmount < order.totalAmount;
+    const refundDate = getRefundDate(order);
     return {
       label: order.customerName,
       value: formatCurrency(refundAmount),
-      subValue: `${isPartial ? 'Partial' : 'Full'} · ${new Date(order.orderDate ?? order.createdAt).toLocaleDateString()}`,
+      subValue: `${isPartial ? 'Partial' : 'Full'} · ${refundDate?.toLocaleDateString()}`,
       percentage: undefined,
     };
   });
@@ -52,10 +50,12 @@ export default function RefundsInsightScreen() {
     <View className="flex-1" style={{ backgroundColor: colors.bg.screen }}>
       <Stack.Screen options={{ headerShown: false }} />
       <SafeAreaView className="flex-1" edges={['top']}>
-        <DetailHeader
-          title="Refunds Analytics"
-          subtitle="Refund breakdown and trends"
-        />
+        {!inline && (
+          <DetailHeader
+            title="Refunds Analytics"
+            subtitle="Refund breakdown and trends"
+          />
+        )}
 
         <ScrollView
           className="flex-1"

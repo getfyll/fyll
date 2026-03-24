@@ -1,8 +1,22 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { Platform } from "react-native";
 import { storage } from "@/lib/storage";
 import { supabaseData } from "@/lib/supabase/data";
 import { supabaseSettings } from "@/lib/supabase/settings";
+
+const isDataUri = (value: unknown): value is string => (
+  typeof value === 'string' && value.trim().startsWith('data:')
+);
+
+const sanitizeProductForWebPersist = (product: Product): Product => ({
+  ...product,
+  imageUrl: isDataUri(product.imageUrl) ? undefined : product.imageUrl,
+  variants: (product.variants ?? []).map((variant) => ({
+    ...variant,
+    imageUrl: isDataUri(variant.imageUrl) ? undefined : variant.imageUrl,
+  })),
+});
 
 // Nigeria States
 export const NIGERIA_STATES = [
@@ -32,6 +46,33 @@ export interface ProductVariant {
 
 export type ProductType = 'product' | 'service';
 
+export type ServiceVariableType = 'Select' | 'Number' | 'Toggle' | 'Text';
+export type ServiceFieldType = 'Text' | 'Date' | 'Time' | 'Number' | 'Price' | 'Select';
+
+export interface ServiceVariableOption {
+  value: string;
+  amount?: number;
+}
+
+export interface ServiceVariable {
+  id: string;
+  name: string;
+  type: ServiceVariableType;
+  options?: (string | ServiceVariableOption)[];
+  required?: boolean;
+  defaultValue?: string;
+}
+
+export interface ServiceField {
+  id: string;
+  label: string;
+  type?: ServiceFieldType;
+  options?: (string | ServiceVariableOption)[];
+  required?: boolean;
+  defaultValue?: string;
+  value?: string; // legacy fallback
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -43,6 +84,10 @@ export interface Product {
   productType: ProductType;
   imageUrl?: string; // Optional product image
   createdBy?: string; // Staff name who created the product
+  serviceTags?: string[];
+  serviceUsesGlobalPricing?: boolean; // true = single service price, false = option-based pricing
+  serviceVariables?: ServiceVariable[];
+  serviceFields?: ServiceField[];
   // New Design tracking
   isNewDesign?: boolean; // Default false
   designYear?: number; // Default current year when isNewDesign is true
@@ -136,6 +181,27 @@ export interface OrderItem {
   variantId: string;
   quantity: number;
   unitPrice: number;
+  serviceId?: string;
+  serviceVariables?: ServiceOrderVariable[];
+  serviceFields?: ServiceOrderField[];
+}
+
+export interface ServiceOrderVariable {
+  id: string;
+  name: string;
+  type: ServiceVariableType;
+  value?: string;
+  options?: (string | ServiceVariableOption)[];
+  required?: boolean;
+}
+
+export interface ServiceOrderField {
+  id: string;
+  label: string;
+  type: ServiceFieldType;
+  options?: (string | ServiceVariableOption)[];
+  value?: string;
+  required?: boolean;
 }
 
 // Prescription info for orders (internal only)
@@ -190,17 +256,31 @@ export interface ProcurementItem {
   variantId: string;
   quantity: number;
   costAtPurchase: number;
+  productName?: string;
+  variantName?: string;
+}
+
+export interface ProcurementAttachment {
+  uri: string;
+  name: string;
+  mimeType?: string;
+  storagePath?: string;
+  fileSize?: number;
 }
 
 export interface Procurement {
   id: string;
+  title?: string;
   supplierName: string;
   items: ProcurementItem[];
   totalCost: number;
   notes: string;
   createdAt: string;
-  createdBy?: string; // Staff name who created the procurement
+  createdBy?: string;
+  attachments?: ProcurementAttachment[];
 }
+
+export type ExpensePaymentStatus = 'draft' | 'partial' | 'paid';
 
 export interface Expense {
   id: string;
@@ -210,6 +290,99 @@ export interface Expense {
   date: string;
   createdAt: string;
   createdBy?: string; // Staff name who created the expense
+  status?: ExpensePaymentStatus;
+}
+
+export type ExpenseRequestStatus = 'draft' | 'submitted' | 'approved' | 'rejected';
+
+export type RefundRequestStatus = 'draft' | 'submitted' | 'approved' | 'rejected' | 'paid' | 'void';
+
+export interface ExpenseRequestReceipt {
+  id: string;
+  fileName: string;
+  storagePath: string;
+  mimeType?: string;
+  fileSize?: number;
+}
+
+export interface ExpenseRequestLineItem {
+  id: string;
+  label: string;
+  amount: number;
+  category: string;
+  kind: 'base' | 'charge';
+}
+
+export interface RefundRequestAttachment {
+  id: string;
+  fileName: string;
+  storagePath: string;
+  mimeType?: string;
+  fileSize?: number;
+}
+
+export interface ExpenseRequest {
+  id: string;
+  title: string;
+  category: string;
+  amount: number;
+  date: string;
+  merchant?: string;
+  type: 'one-time' | 'recurring';
+  frequency?: string;
+  note?: string;
+  status: ExpenseRequestStatus;
+  submittedByUserId: string;
+  submittedByName?: string;
+  submittedAt?: string;
+  reviewedByUserId?: string;
+  reviewedByName?: string;
+  reviewedAt?: string;
+  rejectionReason?: string;
+  approvedExpenseId?: string;
+  receipts?: ExpenseRequestReceipt[];
+  lineItems?: ExpenseRequestLineItem[];
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface RefundRequest {
+  id: string;
+  orderId: string;
+  orderNumber: string;
+  customerName: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  amount: number;
+  requestedDate: string;
+  reason: string;
+  status: RefundRequestStatus;
+  refundType: 'full' | 'partial';
+  note?: string;
+  attachments?: RefundRequestAttachment[];
+  proofAttachments?: RefundRequestAttachment[];
+  source?: 'order' | 'finance';
+  submittedByUserId: string;
+  submittedByName?: string;
+  submittedAt?: string;
+  reviewedByUserId?: string;
+  reviewedByName?: string;
+  reviewedAt?: string;
+  rejectionReason?: string;
+  paidAt?: string;
+  paidByUserId?: string;
+  paidByName?: string;
+  paymentReference?: string;
+  applyBankCharges?: boolean;
+  bankChargeAmount?: number;
+  stampDutyAmount?: number;
+  totalDebitAmount?: number;
+  voidedAt?: string;
+  voidedByUserId?: string;
+  voidedByName?: string;
+  voidReason?: string;
+  createdAt: string;
+  updatedAt?: string;
 }
 
 export interface OrderStatus {
@@ -228,6 +401,64 @@ export interface SaleSource {
 export interface ExpenseCategory {
   id: string;
   name: string;
+}
+
+export interface FinanceSupplier {
+  id: string;
+  name: string;
+  contactName?: string;
+  email?: string;
+  paymentTerms?: string;
+}
+
+export interface ProcurementStatusOption {
+  id: string;
+  name: string;
+  order: number;
+}
+
+export type FixedCostFrequency = 'Monthly' | 'Quarterly' | 'Yearly';
+
+export interface FixedCostSetting {
+  id: string;
+  name: string;
+  category: string;
+  amount: number;
+  frequency: FixedCostFrequency;
+  supplierName?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface BankChargeTier {
+  id: string;
+  maxAmount: number | null; // null = catch-all "over previous tier"
+  fixedFee: number;
+}
+
+export interface RevenueRule {
+  id: string;
+  name: string;        // e.g. "Paystack", "Flutterwave"
+  channel: string;     // "All Payment Methods" or matches order.paymentMethod
+  percentFee: number;  // e.g. 1.5 means 1.5%
+  flatFee: number;     // e.g. 100 means ₦100 flat
+  enabled: boolean;
+}
+
+export interface FinanceRules {
+  vatRate: number; // e.g. 0.075 = 7.5%
+  bankChargeTiers: BankChargeTier[];
+  revenueRules: RevenueRule[];
+  incomingStampDuty: number; // ₦50 bank debit on every incoming credit (CBN stamp duty)
+}
+
+export interface OrderAutomationRule {
+  id: string;
+  enabled: boolean;
+  fromStatus: string;
+  toStatus: string;
+  afterDays: number;
 }
 
 export interface AuditLogItem {
@@ -319,6 +550,7 @@ export interface Case {
   type: CaseType;
   status: CaseStatus;
   priority?: CasePriority; // Critical, High, Medium, Low
+  assignedTo?: string; // Optional staff name assigned to this case
   source?: CaseSource; // Email, Phone, Chat, Web, In-Store, Other
   issueSummary: string; // Short description
   originalCustomerMessage?: string; // Full customer complaint/message
@@ -335,7 +567,6 @@ export const CASE_TYPES: CaseType[] = [
   'Repair',
   'Replacement',
   'Refund',
-  'Partial Refund',
   'Goodwill',
   'Other'
 ];
@@ -349,7 +580,7 @@ export const CASE_PRIORITY_COLORS: Record<CasePriority, string> = {
   'Low': '#6B7280', // Gray
 };
 
-export const CASE_SOURCES: CaseSource[] = ['Email', 'Phone', 'Chat', 'Web', 'In-Store', 'Other'];
+export const CASE_SOURCES: CaseSource[] = ['Email', 'Phone', 'Chat', 'Web', 'Other'];
 export const CASE_STATUS_COLORS: Record<string, string> = {
   'Open': '#3B82F6', // Blue
   'Under Review': '#F59E0B', // Amber
@@ -414,9 +645,16 @@ export const RESOLUTION_TYPES: ResolutionType[] = [
 ];
 
 export type UserRole = 'owner' | 'staff';
-export type ThemeMode = 'light' | 'dark';
+export type ThemeMode = 'system' | 'light' | 'dark';
 
 interface FyllStore {
+  // Sync state
+  isBackgroundSyncing: boolean;
+  lastDataSyncAt: string | null;
+  lastFullDataSyncAt: string | null;
+  setIsBackgroundSyncing: (value: boolean) => void;
+  setDataSyncTimestamps: (timestamps: { lastDataSyncAt?: string | null; lastFullDataSyncAt?: string | null }) => void;
+
   // Theme
   themeMode: ThemeMode;
   setThemeMode: (mode: ThemeMode) => void;
@@ -431,6 +669,21 @@ interface FyllStore {
   setUseGlobalLowStockThreshold: (use: boolean) => void;
   setGlobalLowStockThreshold: (threshold: number) => void;
   getEffectiveLowStockThreshold: (product: Product) => number;
+
+  // Order Auto-Completion
+  autoCompleteOrders: boolean;
+  autoCompleteAfterDays: number;
+  autoCompleteFromStatus: string;
+  autoCompleteToStatus: string;
+  orderAutomations: OrderAutomationRule[];
+  setAutoCompleteOrders: (enabled: boolean) => void;
+  setAutoCompleteAfterDays: (days: number) => void;
+  setAutoCompleteFromStatus: (status: string) => void;
+  setAutoCompleteToStatus: (status: string) => void;
+  setOrderAutomations: (rules: OrderAutomationRule[]) => void;
+  addOrderAutomation: (rule?: Partial<OrderAutomationRule>) => void;
+  updateOrderAutomation: (id: string, updates: Partial<OrderAutomationRule>) => void;
+  deleteOrderAutomation: (id: string) => void;
 
   // Global Categories
   categories: string[];
@@ -500,19 +753,44 @@ interface FyllStore {
 
   // Procurement
   procurements: Procurement[];
-  addProcurement: (procurement: Procurement) => void;
-  updateProcurement: (id: string, procurement: Partial<Procurement>) => void;
-  deleteProcurement: (id: string) => void;
+  addProcurement: (procurement: Procurement, businessId?: string | null) => void;
+  updateProcurement: (id: string, procurement: Partial<Procurement>, businessId?: string | null) => void;
+  deleteProcurement: (id: string, businessId?: string | null) => void;
 
   // Expenses
   expenses: Expense[];
+  expenseRequests: ExpenseRequest[];
+  refundRequests: RefundRequest[];
   expenseCategories: ExpenseCategory[];
-  addExpense: (expense: Expense) => void;
-  updateExpense: (id: string, expense: Partial<Expense>) => void;
-  deleteExpense: (id: string) => void;
+  financeSuppliers: FinanceSupplier[];
+  procurementStatusOptions: ProcurementStatusOption[];
+  fixedCosts: FixedCostSetting[];
+  addExpense: (expense: Expense, businessId?: string | null) => void;
+  updateExpense: (id: string, expense: Partial<Expense>, businessId?: string | null) => void;
+  deleteExpense: (id: string, businessId?: string | null) => void;
+  addExpenseRequest: (request: ExpenseRequest, businessId?: string | null) => void;
+  updateExpenseRequest: (id: string, updates: Partial<ExpenseRequest>, businessId?: string | null) => void;
+  deleteExpenseRequest: (id: string, businessId?: string | null) => void;
+  addRefundRequest: (request: RefundRequest, businessId?: string | null) => Promise<void>;
+  updateRefundRequest: (id: string, updates: Partial<RefundRequest>, businessId?: string | null) => Promise<void>;
+  deleteRefundRequest: (id: string, businessId?: string | null) => Promise<void>;
   addExpenseCategory: (category: ExpenseCategory) => void;
   updateExpenseCategory: (id: string, category: Partial<ExpenseCategory>) => void;
   deleteExpenseCategory: (id: string, businessId?: string | null) => void;
+  addFinanceSupplier: (supplier: FinanceSupplier) => void;
+  updateFinanceSupplier: (id: string, supplier: Partial<FinanceSupplier>) => void;
+  deleteFinanceSupplier: (id: string) => void;
+  addProcurementStatusOption: (status: ProcurementStatusOption) => void;
+  updateProcurementStatusOption: (id: string, status: Partial<ProcurementStatusOption>) => void;
+  deleteProcurementStatusOption: (id: string) => void;
+  addFixedCost: (cost: FixedCostSetting) => void;
+  updateFixedCost: (id: string, updates: Partial<FixedCostSetting>) => void;
+  deleteFixedCost: (id: string) => void;
+  financeRules: FinanceRules;
+  updateFinanceRules: (rules: Partial<FinanceRules>) => void;
+  addRevenueRule: (rule: RevenueRule) => void;
+  updateRevenueRule: (id: string, updates: Partial<RevenueRule>) => void;
+  deleteRevenueRule: (id: string) => void;
 
   // Audit Logs
   auditLogs: AuditLog[];
@@ -553,7 +831,53 @@ const initialOrderStatuses: OrderStatus[] = [];
 
 const initialSaleSources: SaleSource[] = [];
 
-const initialExpenseCategories: ExpenseCategory[] = [];
+export const DEFAULT_EXPENSE_CATEGORY_NAMES: string[] = [
+  'Rent & Utilities',
+  'Salaries & Wages',
+  'Marketing & Ads',
+  'Software & Subscriptions',
+  'Logistics & Delivery',
+  'Inventory Purchases',
+  'Procurement',
+  'Repairs & Maintenance',
+  'Internet & Communication',
+  'Bank Charges & Fees',
+  'Professional Services',
+  'Travel & Transport',
+  'Meals & Entertainment',
+  'Office Supplies',
+  'Insurance',
+  'Training & Education',
+  'Taxes & Levies',
+  'Licenses & Compliance',
+  'Equipment',
+  'Miscellaneous',
+];
+
+const initialExpenseCategories: ExpenseCategory[] = DEFAULT_EXPENSE_CATEGORY_NAMES.map((name, index) => ({
+  id: `expense-category-${index + 1}`,
+  name,
+}));
+const initialFinanceSuppliers: FinanceSupplier[] = [];
+const initialProcurementStatusOptions: ProcurementStatusOption[] = [
+  { id: 'proc-status-draft', name: 'Draft', order: 1 },
+  { id: 'proc-status-sent', name: 'Sent', order: 2 },
+  { id: 'proc-status-confirmed', name: 'Confirmed', order: 3 },
+  { id: 'proc-status-received', name: 'Received', order: 4 },
+  { id: 'proc-status-cancelled', name: 'Cancelled', order: 5 },
+];
+const initialFixedCosts: FixedCostSetting[] = [];
+
+const initialFinanceRules: FinanceRules = {
+  vatRate: 0.075,
+  bankChargeTiers: [
+    { id: 'tier-1', maxAmount: 5000, fixedFee: 10 },
+    { id: 'tier-2', maxAmount: 50000, fixedFee: 25 },
+    { id: 'tier-3', maxAmount: null, fixedFee: 50 },
+  ],
+  revenueRules: [],
+  incomingStampDuty: 50,
+};
 
 const initialCustomServices: CustomService[] = [];
 
@@ -563,142 +887,24 @@ const initialLogisticsCarriers: LogisticsCarrier[] = [];
 
 const initialProductVariables: ProductVariable[] = [];
 
-const initialProducts: Product[] = [
-  {
-    id: '1',
-    name: 'Aviator 1.0',
-    description: 'Classic aviator sunglasses with premium finish',
-    categories: ['Sunglasses'],
-    lowStockThreshold: 5,
-    createdAt: new Date().toISOString(),
-    productType: 'product',
-    variants: [
-      { id: '1-1', sku: 'AV1-GOLD', barcode: generateBarcode(), variableValues: { Color: 'Gold' }, stock: 15, sellingPrice: 129000 },
-      { id: '1-2', sku: 'AV1-SILV', barcode: generateBarcode(), variableValues: { Color: 'Silver' }, stock: 12, sellingPrice: 129000 },
-      { id: '1-3', sku: 'AV1-MBLK', barcode: generateBarcode(), variableValues: { Color: 'Matte Black' }, stock: 8, sellingPrice: 139000 },
-    ],
-  },
-  {
-    id: '2',
-    name: 'Wayfarer Classic',
-    description: 'Timeless wayfarer design for everyday wear',
-    categories: ['Sunglasses'],
-    lowStockThreshold: 5,
-    createdAt: new Date().toISOString(),
-    productType: 'product',
-    variants: [
-      { id: '2-1', sku: 'WFC-GOLD', barcode: generateBarcode(), variableValues: { Color: 'Gold' }, stock: 20, sellingPrice: 99000 },
-      { id: '2-2', sku: 'WFC-SILV', barcode: generateBarcode(), variableValues: { Color: 'Silver' }, stock: 3, sellingPrice: 99000 },
-      { id: '2-3', sku: 'WFC-MBLK', barcode: generateBarcode(), variableValues: { Color: 'Matte Black' }, stock: 18, sellingPrice: 109000 },
-    ],
-  },
-];
-
-const initialOrders: Order[] = [
-  {
-    id: '1',
-    orderNumber: 'ORD-001',
-    customerName: 'Adaeze Okonkwo',
-    customerEmail: 'adaeze@email.com',
-    customerPhone: '+234 803 555 0101',
-    deliveryState: 'Lagos',
-    deliveryAddress: '15 Admiralty Way, Lekki Phase 1, Lagos',
-    items: [{ productId: '1', variantId: '1-1', quantity: 1, unitPrice: 129000 }],
-    services: [],
-    additionalCharges: 0,
-    additionalChargesNote: '',
-    deliveryFee: 2500,
-    paymentMethod: 'Bank Transfer',
-    status: 'Lab Processing',
-    source: 'Instagram',
-    subtotal: 129000,
-    totalAmount: 131500,
-    orderDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-    createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: '2',
-    orderNumber: 'ORD-002',
-    customerName: 'Chinedu Eze',
-    customerEmail: 'chinedu@email.com',
-    customerPhone: '+234 805 555 0102',
-    deliveryState: 'Abuja',
-    deliveryAddress: '23 Gana Street, Maitama, FCT',
-    items: [
-      { productId: '2', variantId: '2-3', quantity: 2, unitPrice: 109000 },
-      { productId: '1', variantId: '1-2', quantity: 1, unitPrice: 129000 },
-    ],
-    services: [{ serviceId: '1', name: 'Lens Coating', price: 5000 }],
-    additionalCharges: 0,
-    additionalChargesNote: '',
-    deliveryFee: 3500,
-    paymentMethod: 'POS',
-    status: 'Ready for Pickup',
-    source: 'WhatsApp',
-    subtotal: 347000,
-    totalAmount: 355500,
-    orderDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-    createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: '3',
-    orderNumber: 'ORD-003',
-    customerName: 'Funke Adeyemi',
-    customerEmail: 'funke@email.com',
-    customerPhone: '+234 812 555 0103',
-    deliveryState: 'Rivers',
-    deliveryAddress: '7 Aba Road, Port Harcourt, Rivers',
-    items: [{ productId: '1', variantId: '1-3', quantity: 1, unitPrice: 139000 }],
-    services: [],
-    additionalCharges: 0,
-    additionalChargesNote: '',
-    deliveryFee: 4000,
-    paymentMethod: 'Website Payment',
-    logistics: {
-      carrierId: '1',
-      carrierName: 'GIG Logistics',
-      trackingNumber: 'GIG-2024-001234',
-      dispatchDate: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(),
-    },
-    status: 'Delivered',
-    source: 'Website',
-    subtotal: 139000,
-    totalAmount: 143000,
-    orderDate: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
-    createdAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-];
-
-const initialProcurements: Procurement[] = [
-  {
-    id: '1',
-    supplierName: 'Premium Optics Co.',
-    items: [
-      { productId: '1', variantId: '1-1', quantity: 20, costAtPurchase: 42 },
-      { productId: '1', variantId: '1-2', quantity: 15, costAtPurchase: 42 },
-    ],
-    totalCost: 1470,
-    notes: 'Initial stock order',
-    createdAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-];
-
-const initialExpenses: Expense[] = [
-  { id: '1', category: 'Rent', description: 'Monthly store rent', amount: 250000, date: new Date().toISOString(), createdAt: new Date().toISOString() },
-  { id: '2', category: 'Marketing', description: 'Instagram ads campaign', amount: 45000, date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(), createdAt: new Date().toISOString() },
-  { id: '3', category: 'Power', description: 'Electricity bill', amount: 18000, date: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(), createdAt: new Date().toISOString() },
-];
+const initialExpenseRequests: ExpenseRequest[] = [];
+const initialRefundRequests: RefundRequest[] = [];
 
 const initialCategories: string[] = [];
 
 const initialState = {
-  themeMode: 'light' as ThemeMode,
+  isBackgroundSyncing: false,
+  lastDataSyncAt: null as string | null,
+  lastFullDataSyncAt: null as string | null,
+  themeMode: 'system' as ThemeMode,
   userRole: 'owner' as UserRole,
   useGlobalLowStockThreshold: false,
   globalLowStockThreshold: 5,
+  autoCompleteOrders: false,
+  autoCompleteAfterDays: 10,
+  autoCompleteFromStatus: '',
+  autoCompleteToStatus: '',
+  orderAutomations: [] as OrderAutomationRule[],
   categories: initialCategories,
   customers: [] as Customer[],
   products: [] as Product[],
@@ -711,7 +917,13 @@ const initialState = {
   logisticsCarriers: initialLogisticsCarriers,
   procurements: [] as Procurement[],
   expenses: [] as Expense[],
+  expenseRequests: initialExpenseRequests,
+  refundRequests: initialRefundRequests,
   expenseCategories: initialExpenseCategories,
+  financeSuppliers: initialFinanceSuppliers,
+  procurementStatusOptions: initialProcurementStatusOptions,
+  fixedCosts: initialFixedCosts,
+  financeRules: initialFinanceRules,
   auditLogs: [] as AuditLog[],
   restockLogs: [] as RestockLog[],
   cases: [] as Case[],
@@ -750,10 +962,67 @@ const dedupeByName = <T extends { name: string }>(items: T[]) => {
   return result;
 };
 
+const normalizeAfterDays = (value: number | undefined) => {
+  return Number.isFinite(value) && (value ?? 0) > 0 ? Math.floor(value as number) : 10;
+};
+
+const normalizeFixedCostFrequency = (value?: string): FixedCostFrequency => {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === 'quarterly') return 'Quarterly';
+  if (normalized === 'yearly' || normalized === 'annual') return 'Yearly';
+  return 'Monthly';
+};
+
+const sanitizeOrderAutomationRule = (
+  rule: Partial<OrderAutomationRule> | null | undefined,
+  fallbackId: string
+): OrderAutomationRule | null => {
+  if (!rule) return null;
+  const id = String(rule.id ?? fallbackId).trim();
+  if (!id) return null;
+  return {
+    id,
+    enabled: rule.enabled ?? true,
+    fromStatus: (rule.fromStatus ?? '').trim(),
+    toStatus: (rule.toStatus ?? '').trim(),
+    afterDays: normalizeAfterDays(rule.afterDays),
+  };
+};
+
+const sanitizeOrderAutomations = (
+  rules: (Partial<OrderAutomationRule> | null | undefined)[]
+): OrderAutomationRule[] => {
+  const seen = new Set<string>();
+  const nextRules: OrderAutomationRule[] = [];
+  rules.forEach((rule, index) => {
+    const sanitized = sanitizeOrderAutomationRule(rule, `automation-${index + 1}`);
+    if (!sanitized || seen.has(sanitized.id)) return;
+    seen.add(sanitized.id);
+    nextRules.push(sanitized);
+  });
+  return nextRules;
+};
+
+const resolveLegacyAutomationFields = (rules: OrderAutomationRule[]) => {
+  const firstRule = rules[0];
+  return {
+    autoCompleteAfterDays: firstRule?.afterDays ?? 10,
+    autoCompleteFromStatus: firstRule?.fromStatus ?? '',
+    autoCompleteToStatus: firstRule?.toStatus ?? '',
+  };
+};
+
 const useFyllStore = create<FyllStore>()(
   persist(
     (set, get) => ({
       ...initialState,
+
+      // Sync state
+      setIsBackgroundSyncing: (value) => set({ isBackgroundSyncing: value }),
+      setDataSyncTimestamps: ({ lastDataSyncAt, lastFullDataSyncAt }) => set((state) => ({
+        lastDataSyncAt: lastDataSyncAt ?? state.lastDataSyncAt,
+        lastFullDataSyncAt: lastFullDataSyncAt ?? state.lastFullDataSyncAt,
+      })),
 
       // Theme
       setThemeMode: (mode) => set({ themeMode: mode }),
@@ -768,6 +1037,103 @@ const useFyllStore = create<FyllStore>()(
         const state = get();
         return state.useGlobalLowStockThreshold ? state.globalLowStockThreshold : product.lowStockThreshold;
       },
+
+      // Order Auto-Completion
+      setAutoCompleteOrders: (enabled) => set({ autoCompleteOrders: enabled }),
+      setAutoCompleteAfterDays: (days) => set((state) => {
+        const nextAfterDays = normalizeAfterDays(days);
+        const nextRules = state.orderAutomations.length > 0
+          ? state.orderAutomations.map((rule, index) => (
+            index === 0 ? { ...rule, afterDays: nextAfterDays } : rule
+          ))
+          : [{
+            id: generateId(),
+            enabled: true,
+            fromStatus: state.autoCompleteFromStatus,
+            toStatus: state.autoCompleteToStatus,
+            afterDays: nextAfterDays,
+          }];
+        return {
+          autoCompleteAfterDays: nextAfterDays,
+          orderAutomations: nextRules,
+        };
+      }),
+      setAutoCompleteFromStatus: (status) => set((state) => {
+        const nextStatus = status.trim();
+        const nextRules = state.orderAutomations.length > 0
+          ? state.orderAutomations.map((rule, index) => (
+            index === 0 ? { ...rule, fromStatus: nextStatus } : rule
+          ))
+          : [{
+            id: generateId(),
+            enabled: true,
+            fromStatus: nextStatus,
+            toStatus: state.autoCompleteToStatus,
+            afterDays: normalizeAfterDays(state.autoCompleteAfterDays),
+          }];
+        return {
+          autoCompleteFromStatus: nextStatus,
+          orderAutomations: nextRules,
+        };
+      }),
+      setAutoCompleteToStatus: (status) => set((state) => {
+        const nextStatus = status.trim();
+        const nextRules = state.orderAutomations.length > 0
+          ? state.orderAutomations.map((rule, index) => (
+            index === 0 ? { ...rule, toStatus: nextStatus } : rule
+          ))
+          : [{
+            id: generateId(),
+            enabled: true,
+            fromStatus: state.autoCompleteFromStatus,
+            toStatus: nextStatus,
+            afterDays: normalizeAfterDays(state.autoCompleteAfterDays),
+          }];
+        return {
+          autoCompleteToStatus: nextStatus,
+          orderAutomations: nextRules,
+        };
+      }),
+      setOrderAutomations: (rules) => set(() => {
+        const nextRules = sanitizeOrderAutomations(rules);
+        return {
+          ...resolveLegacyAutomationFields(nextRules),
+          orderAutomations: nextRules,
+        };
+      }),
+      addOrderAutomation: (rule) => set((state) => {
+        const nextRule = sanitizeOrderAutomationRule({
+          id: rule?.id ?? generateId(),
+          enabled: rule?.enabled ?? true,
+          fromStatus: rule?.fromStatus ?? '',
+          toStatus: rule?.toStatus ?? '',
+          afterDays: rule?.afterDays ?? state.autoCompleteAfterDays,
+        }, generateId());
+        if (!nextRule) return {};
+        const nextRules = [...state.orderAutomations, nextRule];
+        return {
+          ...resolveLegacyAutomationFields(nextRules),
+          orderAutomations: nextRules,
+        };
+      }),
+      updateOrderAutomation: (id, updates) => set((state) => {
+        const nextRules = state.orderAutomations.map((rule) => (
+          rule.id === id
+            ? (sanitizeOrderAutomationRule({ ...rule, ...updates, id: rule.id }, rule.id) ?? rule)
+            : rule
+        ));
+        return {
+          ...resolveLegacyAutomationFields(nextRules),
+          orderAutomations: nextRules,
+        };
+      }),
+      deleteOrderAutomation: (id) => set((state) => {
+        const nextRules = state.orderAutomations.filter((rule) => rule.id !== id);
+        return {
+          ...resolveLegacyAutomationFields(nextRules),
+          orderAutomations: nextRules,
+        };
+      }),
 
       // Global Categories
       addCategory: (category) => {
@@ -817,14 +1183,68 @@ const useFyllStore = create<FyllStore>()(
           const logisticsCarriers = dedupeByName(state.logisticsCarriers ?? []).filter((carrier) => carrier.name.trim());
           const productVariables = dedupeByName(state.productVariables ?? []).filter((variable) => variable.name.trim());
           const expenseCategories = dedupeByName(state.expenseCategories ?? []).filter((category) => category.name.trim());
+          const financeSuppliers = dedupeByName(state.financeSuppliers ?? []).filter((supplier) => supplier.name.trim());
+          const procurementStatusOptions = dedupeByName(state.procurementStatusOptions ?? [])
+            .filter((status) => status.name.trim())
+            .sort((a, b) => a.order - b.order)
+            .map((status, index) => ({ ...status, order: index + 1 }));
+          const fixedCosts = (state.fixedCosts ?? [])
+            .filter((cost) => (
+              cost.id.trim()
+              && cost.name.trim()
+              && cost.category.trim()
+              && Number.isFinite(cost.amount)
+              && cost.amount > 0
+            ))
+            .map((cost) => ({
+              ...cost,
+              name: cost.name.trim(),
+              category: cost.category.trim(),
+              amount: Number(cost.amount),
+              frequency: normalizeFixedCostFrequency(cost.frequency),
+              supplierName: cost.supplierName?.trim() ?? '',
+              notes: cost.notes?.trim() ?? '',
+              createdAt: cost.createdAt || new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+          const normalizedProcurementStatusOptions = procurementStatusOptions.length > 0
+            ? procurementStatusOptions
+            : initialProcurementStatusOptions;
           const caseStatuses = dedupeByName(state.caseStatuses ?? []).filter((status) => status.name.trim());
           const categories = (state.categories ?? []).filter((category) => category.trim());
           const categoryItems = buildCategoryItems(categories);
           const categoryNames = categoryItems.map((item) => item.name);
+          const sanitizedOrderAutomations = sanitizeOrderAutomations(state.orderAutomations ?? []);
+          const shouldUseLegacyFallback = Boolean(
+            state.autoCompleteFromStatus.trim() || state.autoCompleteToStatus.trim()
+          );
+          const fallbackOrderAutomation = shouldUseLegacyFallback
+            ? sanitizeOrderAutomationRule({
+              id: 'automation-legacy',
+              enabled: true,
+              fromStatus: state.autoCompleteFromStatus,
+              toStatus: state.autoCompleteToStatus,
+              afterDays: state.autoCompleteAfterDays,
+            }, 'automation-legacy')
+            : null;
+          const orderAutomations = sanitizedOrderAutomations.length > 0
+            ? sanitizedOrderAutomations
+            : (fallbackOrderAutomation ? [fallbackOrderAutomation] : []);
+          const legacyAutomation = resolveLegacyAutomationFields(orderAutomations);
           const businessSettings = [{
             id: 'global',
             useGlobalLowStockThreshold: state.useGlobalLowStockThreshold ?? false,
             globalLowStockThreshold: state.globalLowStockThreshold ?? 0,
+            autoCompleteOrders: state.autoCompleteOrders ?? false,
+            autoCompleteAfterDays: legacyAutomation.autoCompleteAfterDays,
+            autoCompleteFromStatus: legacyAutomation.autoCompleteFromStatus,
+            autoCompleteToStatus: legacyAutomation.autoCompleteToStatus,
+            orderAutomations,
+            financeSuppliers,
+            procurementStatusOptions: normalizedProcurementStatusOptions,
+            fixedCosts,
+            financeRules: state.financeRules,
           }];
 
           set({
@@ -835,8 +1255,15 @@ const useFyllStore = create<FyllStore>()(
             logisticsCarriers,
             productVariables,
             expenseCategories,
+            financeSuppliers,
+            procurementStatusOptions: normalizedProcurementStatusOptions,
+            fixedCosts,
             caseStatuses,
             categories: categoryNames,
+            orderAutomations,
+            autoCompleteAfterDays: legacyAutomation.autoCompleteAfterDays,
+            autoCompleteFromStatus: legacyAutomation.autoCompleteFromStatus,
+            autoCompleteToStatus: legacyAutomation.autoCompleteToStatus,
           });
 
           const syncTable = async <T extends { id: string }>(table: string, items: T[]) => {
@@ -844,6 +1271,11 @@ const useFyllStore = create<FyllStore>()(
             const existingIds = existing.map((row) => row.id);
             const nextIds = new Set(items.map((item) => item.id));
             const removed = existingIds.filter((id) => !nextIds.has(id));
+
+            if (items.length === 0 && existingIds.length > 0) {
+              console.warn(`🛡️ Blocked bulk deletion of ALL rows in ${table} during settings save`);
+              return;
+            }
 
             await supabaseSettings.upsertSettings(table, businessId, items);
             await supabaseSettings.deleteSettings(table, businessId, removed);
@@ -956,11 +1388,11 @@ const useFyllStore = create<FyllStore>()(
         products: get().products.map((p) =>
           p.id === productId
             ? {
-                ...p,
-                variants: p.variants.map((v) =>
-                  v.id === variantId ? { ...v, stock: Math.max(0, v.stock + delta) } : v
-                ),
-              }
+              ...p,
+              variants: p.variants.map((v) =>
+                v.id === variantId ? { ...v, stock: Math.max(0, v.stock + delta) } : v
+              ),
+            }
             : p
         ),
       }),
@@ -977,11 +1409,11 @@ const useFyllStore = create<FyllStore>()(
         products: get().products.map((p) =>
           p.id === productId
             ? {
-                ...p,
-                variants: p.variants.map((v) =>
-                  v.id === variantId ? { ...v, ...updates } : v
-                ),
-              }
+              ...p,
+              variants: p.variants.map((v) =>
+                v.id === variantId ? { ...v, ...updates } : v
+              ),
+            }
             : p
         ),
       }),
@@ -1126,18 +1558,130 @@ const useFyllStore = create<FyllStore>()(
       },
 
       // Procurement
-      addProcurement: (procurement) => set({ procurements: [...get().procurements, procurement] }),
-      updateProcurement: (id, updates) => set({
-        procurements: get().procurements.map((p) => p.id === id ? { ...p, ...updates } : p),
-      }),
-      deleteProcurement: (id) => set({ procurements: get().procurements.filter((p) => p.id !== id) }),
+      addProcurement: (procurement, businessId) => {
+        set({ procurements: [...get().procurements, procurement] });
+        if (!businessId) return;
+        supabaseData
+          .upsertCollection('procurements', businessId, [procurement])
+          .catch((error) => console.warn('Supabase procurement add failed:', error));
+      },
+      updateProcurement: (id, updates, businessId) => {
+        set({
+          procurements: get().procurements.map((p) => p.id === id ? { ...p, ...updates } : p),
+        });
+        if (!businessId) return;
+        const updated = get().procurements.find((p) => p.id === id);
+        if (!updated) return;
+        supabaseData
+          .upsertCollection('procurements', businessId, [updated])
+          .catch((error) => console.warn('Supabase procurement update failed:', error));
+      },
+      deleteProcurement: (id, businessId) => {
+        set({ procurements: get().procurements.filter((p) => p.id !== id) });
+        if (!businessId) return;
+        supabaseData
+          .deleteByIds('procurements', businessId, [id])
+          .catch((error) => console.warn('Supabase procurement delete failed:', error));
+      },
 
       // Expenses
-      addExpense: (expense) => set({ expenses: [...get().expenses, expense] }),
-      updateExpense: (id, updates) => set({
-        expenses: get().expenses.map((e) => e.id === id ? { ...e, ...updates } : e),
-      }),
-      deleteExpense: (id) => set({ expenses: get().expenses.filter((e) => e.id !== id) }),
+      addExpense: (expense, businessId) => {
+        set({ expenses: [...get().expenses, expense] });
+        if (!businessId) return;
+        supabaseData
+          .upsertCollection('expenses', businessId, [expense])
+          .catch((error) => console.warn('Supabase expense add failed:', error));
+      },
+      updateExpense: (id, updates, businessId) => {
+        set({
+          expenses: get().expenses.map((e) => e.id === id ? { ...e, ...updates } : e),
+        });
+        if (!businessId) return;
+        const updated = get().expenses.find((e) => e.id === id);
+        if (!updated) return;
+        supabaseData
+          .upsertCollection('expenses', businessId, [updated])
+          .catch((error) => console.warn('Supabase expense update failed:', error));
+      },
+      deleteExpense: (id, businessId) => {
+        set({ expenses: get().expenses.filter((e) => e.id !== id) });
+        if (!businessId) return;
+        supabaseData
+          .deleteByIds('expenses', businessId, [id])
+          .catch((error) => console.warn('Supabase expense delete failed:', error));
+      },
+      addExpenseRequest: (request, businessId) => {
+        set({ expenseRequests: [...get().expenseRequests, request] });
+        if (!businessId) return;
+        supabaseData
+          .upsertCollection('expense_requests', businessId, [request])
+          .catch((error) => console.warn('Supabase expense request add failed:', error));
+      },
+      updateExpenseRequest: (id, updates, businessId) => {
+        set({
+          expenseRequests: get().expenseRequests.map((request) => (
+            request.id === id
+              ? { ...request, ...updates, updatedAt: updates.updatedAt ?? new Date().toISOString() }
+              : request
+          )),
+        });
+        if (!businessId) return;
+        const updated = get().expenseRequests.find((request) => request.id === id);
+        if (!updated) return;
+        supabaseData
+          .upsertCollection('expense_requests', businessId, [updated])
+          .catch((error) => console.warn('Supabase expense request update failed:', error));
+      },
+      deleteExpenseRequest: (id, businessId) => {
+        set({ expenseRequests: get().expenseRequests.filter((request) => request.id !== id) });
+        if (!businessId) return;
+        supabaseData
+          .deleteByIds('expense_requests', businessId, [id])
+          .catch((error) => console.warn('Supabase expense request delete failed:', error));
+      },
+      addRefundRequest: async (request, businessId) => {
+        const previousRefundRequests = get().refundRequests;
+        set({ refundRequests: [...previousRefundRequests, request] });
+        if (!businessId) return;
+        try {
+          await supabaseData.upsertCollection('refund_requests', businessId, [request]);
+        } catch (error) {
+          set({ refundRequests: previousRefundRequests });
+          console.warn('Supabase refund request add failed:', error);
+          throw error;
+        }
+      },
+      updateRefundRequest: async (id, updates, businessId) => {
+        const previousRefundRequests = get().refundRequests;
+        const nextRefundRequests = previousRefundRequests.map((request) => (
+          request.id === id
+            ? { ...request, ...updates, updatedAt: updates.updatedAt ?? new Date().toISOString() }
+            : request
+        ));
+        set({ refundRequests: nextRefundRequests });
+        if (!businessId) return;
+        const updated = nextRefundRequests.find((request) => request.id === id);
+        if (!updated) return;
+        try {
+          await supabaseData.upsertCollection('refund_requests', businessId, [updated]);
+        } catch (error) {
+          set({ refundRequests: previousRefundRequests });
+          console.warn('Supabase refund request update failed:', error);
+          throw error;
+        }
+      },
+      deleteRefundRequest: async (id, businessId) => {
+        const previousRefundRequests = get().refundRequests;
+        set({ refundRequests: previousRefundRequests.filter((request) => request.id !== id) });
+        if (!businessId) return;
+        try {
+          await supabaseData.deleteByIds('refund_requests', businessId, [id]);
+        } catch (error) {
+          set({ refundRequests: previousRefundRequests });
+          console.warn('Supabase refund request delete failed:', error);
+          throw error;
+        }
+      },
       addExpenseCategory: (category) => set({ expenseCategories: [...get().expenseCategories, category] }),
       updateExpenseCategory: (id, updates) => set({
         expenseCategories: get().expenseCategories.map((c) => c.id === id ? { ...c, ...updates } : c),
@@ -1149,6 +1693,51 @@ const useFyllStore = create<FyllStore>()(
           .deleteSettings('expense_categories', businessId, [id])
           .catch((error) => console.warn('Supabase expense category delete failed:', error));
       },
+      addFinanceSupplier: (supplier) => set({
+        financeSuppliers: dedupeByName([...get().financeSuppliers, supplier]),
+      }),
+      updateFinanceSupplier: (id, updates) => set({
+        financeSuppliers: get().financeSuppliers.map((supplier) => (
+          supplier.id === id ? { ...supplier, ...updates } : supplier
+        )),
+      }),
+      deleteFinanceSupplier: (id) => {
+        set({ financeSuppliers: get().financeSuppliers.filter((supplier) => supplier.id !== id) });
+      },
+      addProcurementStatusOption: (status) => set({
+        procurementStatusOptions: dedupeByName([...get().procurementStatusOptions, status])
+          .sort((a, b) => a.order - b.order)
+          .map((option, index) => ({ ...option, order: index + 1 })),
+      }),
+      updateProcurementStatusOption: (id, updates) => set({
+        procurementStatusOptions: get().procurementStatusOptions
+          .map((option) => (option.id === id ? { ...option, ...updates } : option))
+          .sort((a, b) => a.order - b.order)
+          .map((option, index) => ({ ...option, order: index + 1 })),
+      }),
+      deleteProcurementStatusOption: (id) => {
+        set({
+          procurementStatusOptions: get().procurementStatusOptions
+            .filter((option) => option.id !== id)
+            .sort((a, b) => a.order - b.order)
+            .map((option, index) => ({ ...option, order: index + 1 })),
+        });
+      },
+      addFixedCost: (cost) => set({
+        fixedCosts: [...get().fixedCosts.filter((item) => item.id !== cost.id), cost],
+      }),
+      updateFixedCost: (id, updates) => set({
+        fixedCosts: get().fixedCosts.map((cost) => (
+          cost.id === id ? { ...cost, ...updates, updatedAt: new Date().toISOString() } : cost
+        )),
+      }),
+      deleteFixedCost: (id) => {
+        set({ fixedCosts: get().fixedCosts.filter((cost) => cost.id !== id) });
+      },
+      updateFinanceRules: (rules) => set({ financeRules: { ...get().financeRules, ...rules } }),
+      addRevenueRule: (rule) => set({ financeRules: { ...get().financeRules, revenueRules: [...(get().financeRules.revenueRules ?? []), rule] } }),
+      updateRevenueRule: (id, updates) => set({ financeRules: { ...get().financeRules, revenueRules: (get().financeRules.revenueRules ?? []).map((r) => r.id === id ? { ...r, ...updates } : r) } }),
+      deleteRevenueRule: (id) => set({ financeRules: { ...get().financeRules, revenueRules: (get().financeRules.revenueRules ?? []).filter((r) => r.id !== id) } }),
 
       // Audit Logs
       addAuditLog: (log) => set({ auditLogs: [...get().auditLogs, log] }),
@@ -1187,11 +1776,11 @@ const useFyllStore = create<FyllStore>()(
           products: products.map((p) =>
             p.id === productId
               ? {
-                  ...p,
-                  variants: p.variants.map((v) =>
-                    v.id === variantId ? { ...v, stock: newStock } : v
-                  ),
-                }
+                ...p,
+                variants: p.variants.map((v) =>
+                  v.id === variantId ? { ...v, stock: newStock } : v
+                ),
+              }
               : p
           ),
           // Add restock log
@@ -1227,12 +1816,12 @@ const useFyllStore = create<FyllStore>()(
           caseStatuses: get().caseStatuses.map((existing) => (
             existing.id === id
               ? {
-                  ...existing,
-                  ...updates,
-                  name: updates.name?.trim() ?? existing.name,
-                  color: updates.color ?? existing.color,
-                  description: updates.description ?? existing.description,
-                }
+                ...existing,
+                ...updates,
+                name: updates.name?.trim() ?? existing.name,
+                color: updates.color ?? existing.color,
+                description: updates.description ?? existing.description,
+              }
               : existing
           )),
         });
@@ -1272,11 +1861,11 @@ const useFyllStore = create<FyllStore>()(
           resolutionTypes: get().resolutionTypes.map((rt) =>
             rt.id === id
               ? {
-                  ...rt,
-                  ...updates,
-                  name: updates.name?.trim() ?? rt.name,
-                  description: updates.description ?? rt.description,
-                }
+                ...rt,
+                ...updates,
+                name: updates.name?.trim() ?? rt.name,
+                description: updates.description ?? rt.description,
+              }
               : rt
           ),
         });
@@ -1319,9 +1908,52 @@ const useFyllStore = create<FyllStore>()(
 
       updateCase: async (id, updates, businessId) => {
         set({
-          cases: get().cases.map((c) =>
-            c.id === id ? { ...c, ...updates, updatedAt: new Date().toISOString() } : c
-          ),
+          cases: get().cases.map((c) => {
+            if (c.id !== id) return c;
+            const merged = { ...c, ...updates, updatedAt: new Date().toISOString() };
+
+            // If timeline was explicitly provided in updates, use it as-is
+            if (updates.timeline) {
+              merged.timeline = updates.timeline;
+            } else if (updates.updatedBy) {
+              // Auto-append to timeline when updatedBy is provided but no explicit timeline
+              const changes: string[] = [];
+              if (updates.status && updates.status !== c.status) {
+                changes.push(`Status → ${updates.status}`);
+              }
+              if (updates.priority && updates.priority !== c.priority) {
+                changes.push(`Priority → ${updates.priority}`);
+              }
+              if (updates.assignedTo && updates.assignedTo !== c.assignedTo) {
+                changes.push(`Assigned to ${updates.assignedTo}`);
+              }
+              if (updates.resolution && !c.resolution) {
+                changes.push(`Resolution added: ${updates.resolution.type}`);
+              }
+              if (updates.type && updates.type !== c.type) {
+                changes.push(`Type → ${updates.type}`);
+              }
+              if (updates.customerName && updates.customerName !== c.customerName) {
+                changes.push(`Customer → ${updates.customerName}`);
+              }
+              if (updates.issueSummary && updates.issueSummary !== c.issueSummary) {
+                changes.push('Issue summary updated');
+              }
+              if (updates.source && updates.source !== c.source) {
+                changes.push(`Source → ${updates.source}`);
+              }
+              const action = changes.length > 0 ? changes.join(', ') : 'Case details updated';
+
+              const timelineEntry: CaseTimelineEntry = {
+                id: Math.random().toString(36).substring(2, 15),
+                date: new Date().toISOString(),
+                action,
+                user: updates.updatedBy,
+              };
+              merged.timeline = [...(c.timeline || []), timelineEntry];
+            }
+            return merged;
+          }),
         });
         if (businessId) {
           const updated = get().cases.find((c) => c.id === id);
@@ -1351,12 +1983,29 @@ const useFyllStore = create<FyllStore>()(
     {
       name: "fyll-storage",
       storage: createJSONStorage(() => storage),
-        partialize: (state) => ({
-          themeMode: state.themeMode,
-          userRole: state.userRole,
+      partialize: (state) => {
+          const base = {
+            themeMode: state.themeMode,
+            userRole: state.userRole,
+            lastDataSyncAt: state.lastDataSyncAt,
+            lastFullDataSyncAt: state.lastFullDataSyncAt,
           useGlobalLowStockThreshold: state.useGlobalLowStockThreshold,
           globalLowStockThreshold: state.globalLowStockThreshold,
+          autoCompleteOrders: state.autoCompleteOrders,
+          autoCompleteAfterDays: state.autoCompleteAfterDays,
+          autoCompleteFromStatus: state.autoCompleteFromStatus,
+          autoCompleteToStatus: state.autoCompleteToStatus,
+          orderAutomations: state.orderAutomations,
           categories: state.categories,
+          customers: state.customers,
+          products: state.products,
+          orders: state.orders,
+          restockLogs: state.restockLogs,
+          procurements: state.procurements,
+          expenses: state.expenses,
+          expenseRequests: state.expenseRequests,
+          refundRequests: state.refundRequests,
+          cases: state.cases,
           productVariables: state.productVariables,
           orderStatuses: state.orderStatuses,
           saleSources: state.saleSources,
@@ -1364,12 +2013,24 @@ const useFyllStore = create<FyllStore>()(
           paymentMethods: state.paymentMethods,
           logisticsCarriers: state.logisticsCarriers,
           expenseCategories: state.expenseCategories,
+          financeSuppliers: state.financeSuppliers,
+          procurementStatusOptions: state.procurementStatusOptions,
+          fixedCosts: state.fixedCosts,
+          financeRules: state.financeRules,
           auditLogs: state.auditLogs,
           caseStatuses: state.caseStatuses,
-        }),
-      }
-    )
-  );
+        };
+
+        if (Platform.OS !== 'web') return base;
+
+        return {
+          ...base,
+          products: state.products.map((product) => sanitizeProductForWebPersist(product)),
+        };
+      },
+    }
+  )
+);
 
 // Helper functions
 export const generateProductId = generateId;

@@ -1,15 +1,25 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Modal, Platform, StyleProp, ViewStyle } from 'react-native';
+import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Modal, Platform, StyleProp, ViewStyle, Switch } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { X, Plus, Minus, Trash2, ChevronDown, Check, Search, Package, User as UserIcon, Users, Calendar, ChevronLeft, ChevronRight, Sparkles, Pencil } from 'lucide-react-native';
-import useFyllStore, { OrderItem, OrderService, generateOrderNumber, formatCurrency, NIGERIA_STATES, Customer } from '@/lib/state/fyll-store';
+import { X, Plus, Minus, Trash2, ChevronDown, Check, Search, Package, User as UserIcon, Users, Calendar, ChevronLeft, ChevronRight, Sparkles, Clock3, Pencil } from 'lucide-react-native';
+import useFyllStore, {
+  OrderItem,
+  OrderService,
+  ServiceFieldType,
+  generateOrderNumber,
+  formatCurrency,
+  NIGERIA_STATES,
+  Customer,
+} from '@/lib/state/fyll-store';
 import useAuthStore from '@/lib/state/auth-store';
 import { cn } from '@/lib/cn';
+import { normalizeProductType } from '@/lib/product-utils';
 import * as Haptics from 'expo-haptics';
 import { Button, StickyButtonContainer } from '@/components/Button';
 import { useBreakpoint } from '@/lib/useBreakpoint';
 import { sendOrderNotification } from '@/hooks/useWebPushNotifications';
+import { useThemeColors } from '@/lib/theme';
 
 interface SearchResult {
   productId: string;
@@ -18,7 +28,115 @@ interface SearchResult {
   variantName: string;
   stock: number;
   price: number;
+  isService: boolean;
 }
+
+interface AiParsedServiceItem {
+  serviceName: string;
+  quantity?: number;
+  unitPrice?: number;
+  notes?: string;
+}
+
+type DatePickerTarget =
+  | { type: 'order' }
+  | { type: 'serviceField'; itemIndex: number; fieldId: string };
+
+type TimePickerTarget = { itemIndex: number; fieldId: string };
+
+const normalizeServiceFieldType = (type?: string): ServiceFieldType => (
+  type === 'Date' || type === 'Time' || type === 'Number' || type === 'Select' || type === 'Price' ? type : 'Text'
+);
+
+const normalizeOption = (option: string | { value: string; amount?: number }) => (
+  typeof option === 'string' ? { value: option } : option
+);
+
+const toIsoDateString = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const parseIsoDateString = (value: string | undefined): Date | null => {
+  if (!value) return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  const parsed = new Date(year, month, day, 12, 0, 0);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const parseTimeString = (value: string | undefined): { hour: number; minute: number } | null => {
+  if (!value) return null;
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value.trim());
+  if (!match) return null;
+  return { hour: Number(match[1]), minute: Number(match[2]) };
+};
+
+const toTimeString = (hour: number, minute: number): string => (
+  `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+);
+
+const formatTimeDisplay = (value: string | undefined): string => {
+  const parsed = parseTimeString(value);
+  if (!parsed) return value ?? '';
+  const date = new Date();
+  date.setHours(parsed.hour, parsed.minute, 0, 0);
+  return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+};
+
+const buildFallbackAiServiceId = (serviceName: string) => {
+  const normalized = serviceName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+  return `ai-service-${normalized || 'unknown'}`;
+};
+
+const getOptionAmountForValue = (
+  options: (string | { value: string; amount?: number })[] | undefined,
+  selectedValue: string | undefined
+): number => {
+  if (!selectedValue || !options?.length) return 0;
+  const selectedOption = options
+    .map(normalizeOption)
+    .find((option) => option.value === selectedValue);
+  return typeof selectedOption?.amount === 'number' && Number.isFinite(selectedOption.amount)
+    ? selectedOption.amount
+    : 0;
+};
+
+const calculateServiceUnitPrice = (
+  product: { variants: { id: string; sellingPrice: number }[]; serviceUsesGlobalPricing?: boolean },
+  variantId: string,
+  serviceVariables: OrderItem['serviceVariables'],
+  serviceFields: OrderItem['serviceFields']
+): number => {
+  const basePrice = product.variants.find((variant) => variant.id === variantId)?.sellingPrice ?? 0;
+  const usesGlobalPricing = product.serviceUsesGlobalPricing ?? true;
+  const variableAmount = usesGlobalPricing
+    ? 0
+    : (serviceVariables ?? []).reduce((sum, variable) => {
+      if (variable.type !== 'Select') return sum;
+      return sum + getOptionAmountForValue(variable.options, variable.value);
+    }, 0);
+  const fieldSelectAmount = (serviceFields ?? []).reduce((sum, field) => {
+    if (field.type !== 'Select') return sum;
+    return sum + getOptionAmountForValue(field.options, field.value);
+  }, 0);
+  const fieldPriceAmount = (serviceFields ?? []).reduce((sum, field) => {
+    if (field.type !== 'Price') return sum;
+    const parsed = Number.parseFloat((field.value ?? '').trim());
+    return sum + (Number.isFinite(parsed) ? parsed : 0);
+  }, 0);
+  return (usesGlobalPricing ? basePrice : 0) + variableAmount + fieldSelectAmount + fieldPriceAmount;
+};
 
 export default function NewOrderScreen() {
   const router = useRouter();
@@ -33,14 +151,34 @@ export default function NewOrderScreen() {
     websiteOrderReference?: string;
     notes?: string;
     items?: string;
+    services?: string;
     prefillProductId?: string;
     prefillVariantId?: string;
   }>();
   const insets = useSafeAreaInsets();
   const { isDesktop } = useBreakpoint();
+  const colors = useThemeColors();
+  const isDark = colors.bg.primary === '#111111';
+  const isDesktopWeb = Platform.OS === 'web' && isDesktop;
+  const canvasBg = !isDark && isDesktopWeb ? '#F3F3F5' : colors.bg.primary;
+  const panelBg = !isDark && isDesktopWeb ? '#FFFFFF' : colors.bg.primary;
+  const textPrimaryClass = isDark ? 'text-white' : 'text-gray-900';
+  const textSecondaryClass = isDark ? 'text-gray-300' : 'text-gray-600';
+  const textMutedClass = isDark ? 'text-gray-400' : 'text-gray-500';
+  const cardClass = isDark ? 'bg-[#1A1A1A] border-[#333333]' : 'bg-white border-gray-200';
+  const softCardClass = isDark ? 'bg-[#222222] border-[#333333]' : 'bg-gray-50 border-gray-200';
+  const summaryCardClass = isDark ? 'bg-white border-gray-200' : 'bg-[#111111] border-[#333333]';
+  const summaryPrimaryClass = isDark ? 'text-gray-900' : 'text-white';
+  const summarySecondaryClass = isDark ? 'text-gray-600' : 'text-gray-400';
+  const summaryAccentClass = isDark ? 'text-emerald-600' : 'text-emerald-400';
+  const summaryDividerColor = isDark ? '#E5E7EB' : '#333333';
+  const datePickerSurface = isDark ? '#1A1A1A' : '#FFFFFF';
+  const datePickerSoftBg = isDark ? '#222222' : '#F3F4F6';
+  const datePickerBorder = isDark ? '#333333' : '#E5E7EB';
+  const datePickerIconColor = isDark ? '#E5E7EB' : '#111111';
   const products = useFyllStore((s) => s.products);
-  const saleSources = useFyllStore((s) => s.saleSources);
   const customServices = useFyllStore((s) => s.customServices);
+  const saleSources = useFyllStore((s) => s.saleSources);
   const paymentMethods = useFyllStore((s) => s.paymentMethods);
   const customers = useFyllStore((s) => s.customers);
   const addOrder = useFyllStore((s) => s.addOrder);
@@ -52,6 +190,7 @@ export default function NewOrderScreen() {
   // Loading state
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submitGuard = useRef(false);
+  const aiServicesHydratedRef = useRef(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -83,7 +222,7 @@ export default function NewOrderScreen() {
   const [deliveryFee, setDeliveryFee] = useState(params.deliveryFee || '');
   const [additionalCharges, setAdditionalCharges] = useState('');
   const [additionalChargesNote, setAdditionalChargesNote] = useState('');
-  const [discountCode, setDiscountCode] = useState('');
+  const [discountCode] = useState('');
   const [discountAmount, setDiscountAmount] = useState('');
   const [websiteOrderRef, setWebsiteOrderRef] = useState(params.websiteOrderReference || '');
 
@@ -114,15 +253,26 @@ export default function NewOrderScreen() {
   // UI state
   const [searchQuery, setSearchQuery] = useState('');
   const [showProductSearch, setShowProductSearch] = useState(false);
+  const [itemTypeTab, setItemTypeTab] = useState<'product' | 'service'>('product');
   const [showServiceModal, setShowServiceModal] = useState(false);
   const [showSourceModal, setShowSourceModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const isProductTabActive = itemTypeTab === 'product' && showProductSearch;
+  const isServiceTabActive = itemTypeTab === 'service' && showProductSearch;
+  const itemActionButtonColor = colors.text.primary;
+  const itemActionButtonActiveTextColor = colors.bg.primary;
 
   // Order Date state
   const [orderDateType, setOrderDateType] = useState<'today' | 'another'>('today');
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [calendarViewDate, setCalendarViewDate] = useState(new Date()); // For calendar navigation
+  const [pickerDate, setPickerDate] = useState(new Date());
+  const [datePickerTarget, setDatePickerTarget] = useState<DatePickerTarget | null>(null);
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [timePickerTarget, setTimePickerTarget] = useState<TimePickerTarget | null>(null);
+  const [pickerHour, setPickerHour] = useState(9);
+  const [pickerMinute, setPickerMinute] = useState(0);
 
   // Handle AI-parsed items
   useEffect(() => {
@@ -157,13 +307,41 @@ export default function NewOrderScreen() {
             const variant = matchingVariant || matchingProduct.variants[0];
 
             if (variant) {
+              const isService = normalizeProductType(matchingProduct.productType) === 'service';
+              const serviceVariables = isService
+                ? (matchingProduct.serviceVariables ?? []).map((variable) => ({
+                  id: variable.id,
+                  name: variable.name,
+                  type: variable.type,
+                  options: (variable.options ?? []).map(normalizeOption),
+                  required: variable.required,
+                  value: variable.defaultValue ?? (variable.type === 'Toggle' ? 'false' : ''),
+                }))
+                : undefined;
+              const serviceFields = isService
+                ? (matchingProduct.serviceFields ?? []).map((field) => ({
+                  id: field.id,
+                  label: field.label,
+                  type: normalizeServiceFieldType(field.type),
+                  options: (field.options ?? []).map(normalizeOption),
+                  required: field.required,
+                  value: field.defaultValue ?? field.value ?? '',
+                }))
+                : undefined;
+              const derivedUnitPrice = isService
+                ? calculateServiceUnitPrice(matchingProduct, variant.id, serviceVariables, serviceFields)
+                : (variant.sellingPrice || 0);
+
               matchedItems.push({
                 productId: matchingProduct.id,
                 variantId: variant.id,
-                quantity: aiItem.quantity,
+                quantity: Number.isFinite(aiItem.quantity) && aiItem.quantity > 0 ? aiItem.quantity : 1,
                 unitPrice: typeof aiItem.unitPrice === 'number' && aiItem.unitPrice > 0
                   ? aiItem.unitPrice
-                  : variant.sellingPrice || 0,
+                  : derivedUnitPrice,
+                serviceId: isService ? matchingProduct.id : undefined,
+                serviceVariables,
+                serviceFields,
               });
             }
           }
@@ -178,6 +356,49 @@ export default function NewOrderScreen() {
     }
   }, [params.aiParsed, params.items, products]);
 
+  useEffect(() => {
+    if (aiServicesHydratedRef.current) return;
+    if (params.aiParsed !== 'true' || !params.services) return;
+
+    try {
+      const parsedServices: AiParsedServiceItem[] = JSON.parse(params.services);
+      const hydratedServices: OrderService[] = [];
+
+      parsedServices.forEach((service) => {
+        const serviceName = (service.serviceName ?? '').trim();
+        if (!serviceName) return;
+
+        const quantity = Number.isFinite(Number(service.quantity)) && Number(service.quantity) > 0
+          ? Number(service.quantity)
+          : 1;
+
+        const matchingService = customServices.find((entry) =>
+          entry.name.toLowerCase().includes(serviceName.toLowerCase())
+          || serviceName.toLowerCase().includes(entry.name.toLowerCase())
+        );
+
+        const basePrice = typeof service.unitPrice === 'number' && service.unitPrice > 0
+          ? service.unitPrice
+          : (matchingService?.defaultPrice ?? 0);
+        const totalPrice = basePrice * quantity;
+
+        hydratedServices.push({
+          serviceId: matchingService?.id ?? buildFallbackAiServiceId(serviceName),
+          name: quantity > 1 ? `${matchingService?.name ?? serviceName} x${quantity}` : (matchingService?.name ?? serviceName),
+          price: totalPrice,
+        });
+      });
+
+      if (hydratedServices.length > 0) {
+        setServices((current) => (current.length > 0 ? current : hydratedServices));
+      }
+      aiServicesHydratedRef.current = true;
+    } catch (error) {
+      console.error('Error parsing AI services:', error);
+      aiServicesHydratedRef.current = true;
+    }
+  }, [params.aiParsed, params.services, customServices]);
+
   // Search results - searches both product names and variant values
   // Excludes discontinued products
   const searchResults = useMemo<SearchResult[]>(() => {
@@ -188,6 +409,9 @@ export default function NewOrderScreen() {
     products
       .filter((product) => !product.isDiscontinued) // Exclude discontinued products
       .forEach((product) => {
+        const isService = normalizeProductType(product.productType) === 'service';
+        if (itemTypeTab === 'service' && !isService) return;
+        if (itemTypeTab === 'product' && isService) return;
         product.variants.forEach((variant) => {
           const variantName = Object.values(variant.variableValues).join(' ');
           const matchesProduct = product.name.toLowerCase().includes(query);
@@ -198,15 +422,16 @@ export default function NewOrderScreen() {
               productId: product.id,
               productName: product.name,
               variantId: variant.id,
-              variantName,
+              variantName: isService ? 'Service' : variantName,
               stock: variant.stock,
               price: variant.sellingPrice,
+              isService,
             });
           }
         });
       });
     return results;
-  }, [searchQuery, products]);
+  }, [searchQuery, products, itemTypeTab]);
 
   // Customer search results
   const customerSearchResults = useMemo(() => {
@@ -246,9 +471,8 @@ export default function NewOrderScreen() {
   const subtotal = useMemo(() => {
     return items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
   }, [items]);
-
   const servicesTotal = useMemo(() => {
-    return services.reduce((sum, s) => sum + s.price, 0);
+    return services.reduce((sum, service) => sum + service.price, 0);
   }, [services]);
 
   const deliveryFeeNum = parseFloat(deliveryFee) || 0;
@@ -267,11 +491,38 @@ export default function NewOrderScreen() {
       // Increment quantity if already exists
       handleUpdateQuantity(existingIndex, 1);
     } else {
+      const product = products.find((p) => p.id === result.productId);
+      const serviceVariables = result.isService
+        ? (product?.serviceVariables ?? []).map((variable) => ({
+          id: variable.id,
+          name: variable.name,
+          type: variable.type,
+          options: (variable.options ?? []).map(normalizeOption),
+          required: variable.required,
+          value: variable.defaultValue ?? (variable.type === 'Toggle' ? 'false' : ''),
+        }))
+        : undefined;
+      const serviceFields = result.isService
+        ? (product?.serviceFields ?? []).map((field) => ({
+          id: field.id,
+          label: field.label,
+          type: normalizeServiceFieldType(field.type),
+          options: (field.options ?? []).map(normalizeOption),
+          required: field.required,
+          value: field.defaultValue ?? field.value ?? '',
+        }))
+        : undefined;
+      const unitPrice = result.isService && product
+        ? calculateServiceUnitPrice(product, result.variantId, serviceVariables, serviceFields)
+        : result.price;
       setItems([...items, {
         productId: result.productId,
         variantId: result.variantId,
         quantity: 1,
-        unitPrice: result.price
+        unitPrice,
+        serviceId: result.isService ? result.productId : undefined,
+        serviceVariables,
+        serviceFields,
       }]);
     }
     setSearchQuery('');
@@ -286,8 +537,11 @@ export default function NewOrderScreen() {
       newItems.splice(index, 1);
     } else {
       const product = products.find((p) => p.id === newItems[index].productId);
+      const isService = product ? normalizeProductType(product.productType) === 'service' : false;
       const variant = product?.variants.find((v) => v.id === newItems[index].variantId);
-      if (variant && newQty <= variant.stock) {
+      if (isService) {
+        newItems[index].quantity = newQty;
+      } else if (variant && newQty <= variant.stock) {
         newItems[index].quantity = newQty;
       }
     }
@@ -301,14 +555,14 @@ export default function NewOrderScreen() {
   };
 
   const handleAddService = (serviceId: string) => {
-    const service = customServices.find((s) => s.id === serviceId);
+    const service = customServices.find((entry) => entry.id === serviceId);
     if (!service) return;
 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const nextServices = [...services, {
       serviceId: service.id,
       name: service.name,
-      price: service.defaultPrice
+      price: service.defaultPrice,
     }];
     setServices(nextServices);
     setShowServiceModal(false);
@@ -322,28 +576,29 @@ export default function NewOrderScreen() {
 
   const handleRemoveService = (index: number) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setServices(services.filter((_, i) => i !== index));
+    setServices(services.filter((_, serviceIndex) => serviceIndex !== index));
   };
 
   const openEditServicePrice = (index: number) => {
-    const current = services[index];
-    if (!current) return;
+    const selected = services[index];
+    if (!selected) return;
     setEditingServiceIndex(index);
-    setServicePriceInput(current.price ? current.price.toString() : '');
+    setServicePriceInput(selected.price ? selected.price.toString() : '');
     setShowServicePriceModal(true);
   };
 
   const confirmEditServicePrice = () => {
     if (editingServiceIndex === null) return;
-    const parsed = parseFloat(servicePriceInput);
+    const parsed = Number.parseFloat(servicePriceInput);
     const nextPrice = Number.isFinite(parsed) ? parsed : 0;
-    setServices(services.map((service, index) =>
+    setServices(services.map((service, index) => (
       index === editingServiceIndex ? { ...service, price: nextPrice } : service
-    ));
+    )));
     setEditingServiceIndex(null);
     setServicePriceInput('');
     setShowServicePriceModal(false);
   };
+
 
   const showToast = (type: 'success' | 'error', message: string) => {
     setToast({ type, message });
@@ -355,6 +610,17 @@ export default function NewOrderScreen() {
 
   const handleSubmit = async () => {
     if (!customerName.trim() || items.length === 0 || isSubmitting || submitGuard.current) return;
+    const missingRequiredService = items.some((item) =>
+      (item.serviceVariables ?? []).some((variable) =>
+        variable.required && !(variable.value ?? '').toString().trim()
+      ) || (item.serviceFields ?? []).some((field) =>
+        field.required && !(field.value ?? '').toString().trim()
+      )
+    );
+    if (missingRequiredService) {
+      showToast('error', 'Please complete required service fields.');
+      return;
+    }
 
     submitGuard.current = true;
     setIsSubmitting(true);
@@ -429,7 +695,11 @@ export default function NewOrderScreen() {
 
       // Deduct stock after order is persisted
       items.forEach((item) => {
-        updateVariantStock(item.productId, item.variantId, -item.quantity);
+        const product = products.find((p) => p.id === item.productId);
+        const isService = product ? normalizeProductType(product.productType) === 'service' : false;
+        if (!isService) {
+          updateVariantStock(item.productId, item.variantId, -item.quantity);
+        }
       });
 
       // Send push notification to team
@@ -463,9 +733,104 @@ export default function NewOrderScreen() {
 
   const getItemDetails = (item: OrderItem) => {
     const product = products.find((p) => p.id === item.productId);
+    const isService = product ? normalizeProductType(product.productType) === 'service' : false;
+    const usesGlobalPricing = product?.serviceUsesGlobalPricing ?? true;
     const variant = product?.variants.find((v) => v.id === item.variantId);
-    const variantName = variant ? Object.values(variant.variableValues).join(' / ') : '';
-    return { productName: product?.name || 'Unknown', variantName, stock: variant?.stock || 0 };
+    const variantName = isService
+      ? (product?.categories?.[0] ?? 'Service')
+      : (variant ? Object.values(variant.variableValues).join(' / ') : '');
+    return { productName: product?.name || 'Unknown', variantName, stock: variant?.stock || 0, isService, usesGlobalPricing };
+  };
+
+  const handleServiceVariableUpdate = (itemIndex: number, variableId: string, value: string) => {
+    setItems((prev) => prev.map((item, index) => {
+      if (index !== itemIndex) return item;
+      const nextVars = (item.serviceVariables ?? []).map((variable) =>
+        variable.id === variableId ? { ...variable, value } : variable
+      );
+      const product = products.find((p) => p.id === item.productId);
+      const isService = product ? normalizeProductType(product.productType) === 'service' : false;
+      if (!product || !isService) {
+        return { ...item, serviceVariables: nextVars };
+      }
+
+      return {
+        ...item,
+        serviceVariables: nextVars,
+        unitPrice: calculateServiceUnitPrice(product, item.variantId, nextVars, item.serviceFields),
+      };
+    }));
+  };
+
+  const handleServiceFieldUpdate = (itemIndex: number, fieldId: string, value: string) => {
+    setItems((prev) => prev.map((item, index) => {
+      if (index !== itemIndex) return item;
+      const nextFields = (item.serviceFields ?? []).map((field) =>
+        field.id === fieldId ? { ...field, value } : field
+      );
+      const product = products.find((p) => p.id === item.productId);
+      const isService = product ? normalizeProductType(product.productType) === 'service' : false;
+      if (!product || !isService) {
+        return { ...item, serviceFields: nextFields };
+      }
+      return {
+        ...item,
+        serviceFields: nextFields,
+        unitPrice: calculateServiceUnitPrice(product, item.variantId, item.serviceVariables, nextFields),
+      };
+    }));
+  };
+
+  const openOrderDatePicker = () => {
+    const initialDate = selectedDate;
+    setDatePickerTarget({ type: 'order' });
+    setPickerDate(initialDate);
+    setCalendarViewDate(initialDate);
+    setShowDatePicker(true);
+  };
+
+  const openServiceFieldDatePicker = (itemIndex: number, fieldId: string, currentValue: string) => {
+    const parsedDate = parseIsoDateString(currentValue) ?? new Date();
+    setDatePickerTarget({ type: 'serviceField', itemIndex, fieldId });
+    setPickerDate(parsedDate);
+    setCalendarViewDate(parsedDate);
+    setShowDatePicker(true);
+  };
+
+  const openServiceFieldTimePicker = (itemIndex: number, fieldId: string, currentValue: string) => {
+    const parsedTime = parseTimeString(currentValue);
+    const fallback = new Date();
+    setTimePickerTarget({ itemIndex, fieldId });
+    setPickerHour(parsedTime?.hour ?? fallback.getHours());
+    setPickerMinute(parsedTime?.minute ?? fallback.getMinutes());
+    setShowTimePicker(true);
+  };
+
+  const commitDatePickerValue = () => {
+    if (!datePickerTarget) {
+      setShowDatePicker(false);
+      return;
+    }
+
+    if (datePickerTarget.type === 'order') {
+      setSelectedDate(pickerDate);
+      setOrderDateType('another');
+    } else {
+      handleServiceFieldUpdate(datePickerTarget.itemIndex, datePickerTarget.fieldId, toIsoDateString(pickerDate));
+    }
+
+    setShowDatePicker(false);
+    setDatePickerTarget(null);
+  };
+
+  const commitTimePickerValue = () => {
+    if (!timePickerTarget) {
+      setShowTimePicker(false);
+      return;
+    }
+    handleServiceFieldUpdate(timePickerTarget.itemIndex, timePickerTarget.fieldId, toTimeString(pickerHour, pickerMinute));
+    setShowTimePicker(false);
+    setTimePickerTarget(null);
   };
 
   const contentWrapperStyle: StyleProp<ViewStyle> = isDesktop
@@ -473,30 +838,47 @@ export default function NewOrderScreen() {
     : undefined;
 
   return (
-    <SafeAreaView className="flex-1 bg-gray-50">
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        className="flex-1"
+    <SafeAreaView className="flex-1" style={{ backgroundColor: canvasBg }}>
+      <View
+        style={[
+          { flex: 1, backgroundColor: panelBg },
+          !isDark && isDesktopWeb
+            ? {
+                width: '100%',
+                maxWidth: 980,
+                alignSelf: 'center',
+                borderWidth: 1,
+                borderColor: '#E6E6E6',
+                borderRadius: 18,
+                overflow: 'hidden',
+                marginVertical: 12,
+              }
+            : null,
+        ]}
       >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          className="flex-1"
+        >
         {/* Header */}
-        <View className="flex-row items-center justify-between px-5 py-4 bg-white border-b border-gray-200">
-          <Pressable onPress={() => router.back()} className="w-10 h-10 rounded-full items-center justify-center active:opacity-50 bg-gray-100">
-            <X size={24} color="#111111" strokeWidth={2} />
+        <View className="flex-row items-center justify-between px-5 py-4" style={{ backgroundColor: colors.bg.card, borderBottomWidth: 1, borderBottomColor: colors.border.light }}>
+          <Pressable onPress={() => router.back()} className="w-10 h-10 rounded-full items-center justify-center active:opacity-50" style={{ backgroundColor: colors.bg.secondary }}>
+            <X size={24} color={colors.text.primary} strokeWidth={2} />
           </Pressable>
-          <Text className="text-lg font-bold text-gray-900">New Order</Text>
+          <Text className={cn('text-lg font-bold', textPrimaryClass)}>New Order</Text>
           {/* Empty spacer for layout balance */}
           <View className="w-10 h-10" />
         </View>
 
         {/* AI-Parsed Banner */}
         {params.aiParsed === 'true' && (
-          <View className="bg-purple-50 mx-4 mt-4 rounded-2xl p-4 flex-row items-center border border-purple-200">
+          <View className={cn('mx-4 mt-4 rounded-2xl p-4 flex-row items-center border', isDark ? 'bg-[#1C1C1C] border-[#2F2F2F]' : 'bg-purple-50 border-purple-200')}>
             <View className="w-10 h-10 rounded-full bg-purple-500 items-center justify-center mr-3">
               <Sparkles size={20} color="#FFFFFF" strokeWidth={2} />
             </View>
             <View className="flex-1">
-              <Text className="text-purple-900 font-bold text-sm mb-1">AI-Parsed Order Draft</Text>
-              <Text className="text-purple-700 text-xs leading-5">
+              <Text className={cn('font-bold text-sm mb-1', isDark ? 'text-purple-200' : 'text-purple-900')}>AI-Parsed Order Draft</Text>
+              <Text className={cn('text-xs leading-5', isDark ? 'text-purple-300' : 'text-purple-700')}>
                 Review and edit the information below. {params.notes ? 'Note: ' + params.notes : ''}
               </Text>
             </View>
@@ -506,16 +888,16 @@ export default function NewOrderScreen() {
         <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
           <View style={contentWrapperStyle}>
           {/* Customer Info Section */}
-          <View className="bg-white mx-4 mt-4 rounded-2xl p-4">
+          <View className={cn('mx-4 mt-4 rounded-2xl p-4 border', cardClass)}>
             <View className="flex-row items-center justify-between mb-4">
-              <Text className="text-gray-900 font-bold text-base">Customer Information</Text>
+              <Text className={cn('font-bold text-base', textPrimaryClass)}>Customer Information</Text>
               {customers.length > 0 && (
                 <Pressable
                   onPress={() => setShowCustomerSearch(!showCustomerSearch)}
-                  className="bg-blue-50 px-3 py-2 rounded-xl flex-row items-center active:opacity-70"
+                  className={cn('px-3 py-2 rounded-xl flex-row items-center active:opacity-70', isDark ? 'bg-[#1C2B3A]' : 'bg-blue-50')}
                 >
                   <Users size={16} color="#2563EB" strokeWidth={2} />
-                  <Text className="text-blue-700 font-semibold text-sm ml-1">
+                  <Text className={cn('font-semibold text-sm ml-1', isDark ? 'text-blue-300' : 'text-blue-700')}>
                     {selectedCustomerId ? 'Change' : 'Search'}
                   </Text>
                 </Pressable>
@@ -525,31 +907,33 @@ export default function NewOrderScreen() {
             {/* Customer Search */}
             {showCustomerSearch && (
               <View className="mb-4">
-                <View className="flex-row items-center bg-gray-50 rounded-xl px-3 border border-gray-200">
-                  <Search size={18} color="#9CA3AF" strokeWidth={2} />
+                <View className={cn('flex-row items-center rounded-xl px-3 border', softCardClass)}>
+                  <Search size={18} color={colors.text.muted} strokeWidth={2} />
                   <TextInput
                     placeholder="Search by name, phone, or email..."
-                    placeholderTextColor="#9CA3AF"
+                    placeholderTextColor={colors.input.placeholder}
                     value={customerSearchQuery}
                     onChangeText={setCustomerSearchQuery}
                     autoFocus
-                    className="flex-1 py-3 px-2 text-gray-900"
+                    className="flex-1 py-3 px-2"
+                    style={{ color: colors.input.text }}
                   />
                 </View>
                 {customerSearchResults.length > 0 && (
-                  <View className="mt-2 rounded-xl overflow-hidden border border-gray-200 bg-gray-50">
+                  <View className={cn('mt-2 rounded-xl overflow-hidden border', softCardClass)}>
                     {customerSearchResults.slice(0, 5).map((customer) => (
                       <Pressable
                         key={customer.id}
                         onPress={() => handleSelectCustomer(customer)}
-                        className="flex-row items-center p-3 border-b border-gray-200 active:bg-gray-100"
+                        className="flex-row items-center p-3 border-b active:opacity-70"
+                        style={{ borderBottomColor: colors.border.light }}
                       >
                         <View className="w-10 h-10 rounded-full bg-emerald-100 items-center justify-center mr-3">
                           <UserIcon size={18} color="#059669" strokeWidth={2} />
                         </View>
                         <View className="flex-1">
-                          <Text className="text-gray-900 font-semibold text-sm">{customer.fullName}</Text>
-                          <Text className="text-gray-500 text-xs">
+                          <Text className={cn('font-semibold text-sm', textPrimaryClass)}>{customer.fullName}</Text>
+                          <Text className={cn('text-xs', textMutedClass)}>
                             {customer.phone || customer.email || 'No contact info'}
                           </Text>
                         </View>
@@ -561,8 +945,8 @@ export default function NewOrderScreen() {
                   </View>
                 )}
                 {customerSearchResults.length === 0 && customerSearchQuery.trim() && (
-                  <View className="mt-2 p-4 rounded-xl bg-gray-50 items-center">
-                    <Text className="text-gray-500 text-sm">No customers found</Text>
+                  <View className={cn('mt-2 p-4 rounded-xl items-center', softCardClass)}>
+                    <Text className={cn('text-sm', textMutedClass)}>No customers found</Text>
                   </View>
                 )}
               </View>
@@ -588,7 +972,8 @@ export default function NewOrderScreen() {
                 placeholderTextColor="#9CA3AF"
                 value={customerName}
                 onChangeText={setCustomerName}
-                className="bg-gray-50 rounded-xl px-4 py-3 text-gray-900 text-base border border-gray-200"
+                className={cn('rounded-xl px-4 py-3 text-base border', softCardClass)}
+                style={{ color: colors.input.text }}
               />
             </View>
 
@@ -600,7 +985,8 @@ export default function NewOrderScreen() {
                 value={customerPhone}
                 onChangeText={setCustomerPhone}
                 keyboardType="phone-pad"
-                className="bg-gray-50 rounded-xl px-4 py-3 text-gray-900 text-base border border-gray-200"
+                className={cn('rounded-xl px-4 py-3 text-base border', softCardClass)}
+                style={{ color: colors.input.text }}
               />
             </View>
 
@@ -613,7 +999,8 @@ export default function NewOrderScreen() {
                 onChangeText={setCustomerEmail}
                 keyboardType="email-address"
                 autoCapitalize="none"
-                className="bg-gray-50 rounded-xl px-4 py-3 text-gray-900 text-base border border-gray-200"
+                className={cn('rounded-xl px-4 py-3 text-base border', softCardClass)}
+                style={{ color: colors.input.text }}
               />
             </View>
 
@@ -621,9 +1008,9 @@ export default function NewOrderScreen() {
               <Text className="text-gray-600 text-sm font-medium mb-2">Delivery State</Text>
               <Pressable
                 onPress={() => setShowStateModal(true)}
-                className="bg-gray-50 rounded-xl px-4 py-3 flex-row items-center justify-between border border-gray-200"
+                className={cn('rounded-xl px-4 py-3 flex-row items-center justify-between border', softCardClass)}
               >
-                <Text className={deliveryState ? 'text-gray-900 text-base' : 'text-gray-400 text-base'}>
+                <Text className={cn('text-base', deliveryState ? textPrimaryClass : textMutedClass)}>
                   {deliveryState || 'Select state'}
                 </Text>
                 <ChevronDown size={20} color="#6B7280" strokeWidth={2} />
@@ -639,8 +1026,8 @@ export default function NewOrderScreen() {
                 onChangeText={setDeliveryAddress}
                 multiline
                 numberOfLines={3}
-                className="bg-gray-50 rounded-xl px-4 py-3 text-gray-900 text-base border border-gray-200"
-                style={{ minHeight: 80, textAlignVertical: 'top' }}
+                className={cn('rounded-xl px-4 py-3 text-base border', softCardClass)}
+                style={{ color: colors.input.text, minHeight: 80, textAlignVertical: 'top' }}
               />
             </View>
 
@@ -651,42 +1038,80 @@ export default function NewOrderScreen() {
                 placeholderTextColor="#9CA3AF"
                 value={websiteOrderRef}
                 onChangeText={setWebsiteOrderRef}
-                className="bg-gray-50 rounded-xl px-4 h-[52px] text-gray-900 text-base border border-gray-200"
+                className={cn('rounded-xl px-4 h-[52px] text-base border', softCardClass)}
+                style={{ color: colors.input.text }}
               />
             </View>
 
           </View>
 
-          {/* Products Section */}
-          <View className="bg-white mx-4 mt-4 rounded-2xl p-4">
+          {/* Items Section */}
+          <View className={cn('mx-4 mt-4 rounded-2xl p-4 border', cardClass)}>
             <View className="flex-row items-center justify-between mb-4">
-              <Text className="text-gray-900 font-bold text-base">Products *</Text>
-              <Pressable
-                onPress={() => setShowProductSearch(!showProductSearch)}
-                className="bg-emerald-50 px-3 py-2 rounded-xl flex-row items-center active:opacity-70"
-              >
-                <Plus size={16} color="#059669" strokeWidth={2} />
-                <Text className="text-emerald-700 font-semibold text-sm ml-1">Add</Text>
-              </Pressable>
+              <Text className={cn('font-bold text-base', textPrimaryClass)}>Items *</Text>
+              <View className="flex-row gap-2">
+                <Pressable
+                  onPress={() => {
+                    setItemTypeTab('product');
+                    setShowProductSearch(true);
+                  }}
+                  className="px-4 py-2 rounded-full flex-row items-center active:opacity-70"
+                  style={{
+                    backgroundColor: isProductTabActive ? itemActionButtonColor : 'transparent',
+                    borderWidth: 1.5,
+                    borderColor: itemActionButtonColor,
+                  }}
+                >
+                  <Plus size={16} color={isProductTabActive ? itemActionButtonActiveTextColor : itemActionButtonColor} strokeWidth={2.4} />
+                  <Text
+                    className="font-semibold text-sm ml-1"
+                    style={{ color: isProductTabActive ? itemActionButtonActiveTextColor : itemActionButtonColor }}
+                  >
+                    Add Product
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setItemTypeTab('service');
+                    setShowProductSearch(true);
+                  }}
+                  className="px-4 py-2 rounded-full flex-row items-center active:opacity-70"
+                  style={{
+                    backgroundColor: isServiceTabActive ? itemActionButtonColor : 'transparent',
+                    borderWidth: 1.5,
+                    borderColor: itemActionButtonColor,
+                  }}
+                >
+                  <Plus size={16} color={isServiceTabActive ? itemActionButtonActiveTextColor : itemActionButtonColor} strokeWidth={2.4} />
+                  <Text
+                    className="font-semibold text-sm ml-1"
+                    style={{ color: isServiceTabActive ? itemActionButtonActiveTextColor : itemActionButtonColor }}
+                  >
+                    Add Service
+                  </Text>
+                </Pressable>
+              </View>
             </View>
 
-            {/* Product Search */}
+            {/* Item Search */}
             {showProductSearch && (
               <View className="mb-4">
-                <View className="flex-row items-center bg-gray-50 rounded-xl px-3 border border-gray-200">
+                <View className={cn('flex-row items-center rounded-xl px-3 border', softCardClass)}>
                   <Search size={18} color="#9CA3AF" strokeWidth={2} />
                   <TextInput
-                    placeholder="Search products or variants (e.g., Black, Gold)"
+                    placeholder={itemTypeTab === 'service'
+                      ? 'Search services (e.g., Installation)'
+                      : 'Search products or variants (e.g., Black, Gold)'}
                     placeholderTextColor="#9CA3AF"
                     value={searchQuery}
                     onChangeText={setSearchQuery}
                     autoFocus
-                    className="flex-1 py-3 px-2 text-gray-900 text-base"
+                    className={cn('flex-1 py-3 px-2 text-base', textPrimaryClass)}
                   />
                 </View>
 
                 {searchResults.length > 0 && (
-                  <View className="mt-2 bg-white rounded-xl border border-gray-200 max-h-60">
+                  <View className={cn('mt-2 rounded-xl border max-h-60', cardClass)}>
                     <ScrollView nestedScrollEnabled>
                       {searchResults.map((result) => {
                         const isSelected = items.some(
@@ -705,17 +1130,21 @@ export default function NewOrderScreen() {
                               <Package size={18} color="#6B7280" strokeWidth={2} />
                             </View>
                             <View className="flex-1">
-                              <Text className="text-gray-900 font-semibold text-sm">
-                                {result.productName} - {result.variantName}
+                              <Text className={cn('font-semibold text-sm', textPrimaryClass)}>
+                                {result.productName}{result.isService ? '' : ` - ${result.variantName}`}
                               </Text>
-                              <Text className={cn(
-                                'text-xs',
-                                result.stock > 0 ? 'text-emerald-600' : 'text-red-500'
-                              )}>
-                                {result.stock > 0 ? `${result.stock} in stock` : 'Out of stock'}
-                              </Text>
+                              {result.isService ? (
+                                <Text className="text-xs text-gray-500">Service</Text>
+                              ) : (
+                                <Text className={cn(
+                                  'text-xs',
+                                  result.stock > 0 ? 'text-emerald-600' : 'text-red-500'
+                                )}>
+                                  {result.stock > 0 ? `${result.stock} in stock` : 'Out of stock'}
+                                </Text>
+                              )}
                             </View>
-                            <Text className="text-gray-900 font-bold text-sm">{formatCurrency(result.price)}</Text>
+                            <Text className={cn('font-bold text-sm', textPrimaryClass)}>{formatCurrency(result.price)}</Text>
                             {isSelected && <Check size={18} color="#059669" strokeWidth={2} style={{ marginLeft: 8 }} />}
                           </Pressable>
                         );
@@ -730,43 +1159,222 @@ export default function NewOrderScreen() {
             {items.length > 0 ? (
               <View>
                 {items.map((item, index) => {
-                  const { productName, variantName, stock } = getItemDetails(item);
+                  const { productName, variantName, stock, isService, usesGlobalPricing } = getItemDetails(item);
+                  const fullName = isService ? productName : `${productName} - ${variantName}`;
+                  const serviceVariables = item.serviceVariables ?? [];
+                  const serviceFields = item.serviceFields ?? [];
                   return (
                     <View
                       key={`${item.productId}-${item.variantId}`}
-                      className="flex-row items-center py-3 border-b border-gray-100"
+                      className={cn('mb-3 rounded-2xl border p-3', cardClass)}
                     >
-                      <View className="w-10 h-10 bg-gray-100 rounded-lg items-center justify-center mr-3">
-                        <Package size={18} color="#6B7280" strokeWidth={2} />
-                      </View>
-                      <View className="flex-1">
-                        <Text className="text-gray-900 font-semibold text-sm">{productName}</Text>
-                        <Text className="text-gray-500 text-xs">{variantName} • {stock} in stock</Text>
+                      <View className="flex-row items-center">
+                        <View className="flex-1 mr-3">
+                          <Text className={cn('font-semibold text-sm', textPrimaryClass)} numberOfLines={2}>{fullName}</Text>
+                          <Text className="text-gray-500 text-xs mt-0.5">
+                            {isService ? 'Service' : `${stock} in stock`}
+                          </Text>
+                        </View>
+
+                        <View className="flex-row items-center bg-gray-100 rounded-lg">
+                          <Pressable
+                            onPress={() => handleUpdateQuantity(index, -1)}
+                            className="p-2 active:opacity-50"
+                          >
+                            <Minus size={14} color="#374151" strokeWidth={2} />
+                          </Pressable>
+                          <Text className={cn('font-bold text-sm w-8 text-center', textPrimaryClass)}>{item.quantity}</Text>
+                          <Pressable
+                            onPress={() => handleUpdateQuantity(index, 1)}
+                            className="p-2 active:opacity-50"
+                          >
+                            <Plus size={14} color="#374151" strokeWidth={2} />
+                          </Pressable>
+                        </View>
+
+                        <Pressable onPress={() => handleRemoveItem(index)} className="ml-2 p-1 active:opacity-50">
+                          <Trash2 size={16} color="#EF4444" strokeWidth={2} />
+                        </Pressable>
                       </View>
 
-                      <View className="flex-row items-center bg-gray-100 rounded-lg mr-3">
-                        <Pressable
-                          onPress={() => handleUpdateQuantity(index, -1)}
-                          className="p-2 active:opacity-50"
-                        >
-                          <Minus size={14} color="#374151" strokeWidth={2} />
-                        </Pressable>
-                        <Text className="text-gray-900 font-bold text-sm w-8 text-center">{item.quantity}</Text>
-                        <Pressable
-                          onPress={() => handleUpdateQuantity(index, 1)}
-                          className="p-2 active:opacity-50"
-                        >
-                          <Plus size={14} color="#374151" strokeWidth={2} />
-                        </Pressable>
-                      </View>
-
-                      <Text className="text-gray-900 font-bold text-sm w-24 text-right">
+                      <Text className={cn('font-bold text-sm mt-1', textPrimaryClass)}>
                         {formatCurrency(item.unitPrice * item.quantity)}
+                        {item.quantity > 1 && (
+                          <Text className="text-gray-400 font-normal text-xs">
+                            {' '}({formatCurrency(item.unitPrice)} × {item.quantity})
+                          </Text>
+                        )}
                       </Text>
 
-                      <Pressable onPress={() => handleRemoveItem(index)} className="ml-2 p-1 active:opacity-50">
-                        <Trash2 size={16} color="#EF4444" strokeWidth={2} />
-                      </Pressable>
+                      {isService && (serviceVariables.length > 0 || serviceFields.length > 0) && (
+                        <View className="mt-3 pt-3 border-t border-gray-100">
+                          <Text className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                            Service Configuration
+                          </Text>
+                          <View className="gap-3">
+                            {serviceVariables.map((variable) => {
+                              const value = variable.value ?? '';
+                              const isRequired = Boolean(variable.required);
+                              return (
+                                <View key={variable.id}>
+                                  <Text className="text-gray-600 text-sm font-medium mb-2">
+                                    {variable.name}{isRequired ? ' *' : ''}
+                                  </Text>
+                                  {variable.type === 'Select' && (
+                                    <View className="flex-row flex-wrap gap-2">
+                                      {(variable.options ?? []).map((rawOption) => {
+                                        const option = normalizeOption(rawOption);
+                                        const selected = value === option.value;
+                                        return (
+                                          <Pressable
+                                            key={`${option.value}-${option.amount ?? 'na'}`}
+                                            onPress={() => handleServiceVariableUpdate(index, variable.id, option.value)}
+                                            className="px-4 py-2 rounded-full"
+                                            style={{
+                                              backgroundColor: selected ? '#111111' : '#F3F4F6',
+                                              borderWidth: 1,
+                                              borderColor: selected ? '#111111' : '#E5E7EB',
+                                            }}
+                                          >
+                                            <Text className={cn('text-xs font-semibold', selected ? 'text-white' : 'text-gray-700')}>
+                                              {option.value}
+                                              {!usesGlobalPricing && typeof option.amount === 'number' && Number.isFinite(option.amount)
+                                                ? ` (+${formatCurrency(option.amount)})`
+                                                : ''}
+                                            </Text>
+                                          </Pressable>
+                                        );
+                                      })}
+                                    </View>
+                                  )}
+                                  {variable.type === 'Toggle' && (
+                                    <Switch
+                                      value={value === 'true'}
+                                      onValueChange={(next: boolean) => handleServiceVariableUpdate(index, variable.id, next ? 'true' : 'false')}
+                                    />
+                                  )}
+                                  {variable.type === 'Number' && (
+                                    <TextInput
+                                      value={value}
+                                      onChangeText={(next) => handleServiceVariableUpdate(index, variable.id, next)}
+                                      placeholder="Enter value"
+                                      placeholderTextColor="#9CA3AF"
+                                      keyboardType="numeric"
+                                      className={cn('rounded-xl px-4 py-3 text-sm border', softCardClass, textPrimaryClass)}
+                                    />
+                                  )}
+                                  {variable.type === 'Text' && (
+                                    <TextInput
+                                      value={value}
+                                      onChangeText={(next) => handleServiceVariableUpdate(index, variable.id, next)}
+                                      placeholder="Enter value"
+                                      placeholderTextColor="#9CA3AF"
+                                      className={cn('rounded-xl px-4 py-3 text-sm border', softCardClass, textPrimaryClass)}
+                                    />
+                                  )}
+                                </View>
+                              );
+                            })}
+
+                            {serviceFields.map((field) => {
+                              const value = field.value ?? '';
+                              const isRequired = Boolean(field.required);
+                              const fieldType = normalizeServiceFieldType(field.type);
+                              const parsedDateValue = fieldType === 'Date' ? parseIsoDateString(value) : null;
+                              const displayDateValue = parsedDateValue
+                                ? parsedDateValue.toLocaleDateString(undefined, {
+                                  weekday: 'short',
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: 'numeric',
+                                })
+                                : '';
+                              const fieldOptions = Array.from(
+                                new Map(
+                                  (field.options ?? [])
+                                    .map(normalizeOption)
+                                    .filter((option) => option.value.trim().length > 0)
+                                    .map((option) => [option.value, option])
+                                ).values()
+                              );
+                              const displayTimeValue = fieldType === 'Time' ? formatTimeDisplay(value) : '';
+                              return (
+                                <View key={field.id}>
+                                  <Text className="text-gray-600 text-sm font-medium mb-2">
+                                    {field.label}{isRequired ? ' *' : ''}
+                                  </Text>
+                                  {fieldType === 'Date' ? (
+                                    <Pressable
+                                      onPress={() => openServiceFieldDatePicker(index, field.id, value)}
+                                      className={cn('rounded-xl px-4 py-3 text-sm border flex-row items-center justify-between', softCardClass)}
+                                    >
+                                      <View className="flex-row items-center">
+                                        <Calendar size={16} color="#9CA3AF" strokeWidth={2} />
+                                        <Text className={cn('text-sm ml-2', displayDateValue ? textPrimaryClass : textMutedClass)}>
+                                          {displayDateValue || value || 'Pick a date'}
+                                        </Text>
+                                      </View>
+                                      <ChevronDown size={16} color="#9CA3AF" strokeWidth={2} />
+                                    </Pressable>
+                                  ) : fieldType === 'Time' ? (
+                                    <Pressable
+                                      onPress={() => openServiceFieldTimePicker(index, field.id, value)}
+                                      className={cn('rounded-xl px-4 py-3 text-sm border flex-row items-center justify-between', softCardClass)}
+                                    >
+                                      <View className="flex-row items-center">
+                                        <Clock3 size={16} color="#9CA3AF" strokeWidth={2} />
+                                        <Text className={cn('text-sm ml-2', displayTimeValue ? textPrimaryClass : textMutedClass)}>
+                                          {displayTimeValue || value || 'Pick a time'}
+                                        </Text>
+                                      </View>
+                                      <ChevronDown size={16} color="#9CA3AF" strokeWidth={2} />
+                                    </Pressable>
+                                  ) : fieldType === 'Select' ? (
+                                    <View className="flex-row flex-wrap gap-2">
+                                      {fieldOptions.map((option) => {
+                                        const selected = value === option.value;
+                                        return (
+                                          <Pressable
+                                            key={`${field.id}-${option.value}-${option.amount ?? 'na'}`}
+                                            onPress={() => handleServiceFieldUpdate(index, field.id, option.value)}
+                                            className="px-4 py-2 rounded-full"
+                                            style={{
+                                              backgroundColor: selected ? '#111111' : '#F3F4F6',
+                                              borderWidth: 1,
+                                              borderColor: selected ? '#111111' : '#E5E7EB',
+                                            }}
+                                          >
+                                            <Text className={cn('text-xs font-semibold', selected ? 'text-white' : 'text-gray-700')}>
+                                              {option.value}
+                                              {typeof option.amount === 'number' && Number.isFinite(option.amount)
+                                                ? ` (+${formatCurrency(option.amount)})`
+                                                : ''}
+                                            </Text>
+                                          </Pressable>
+                                        );
+                                      })}
+                                      {fieldOptions.length === 0 && (
+                                        <Text className={cn('text-xs', textMutedClass)}>
+                                          No options configured for this field.
+                                        </Text>
+                                      )}
+                                    </View>
+                                  ) : (
+                                    <TextInput
+                                      value={value}
+                                      onChangeText={(next) => handleServiceFieldUpdate(index, field.id, next)}
+                                      placeholder={fieldType === 'Number' || fieldType === 'Price' ? 'Enter number' : 'Enter value'}
+                                      placeholderTextColor="#9CA3AF"
+                                      keyboardType={fieldType === 'Number' || fieldType === 'Price' ? 'numeric' : 'default'}
+                                      className={cn('rounded-xl px-4 py-3 text-sm border', softCardClass, textPrimaryClass)}
+                                    />
+                                  )}
+                                </View>
+                              );
+                            })}
+                          </View>
+                        </View>
+                      )}
                     </View>
                   );
                 })}
@@ -774,56 +1382,63 @@ export default function NewOrderScreen() {
             ) : (
               <View className="py-8 items-center">
                 <Package size={32} color="#D1D5DB" strokeWidth={1.5} />
-                <Text className="text-gray-400 text-sm mt-2">No products added yet</Text>
+                <Text className="text-gray-400 text-sm mt-2">No items added yet</Text>
               </View>
             )}
           </View>
 
-          {/* Services Section */}
-          <View className="bg-white mx-4 mt-4 rounded-2xl p-4">
-            <View className="flex-row items-center justify-between mb-4">
-              <Text className="text-gray-900 font-bold text-base">Services</Text>
-              <Pressable
-                onPress={() => setShowServiceModal(true)}
-                className="bg-blue-50 px-3 py-2 rounded-xl flex-row items-center active:opacity-70"
-              >
-                <Plus size={16} color="#2563EB" strokeWidth={2} />
-                <Text className="text-blue-700 font-semibold text-sm ml-1">Add Service</Text>
-              </Pressable>
-            </View>
+          {items.length > 0 && (
+            <View className={cn('mx-4 mt-4 rounded-2xl p-4 border', cardClass)}>
+              <View className="flex-row items-center justify-between mb-4">
+                <Text className={cn('font-bold text-base', textPrimaryClass)}>Add-ons</Text>
+                <Pressable
+                  onPress={() => setShowServiceModal(true)}
+                  className={cn('px-3 py-2 rounded-xl flex-row items-center active:opacity-70', isDark ? 'bg-[#1C2B3A]' : 'bg-blue-50')}
+                >
+                  <Plus size={16} color="#2563EB" strokeWidth={2} />
+                  <Text className={cn('font-semibold text-sm ml-1', isDark ? 'text-blue-300' : 'text-blue-700')}>
+                    Add Add-on
+                  </Text>
+                </Pressable>
+              </View>
 
-            {services.length > 0 ? (
-              services.map((service, index) => (
-                <View key={`${service.serviceId}-${index}`} className="flex-row items-center py-3 border-b border-gray-100">
-                  <View className="flex-1">
-                    <Text className="text-gray-900 font-medium text-sm">{service.name}</Text>
-                  </View>
-                  <Text className="text-gray-900 font-bold text-sm mr-2">{formatCurrency(service.price)}</Text>
-                  <Pressable
-                    onPress={() => openEditServicePrice(index)}
-                    className="px-2 py-1 rounded-lg mr-2 active:opacity-70"
-                    style={{ backgroundColor: service.price > 0 ? 'rgba(59, 130, 246, 0.08)' : 'rgba(234, 179, 8, 0.12)' }}
+              {services.length > 0 ? (
+                services.map((service, index) => (
+                  <View
+                    key={`${service.serviceId}-${index}`}
+                    className="flex-row items-center py-3 border-b"
+                    style={{ borderBottomColor: colors.border.light }}
                   >
-                    <View className="flex-row items-center">
-                      <Pencil size={14} color={service.price > 0 ? '#3B82F6' : '#CA8A04'} strokeWidth={2} />
-                      <Text className="text-xs font-semibold ml-1" style={{ color: service.price > 0 ? '#3B82F6' : '#CA8A04' }}>
-                        {service.price > 0 ? 'Edit' : 'Set'}
-                      </Text>
+                    <View className="flex-1">
+                      <Text className={cn('font-medium text-sm', textPrimaryClass)}>{service.name}</Text>
                     </View>
-                  </Pressable>
-                  <Pressable onPress={() => handleRemoveService(index)} className="p-1 active:opacity-50">
-                    <Trash2 size={16} color="#EF4444" strokeWidth={2} />
-                  </Pressable>
-                </View>
-              ))
-            ) : (
-              <Text className="text-gray-400 text-sm text-center py-4">No services added</Text>
-            )}
-          </View>
+                    <Text className={cn('font-bold text-sm mr-2', textPrimaryClass)}>{formatCurrency(service.price)}</Text>
+                    <Pressable
+                      onPress={() => openEditServicePrice(index)}
+                      className="px-2 py-1 rounded-lg mr-2 active:opacity-70"
+                      style={{ backgroundColor: service.price > 0 ? 'rgba(59, 130, 246, 0.08)' : 'rgba(234, 179, 8, 0.12)' }}
+                    >
+                      <View className="flex-row items-center">
+                        <Pencil size={14} color={service.price > 0 ? '#3B82F6' : '#CA8A04'} strokeWidth={2} />
+                        <Text className="text-xs font-semibold ml-1" style={{ color: service.price > 0 ? '#3B82F6' : '#CA8A04' }}>
+                          {service.price > 0 ? 'Edit' : 'Set'}
+                        </Text>
+                      </View>
+                    </Pressable>
+                    <Pressable onPress={() => handleRemoveService(index)} className="p-1 active:opacity-50">
+                      <Trash2 size={16} color="#EF4444" strokeWidth={2} />
+                    </Pressable>
+                  </View>
+                ))
+              ) : (
+                <Text className={cn('text-sm text-center py-4', textMutedClass)}>No add-ons added</Text>
+              )}
+            </View>
+          )}
 
           {/* Fees & Charges Section */}
-          <View className="bg-white mx-4 mt-4 rounded-2xl p-4">
-            <Text className="text-gray-900 font-bold text-base mb-4">Fees & Charges</Text>
+          <View className={cn('mx-4 mt-4 rounded-2xl p-4 border', cardClass)}>
+            <Text className={cn('font-bold text-base mb-4', textPrimaryClass)}>Fees & Charges</Text>
 
             <View className="mb-4">
               <Text className="text-gray-600 text-sm font-medium mb-2">Delivery Fee</Text>
@@ -833,7 +1448,7 @@ export default function NewOrderScreen() {
                 value={deliveryFee}
                 onChangeText={setDeliveryFee}
                 keyboardType="numeric"
-                className="bg-gray-50 rounded-xl px-4 py-3 text-gray-900 text-base border border-gray-200"
+                className={cn('rounded-xl px-4 py-3 text-base border', softCardClass, textPrimaryClass)}
               />
             </View>
 
@@ -845,7 +1460,7 @@ export default function NewOrderScreen() {
                 value={additionalCharges}
                 onChangeText={setAdditionalCharges}
                 keyboardType="numeric"
-                className="bg-gray-50 rounded-xl px-4 py-3 text-gray-900 text-base border border-gray-200"
+                className={cn('rounded-xl px-4 py-3 text-base border', softCardClass, textPrimaryClass)}
               />
             </View>
 
@@ -857,23 +1472,10 @@ export default function NewOrderScreen() {
                   placeholderTextColor="#9CA3AF"
                   value={additionalChargesNote}
                   onChangeText={setAdditionalChargesNote}
-                  className="bg-gray-50 rounded-xl px-4 py-3 text-gray-900 text-base border border-gray-200"
+                  className={cn('rounded-xl px-4 py-3 text-base border', softCardClass, textPrimaryClass)}
                 />
               </View>
             )}
-
-            {/* Discount Code Section */}
-            <View className="mb-4">
-              <Text className="text-gray-600 text-sm font-medium mb-2">Discount Code</Text>
-              <TextInput
-                placeholder="Enter discount code (optional)"
-                placeholderTextColor="#9CA3AF"
-                value={discountCode}
-                onChangeText={setDiscountCode}
-                autoCapitalize="characters"
-                className="bg-gray-50 rounded-xl px-4 py-3 text-gray-900 text-base border border-gray-200"
-              />
-            </View>
 
             <View>
               <Text className="text-gray-600 text-sm font-medium mb-2">Discount Amount</Text>
@@ -883,32 +1485,30 @@ export default function NewOrderScreen() {
                 value={discountAmount}
                 onChangeText={setDiscountAmount}
                 keyboardType="numeric"
-                className="bg-gray-50 rounded-xl px-4 py-3 text-gray-900 text-base border border-gray-200"
+                className={cn('rounded-xl px-4 py-3 text-base border', softCardClass, textPrimaryClass)}
               />
             </View>
           </View>
 
           {/* Order Details Section */}
-          <View className="bg-white mx-4 mt-4 rounded-2xl p-4">
-            <Text className="text-gray-900 font-bold text-base mb-4">Order Details</Text>
+          <View className={cn('mx-4 mt-4 rounded-2xl p-4 border', cardClass)}>
+            <Text className={cn('font-bold text-base mb-4', textPrimaryClass)}>Order Details</Text>
 
             {/* Order Date */}
             <View className="mb-4">
-              <Text className="text-gray-600 text-sm font-medium mb-2">Order Date</Text>
-              <View className="flex-row rounded-xl overflow-hidden border border-gray-200">
+              <Text className={cn('text-sm font-medium mb-2', textSecondaryClass)}>Order Date</Text>
+              <View className={cn('flex-row rounded-xl overflow-hidden border', softCardClass)}>
                 <Pressable
                   onPress={() => {
                     if (Platform.OS !== 'web') Haptics.selectionAsync();
                     setOrderDateType('today');
                   }}
-                  className={cn(
-                    'flex-1 py-3 items-center justify-center',
-                    orderDateType === 'today' ? 'bg-gray-900' : 'bg-gray-50'
-                  )}
+                  className="flex-1 py-3 items-center justify-center"
+                  style={{ backgroundColor: orderDateType === 'today' ? '#111111' : 'transparent' }}
                 >
                   <Text className={cn(
                     'font-semibold text-sm',
-                    orderDateType === 'today' ? 'text-white' : 'text-gray-600'
+                    orderDateType === 'today' ? 'text-white' : textSecondaryClass
                   )}>
                     Today
                   </Text>
@@ -917,16 +1517,14 @@ export default function NewOrderScreen() {
                   onPress={() => {
                     if (Platform.OS !== 'web') Haptics.selectionAsync();
                     setOrderDateType('another');
-                    setShowDatePicker(true);
+                    openOrderDatePicker();
                   }}
-                  className={cn(
-                    'flex-1 py-3 items-center justify-center',
-                    orderDateType === 'another' ? 'bg-gray-900' : 'bg-gray-50'
-                  )}
+                  className="flex-1 py-3 items-center justify-center"
+                  style={{ backgroundColor: orderDateType === 'another' ? '#111111' : 'transparent' }}
                 >
                   <Text className={cn(
                     'font-semibold text-sm',
-                    orderDateType === 'another' ? 'text-white' : 'text-gray-600'
+                    orderDateType === 'another' ? 'text-white' : textSecondaryClass
                   )}>
                     Another Day
                   </Text>
@@ -936,12 +1534,12 @@ export default function NewOrderScreen() {
               {/* Date Display for "Another Day" */}
               {orderDateType === 'another' && (
                 <Pressable
-                  onPress={() => setShowDatePicker(true)}
-                  className="mt-3 bg-gray-50 rounded-xl px-4 py-3 flex-row items-center justify-between border border-gray-200 active:opacity-70"
+                  onPress={openOrderDatePicker}
+                  className={cn('mt-3 rounded-xl px-4 py-3 flex-row items-center justify-between border active:opacity-70', softCardClass)}
                 >
                   <View className="flex-row items-center">
-                    <Calendar size={18} color="#6B7280" strokeWidth={2} />
-                    <Text className="text-gray-900 text-base ml-2">
+                    <Calendar size={18} color={colors.text.muted} strokeWidth={2} />
+                    <Text className={cn('text-base ml-2', textPrimaryClass)}>
                       {selectedDate.toLocaleDateString(undefined, {
                         weekday: 'short',
                         year: 'numeric',
@@ -950,74 +1548,74 @@ export default function NewOrderScreen() {
                       })}
                     </Text>
                   </View>
-                  <ChevronDown size={20} color="#6B7280" strokeWidth={2} />
+                  <ChevronDown size={20} color={colors.text.muted} strokeWidth={2} />
                 </Pressable>
               )}
             </View>
 
             <View className="mb-4">
-              <Text className="text-gray-600 text-sm font-medium mb-2">Sales Source</Text>
+              <Text className={cn('text-sm font-medium mb-2', textSecondaryClass)}>Sales Source</Text>
               <Pressable
                 onPress={() => setShowSourceModal(true)}
-                className="bg-gray-50 rounded-xl px-4 py-3 flex-row items-center justify-between border border-gray-200"
+                className={cn('rounded-xl px-4 py-3 flex-row items-center justify-between border', softCardClass)}
               >
-                <Text className="text-gray-900 text-base">{source}</Text>
-                <ChevronDown size={20} color="#6B7280" strokeWidth={2} />
+                <Text className={cn('text-base', textPrimaryClass)}>{source}</Text>
+                <ChevronDown size={20} color={colors.text.muted} strokeWidth={2} />
               </Pressable>
             </View>
 
             <View>
-              <Text className="text-gray-600 text-sm font-medium mb-2">Payment Method</Text>
+              <Text className={cn('text-sm font-medium mb-2', textSecondaryClass)}>Payment Method</Text>
               <Pressable
                 onPress={() => setShowPaymentModal(true)}
-                className="bg-gray-50 rounded-xl px-4 py-3 flex-row items-center justify-between border border-gray-200"
+                className={cn('rounded-xl px-4 py-3 flex-row items-center justify-between border', softCardClass)}
               >
-                <Text className="text-gray-900 text-base">{paymentMethod}</Text>
-                <ChevronDown size={20} color="#6B7280" strokeWidth={2} />
+                <Text className={cn('text-base', textPrimaryClass)}>{paymentMethod}</Text>
+                <ChevronDown size={20} color={colors.text.muted} strokeWidth={2} />
               </Pressable>
             </View>
           </View>
 
           {/* Order Summary */}
-          <View className="mx-4 mt-4 mb-8 rounded-2xl p-4" style={{ backgroundColor: '#111111' }}>
-            <Text className="text-white font-bold text-base mb-3">Order Summary</Text>
+          <View className={cn('mx-4 mt-4 mb-8 rounded-2xl p-4 border', summaryCardClass)}>
+            <Text className={cn('font-bold text-base mb-3', summaryPrimaryClass)}>Order Summary</Text>
 
             <View className="flex-row justify-between mb-2">
-              <Text className="text-gray-400 text-sm">Products Subtotal</Text>
-              <Text className="text-white font-semibold">{formatCurrency(subtotal)}</Text>
+              <Text className={cn('text-sm', summarySecondaryClass)}>Items Subtotal</Text>
+              <Text className={cn('font-semibold', summaryPrimaryClass)}>{formatCurrency(subtotal)}</Text>
             </View>
 
             {servicesTotal > 0 && (
               <View className="flex-row justify-between mb-2">
-                <Text className="text-gray-400 text-sm">Services</Text>
-                <Text className="text-white font-semibold">{formatCurrency(servicesTotal)}</Text>
+                <Text className={cn('text-sm', summarySecondaryClass)}>Add-ons</Text>
+                <Text className={cn('font-semibold', summaryPrimaryClass)}>{formatCurrency(servicesTotal)}</Text>
               </View>
             )}
 
             {deliveryFeeNum > 0 && (
               <View className="flex-row justify-between mb-2">
-                <Text className="text-gray-400 text-sm">Delivery Fee</Text>
-                <Text className="text-white font-semibold">{formatCurrency(deliveryFeeNum)}</Text>
+                <Text className={cn('text-sm', summarySecondaryClass)}>Delivery Fee</Text>
+                <Text className={cn('font-semibold', summaryPrimaryClass)}>{formatCurrency(deliveryFeeNum)}</Text>
               </View>
             )}
 
             {additionalChargesNum > 0 && (
               <View className="flex-row justify-between mb-2">
-                <Text className="text-gray-400 text-sm">Additional Charges</Text>
-                <Text className="text-white font-semibold">{formatCurrency(additionalChargesNum)}</Text>
+                <Text className={cn('text-sm', summarySecondaryClass)}>Additional Charges</Text>
+                <Text className={cn('font-semibold', summaryPrimaryClass)}>{formatCurrency(additionalChargesNum)}</Text>
               </View>
             )}
 
             {discountAmountNum > 0 && (
               <View className="flex-row justify-between mb-2">
-                <Text className="text-gray-400 text-sm">Discount{discountCode ? ` (${discountCode})` : ''}</Text>
-                <Text className="text-emerald-400 font-semibold">-{formatCurrency(discountAmountNum)}</Text>
+                <Text className={cn('text-sm', summarySecondaryClass)}>Discount</Text>
+                <Text className={cn('font-semibold', summaryAccentClass)}>-{formatCurrency(discountAmountNum)}</Text>
               </View>
             )}
 
-            <View className="mt-2 pt-3 flex-row justify-between" style={{ borderTopWidth: 1, borderTopColor: '#333333' }}>
-              <Text className="text-white font-bold text-lg">Total</Text>
-              <Text className="text-white font-bold text-2xl">{formatCurrency(totalAmount)}</Text>
+            <View className="mt-2 pt-3 flex-row justify-between" style={{ borderTopWidth: 1, borderTopColor: summaryDividerColor }}>
+              <Text className={cn('font-bold text-lg', summaryPrimaryClass)}>Total</Text>
+              <Text className={cn('font-bold text-2xl', summaryPrimaryClass)}>{formatCurrency(totalAmount)}</Text>
             </View>
           </View>
 
@@ -1025,7 +1623,8 @@ export default function NewOrderScreen() {
           <View className="h-32" />
           </View>
         </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAvoidingView>
+      </View>
 
       {/* State Selection Modal - Centered */}
       <Modal visible={showStateModal} animationType="fade" transparent onRequestClose={() => setShowStateModal(false)}>
@@ -1127,6 +1726,11 @@ export default function NewOrderScreen() {
                   <Text className="text-green-400 font-bold">{formatCurrency(service.defaultPrice)}</Text>
                 </Pressable>
               ))}
+              {customServices.length === 0 && (
+                <Text className="text-gray-400 text-sm text-center py-4">
+                  No add-ons available. Create one in settings first.
+                </Text>
+              )}
               <View className="h-4" />
             </ScrollView>
           </View>
@@ -1309,25 +1913,37 @@ export default function NewOrderScreen() {
         visible={showDatePicker}
         animationType="fade"
         transparent
-        onRequestClose={() => setShowDatePicker(false)}
+        onRequestClose={() => {
+          setShowDatePicker(false);
+          setDatePickerTarget(null);
+        }}
       >
         <Pressable
           className="flex-1 items-center justify-center"
           style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}
-          onPress={() => setShowDatePicker(false)}
+          onPress={() => {
+            setShowDatePicker(false);
+            setDatePickerTarget(null);
+          }}
         >
           <Pressable
             onPress={(e) => e.stopPropagation()}
             className="w-[90%] rounded-2xl overflow-hidden"
-            style={{ backgroundColor: '#FFFFFF', maxWidth: 400 }}
+            style={{ backgroundColor: datePickerSurface, borderWidth: 1, borderColor: datePickerBorder, maxWidth: 400 }}
           >
-            <View className="flex-row items-center justify-between px-5 py-4 border-b border-gray-200">
-              <Text className="text-gray-900 font-bold text-lg">Select Date</Text>
+            <View className="flex-row items-center justify-between px-5 py-4 border-b" style={{ borderBottomColor: datePickerBorder }}>
+              <Text className={cn('font-bold text-lg', textPrimaryClass)}>
+                {datePickerTarget?.type === 'serviceField' ? 'Select Field Date' : 'Select Date'}
+              </Text>
               <Pressable
-                onPress={() => setShowDatePicker(false)}
-                className="w-8 h-8 rounded-full items-center justify-center active:opacity-50 bg-gray-100"
+                onPress={() => {
+                  setShowDatePicker(false);
+                  setDatePickerTarget(null);
+                }}
+                className="w-8 h-8 rounded-full items-center justify-center active:opacity-50"
+                style={{ backgroundColor: datePickerSoftBg }}
               >
-                <X size={18} color="#666666" strokeWidth={2} />
+                <X size={18} color={colors.text.muted} strokeWidth={2} />
               </Pressable>
             </View>
 
@@ -1341,25 +1957,27 @@ export default function NewOrderScreen() {
                     newDate.setMonth(newDate.getMonth() - 1);
                     setCalendarViewDate(newDate);
                   }}
-                  className="w-10 h-10 rounded-full items-center justify-center active:opacity-50 bg-gray-100"
+                  className="w-10 h-10 rounded-full items-center justify-center active:opacity-50"
+                  style={{ backgroundColor: datePickerSoftBg }}
                 >
-                  <ChevronLeft size={20} color="#111111" strokeWidth={2} />
+                  <ChevronLeft size={20} color={datePickerIconColor} strokeWidth={2} />
                 </Pressable>
-                <Text className="text-gray-900 font-bold text-base">
+                <Text className={cn('font-bold text-base', textPrimaryClass)}>
                   {calendarViewDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
                 </Text>
                 <Pressable
                   onPress={() => {
                     const newDate = new Date(calendarViewDate);
                     newDate.setMonth(newDate.getMonth() + 1);
-                    // Don't allow going past current month
-                    if (newDate <= new Date()) {
+                    const shouldRestrictFutureDates = datePickerTarget?.type !== 'serviceField';
+                    if (!shouldRestrictFutureDates || newDate <= new Date()) {
                       setCalendarViewDate(newDate);
                     }
                   }}
-                  className="w-10 h-10 rounded-full items-center justify-center active:opacity-50 bg-gray-100"
+                  className="w-10 h-10 rounded-full items-center justify-center active:opacity-50"
+                  style={{ backgroundColor: datePickerSoftBg }}
                 >
-                  <ChevronRight size={20} color="#111111" strokeWidth={2} />
+                  <ChevronRight size={20} color={datePickerIconColor} strokeWidth={2} />
                 </Pressable>
               </View>
 
@@ -1367,7 +1985,7 @@ export default function NewOrderScreen() {
               <View className="flex-row mb-2">
                 {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
                   <View key={day} className="flex-1 items-center py-2">
-                    <Text className="text-gray-500 text-xs font-semibold">{day}</Text>
+                    <Text className={cn('text-xs font-semibold', textMutedClass)}>{day}</Text>
                   </View>
                 ))}
               </View>
@@ -1413,10 +2031,11 @@ export default function NewOrderScreen() {
                       }
 
                       const dateObj = new Date(year, month, day);
-                      const isSelected = selectedDate.getDate() === day &&
-                        selectedDate.getMonth() === month &&
-                        selectedDate.getFullYear() === year;
-                      const isFuture = dateObj > today;
+                      const isSelected = pickerDate.getDate() === day &&
+                        pickerDate.getMonth() === month &&
+                        pickerDate.getFullYear() === year;
+                      const shouldRestrictFutureDates = datePickerTarget?.type !== 'serviceField';
+                      const isFuture = shouldRestrictFutureDates && dateObj > today;
                       const isToday = today.getDate() === day &&
                         today.getMonth() === month &&
                         today.getFullYear() === year;
@@ -1427,21 +2046,22 @@ export default function NewOrderScreen() {
                           onPress={() => {
                             if (!isFuture) {
                               const newDate = new Date(year, month, day, 12, 0, 0);
-                              setSelectedDate(newDate);
+                              setPickerDate(newDate);
                             }
                           }}
                           disabled={isFuture}
                           className={cn(
                             'flex-1 items-center py-2 mx-0.5 my-0.5 rounded-lg',
-                            isSelected && 'bg-gray-900',
-                            !isSelected && !isFuture && 'active:bg-gray-100'
+                            !isSelected && !isFuture && (isDark ? 'active:bg-[#222222]' : 'active:bg-gray-100')
                           )}
+                          style={isSelected ? { backgroundColor: '#111111' } : undefined}
                         >
                           <Text className={cn(
                             'text-sm font-medium',
-                            isSelected ? 'text-white' : isFuture ? 'text-gray-300' : 'text-gray-900',
-                            isToday && !isSelected && 'text-blue-600 font-bold'
-                          )}>
+                            (isSelected || isToday) && 'font-semibold',
+                            !isSelected && isFuture && (isDark ? 'text-gray-600' : 'text-gray-300')
+                          )}
+                          style={{ color: isSelected ? '#FFFFFF' : (isFuture ? (isDark ? '#4B5563' : '#D1D5DB') : colors.text.primary) }}>
                             {day}
                           </Text>
                         </Pressable>
@@ -1453,10 +2073,102 @@ export default function NewOrderScreen() {
 
               {/* Confirm Button */}
               <Pressable
-                onPress={() => setShowDatePicker(false)}
-                className="mt-4 w-full py-3 rounded-xl items-center bg-gray-900 active:opacity-80"
+                onPress={commitDatePickerValue}
+                className="mt-4 w-full py-3 rounded-xl items-center active:opacity-80"
+                style={{ backgroundColor: '#111111' }}
               >
-                <Text className="text-white font-semibold">Done</Text>
+                <Text className="font-semibold text-white">Done</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={showTimePicker}
+        animationType="fade"
+        transparent
+        onRequestClose={() => {
+          setShowTimePicker(false);
+          setTimePickerTarget(null);
+        }}
+      >
+        <Pressable
+          className="flex-1 items-center justify-center"
+          style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}
+          onPress={() => {
+            setShowTimePicker(false);
+            setTimePickerTarget(null);
+          }}
+        >
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            className="w-[90%] rounded-2xl overflow-hidden"
+            style={{ backgroundColor: datePickerSurface, borderWidth: 1, borderColor: datePickerBorder, maxWidth: 420 }}
+          >
+            <View className="flex-row items-center justify-between px-5 py-4 border-b" style={{ borderBottomColor: datePickerBorder }}>
+              <Text className={cn('font-bold text-lg', textPrimaryClass)}>Select Time</Text>
+              <Pressable
+                onPress={() => {
+                  setShowTimePicker(false);
+                  setTimePickerTarget(null);
+                }}
+                className="w-8 h-8 rounded-full items-center justify-center active:opacity-50"
+                style={{ backgroundColor: datePickerSoftBg }}
+              >
+                <X size={18} color={colors.text.muted} strokeWidth={2} />
+              </Pressable>
+            </View>
+
+            <View className="p-4">
+              <View className="flex-row items-center justify-center">
+                <View className="items-center">
+                  <Text className={cn('text-xs mb-2', textMutedClass)}>Hour</Text>
+                  <Pressable
+                    onPress={() => setPickerHour((prev) => (prev + 23) % 24)}
+                    className="w-10 h-10 rounded-full items-center justify-center active:opacity-70"
+                    style={{ backgroundColor: datePickerSoftBg }}
+                  >
+                    <Minus size={16} color={datePickerIconColor} strokeWidth={2} />
+                  </Pressable>
+                  <Text className={cn('font-bold text-3xl my-3', textPrimaryClass)}>{String(pickerHour).padStart(2, '0')}</Text>
+                  <Pressable
+                    onPress={() => setPickerHour((prev) => (prev + 1) % 24)}
+                    className="w-10 h-10 rounded-full items-center justify-center active:opacity-70"
+                    style={{ backgroundColor: datePickerSoftBg }}
+                  >
+                    <Plus size={16} color={datePickerIconColor} strokeWidth={2} />
+                  </Pressable>
+                </View>
+                <Text className={cn('font-bold text-3xl mx-4 mt-7', textPrimaryClass)}>:</Text>
+                <View className="items-center">
+                  <Text className={cn('text-xs mb-2', textMutedClass)}>Minute</Text>
+                  <Pressable
+                    onPress={() => setPickerMinute((prev) => (prev + 59) % 60)}
+                    className="w-10 h-10 rounded-full items-center justify-center active:opacity-70"
+                    style={{ backgroundColor: datePickerSoftBg }}
+                  >
+                    <Minus size={16} color={datePickerIconColor} strokeWidth={2} />
+                  </Pressable>
+                  <Text className={cn('font-bold text-3xl my-3', textPrimaryClass)}>{String(pickerMinute).padStart(2, '0')}</Text>
+                  <Pressable
+                    onPress={() => setPickerMinute((prev) => (prev + 1) % 60)}
+                    className="w-10 h-10 rounded-full items-center justify-center active:opacity-70"
+                    style={{ backgroundColor: datePickerSoftBg }}
+                  >
+                    <Plus size={16} color={datePickerIconColor} strokeWidth={2} />
+                  </Pressable>
+                </View>
+              </View>
+              <Text className={cn('text-center text-sm mt-4', textSecondaryClass)}>
+                {formatTimeDisplay(toTimeString(pickerHour, pickerMinute))}
+              </Text>
+              <Pressable
+                onPress={commitTimePickerValue}
+                className="mt-4 w-full py-3 rounded-xl items-center active:opacity-80"
+                style={{ backgroundColor: '#111111' }}
+              >
+                <Text className="font-semibold text-white">Done</Text>
               </Pressable>
             </View>
           </Pressable>
@@ -1486,7 +2198,7 @@ export default function NewOrderScreen() {
             className="flex-row items-center px-5 py-4 rounded-xl"
             style={{ backgroundColor: toast.type === 'success' ? '#111111' : '#EF4444' }}
           >
-            <View className="w-8 h-8 rounded-full items-center justify-center mr-3 bg-white">
+            <View className="w-8 h-8 rounded-full items-center justify-center mr-3" style={{ backgroundColor: colors.bg.card }}>
               <Check size={18} color={toast.type === 'success' ? '#111111' : '#EF4444'} strokeWidth={2.5} />
             </View>
             <Text className="text-white font-semibold text-sm">{toast.message}</Text>

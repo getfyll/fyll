@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, Pressable, TextInput, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ChevronLeft, User as UserIcon, Shield, Mail, Lock, UserCog } from 'lucide-react-native';
+import { ChevronLeft, User as UserIcon, Shield, Mail, UserCog } from 'lucide-react-native';
 import { useThemeColors } from '@/lib/theme';
 import useAuthStore, { TeamRole } from '@/lib/state/auth-store';
 import * as Haptics from 'expo-haptics';
@@ -29,6 +29,13 @@ const roleColors: Record<TeamRole, string> = {
 export default function AddTeamMemberScreen() {
   const router = useRouter();
   const colors = useThemeColors();
+  const primaryPillButtonStyle = {
+    backgroundColor: colors.text.primary,
+    borderRadius: 999,
+  } as const;
+  const primaryPillTextStyle = {
+    color: colors.bg.primary,
+  } as const;
 
   const currentUser = useAuthStore((s) => s.currentUser);
   const createInvite = useAuthStore((s) => s.createInvite);
@@ -117,10 +124,10 @@ export default function AddTeamMemberScreen() {
 
             <Pressable
               onPress={() => router.back()}
-              className="w-full rounded-xl items-center justify-center active:opacity-80"
-              style={{ backgroundColor: '#111111', height: 56 }}
+              className="w-full rounded-full items-center justify-center active:opacity-80"
+              style={[primaryPillButtonStyle, { height: 56 }]}
             >
-              <Text className="text-white font-semibold text-base">Done</Text>
+              <Text style={primaryPillTextStyle} className="font-semibold text-base">Done</Text>
             </Pressable>
           </View>
         </SafeAreaView>
@@ -245,14 +252,14 @@ export default function AddTeamMemberScreen() {
           <Pressable
             onPress={handleCreateInvite}
             disabled={isSubmitting}
-            className="rounded-xl items-center justify-center active:opacity-80 mb-8"
+            className="rounded-full items-center justify-center active:opacity-80 mb-8"
             style={{
-              backgroundColor: '#111111',
+              backgroundColor: colors.text.primary,
               height: 56,
               opacity: isSubmitting ? 0.7 : 1,
             }}
           >
-            <Text className="text-white font-semibold text-base">
+            <Text style={primaryPillTextStyle} className="font-semibold text-base">
               {isSubmitting ? 'Creating Invite...' : 'Send Invite'}
             </Text>
           </Pressable>

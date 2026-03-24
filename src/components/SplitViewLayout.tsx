@@ -29,6 +29,8 @@ export function SplitViewLayout({
   const { isMobile, isTablet, isDesktop, width } = useBreakpoint();
   const colors = useThemeColors();
   const [isDetailCollapsed, setIsDetailCollapsed] = useState(false);
+  const isWeb = Platform.OS === 'web';
+  const webDetailWidth = Math.min(520, Math.max(360, Math.round(width * 0.36)));
 
   const toggleDetailPanel = useCallback(() => {
     setIsDetailCollapsed((prev) => !prev);
@@ -36,18 +38,22 @@ export function SplitViewLayout({
 
   // Calculate pane widths
   const masterWidth = isDesktop
-    ? isDetailCollapsed ? width : Math.min(440, width * 0.38)
+    ? isDetailCollapsed
+      ? width
+      : isWeb
+        ? Math.max(320, width - webDetailWidth)
+        : Math.min(440, width * 0.38)
     : isTablet
       ? isDetailCollapsed ? width : Math.min(360, width * 0.45)
       : width;
 
-  const detailWidth = isDesktop
-    ? width - masterWidth
-    : isTablet
-      ? width - masterWidth
-      : width;
-
   const hasDetail = detailContent !== null;
+  const collapsedRailWidth = hasDetail && isTablet && isDetailCollapsed ? 52 : 0;
+  const masterPaneWidth = hasDetail && !isDetailCollapsed
+    ? masterWidth
+    : collapsedRailWidth > 0
+      ? Math.max(280, width - collapsedRailWidth)
+      : '100%';
 
   // Mobile: Show detail as full screen modal
   if (isMobile) {
@@ -65,7 +71,7 @@ export function SplitViewLayout({
       {/* Master Pane */}
       <View
         style={{
-          width: hasDetail && !isDetailCollapsed ? masterWidth : '100%',
+          width: masterPaneWidth,
           borderRightWidth: hasDetail && !isDetailCollapsed ? 1 : 0,
           borderRightColor: colors.border.light,
           backgroundColor: colors.bg.primary,
@@ -80,7 +86,7 @@ export function SplitViewLayout({
             flex: 1,
             backgroundColor: colors.bg.secondary,
             minWidth: 320,
-            maxWidth: isDesktop ? 600 : 480,
+            maxWidth: isDesktop ? (isWeb ? webDetailWidth : 600) : 480,
           }}
         >
           {/* Detail Header */}
@@ -147,22 +153,92 @@ export function SplitViewLayout({
         </View>
       )}
 
-      {/* Collapsed State - Show Toggle Button */}
+      {/* Collapsed State - Keep reopen control in a fixed right rail */}
       {hasDetail && isDetailCollapsed && isTablet && (
-        <Pressable
-          onPress={toggleDetailPanel}
+        <View
           style={{
-            width: 48,
+            width: collapsedRailWidth,
             backgroundColor: colors.bg.card,
             borderLeftWidth: 1,
             borderLeftColor: colors.border.light,
             alignItems: 'center',
-            justifyContent: 'center',
+            justifyContent: 'flex-start',
+            paddingTop: 12,
           }}
         >
-          <PanelLeftOpen size={20} color={colors.text.tertiary} strokeWidth={2} />
-        </Pressable>
+          <Pressable
+            onPress={toggleDetailPanel}
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 10,
+              backgroundColor: colors.bg.secondary,
+              borderWidth: 1,
+              borderColor: colors.border.light,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <PanelLeftOpen size={18} color={colors.text.tertiary} strokeWidth={2} />
+          </Pressable>
+        </View>
       )}
+    </View>
+  );
+}
+
+// ============================================================================
+// Web Layout Components - For consistent web desktop layouts
+// ============================================================================
+
+interface WebContainerProps {
+  children: ReactNode;
+  maxWidth?: number;
+}
+
+export function WebContainer({ children, maxWidth = 1400 }: WebContainerProps) {
+  const colors = useThemeColors();
+
+  return (
+    <ScrollView
+      style={{ flex: 1, backgroundColor: colors.bg.primary }}
+      contentContainerStyle={{
+        paddingHorizontal: 28,
+        paddingTop: 24,
+        paddingBottom: 40,
+        maxWidth,
+        width: '100%',
+        alignSelf: 'flex-start',
+      }}
+      showsVerticalScrollIndicator={false}
+    >
+      {children}
+    </ScrollView>
+  );
+}
+
+interface WebPageHeaderProps {
+  title: string;
+  subtitle?: string;
+  actions?: ReactNode;
+}
+
+export function WebPageHeader({ title, subtitle, actions }: WebPageHeaderProps) {
+  const colors = useThemeColors();
+
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
+      <View style={{ flex: 1 }}>
+        <Text style={{ color: colors.text.primary, fontSize: 28, fontWeight: '700' }}>
+          {title}
+        </Text>
+        {subtitle && (
+          <Text style={{ color: colors.text.muted, fontSize: 14, marginTop: 4 }}>
+            {subtitle}
+          </Text>
+        )}
+      </View>
+      {actions && <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>{actions}</View>}
     </View>
   );
 }
@@ -173,39 +249,47 @@ export function SplitViewLayout({
 
 interface DetailSectionProps {
   title?: string;
+  titleRight?: ReactNode;
   children: ReactNode;
+  noCard?: boolean;
 }
 
-export function DetailSection({ title, children }: DetailSectionProps) {
+export function DetailSection({ title, titleRight, children, noCard = false }: DetailSectionProps) {
   const colors = useThemeColors();
 
   return (
     <View style={{ paddingHorizontal: 20, paddingTop: 16 }}>
       {title && (
-        <Text
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <Text
+            style={{
+              color: colors.text.tertiary,
+              fontSize: 12,
+              fontWeight: '600',
+              textTransform: 'uppercase',
+              letterSpacing: 0.5,
+            }}
+          >
+            {title}
+          </Text>
+          {titleRight}
+        </View>
+      )}
+      {noCard ? (
+        <View>{children}</View>
+      ) : (
+        <View
           style={{
-            color: colors.text.tertiary,
-            fontSize: 12,
-            fontWeight: '600',
-            textTransform: 'uppercase',
-            letterSpacing: 0.5,
-            marginBottom: 12,
+            backgroundColor: colors.bg.card,
+            borderRadius: 16,
+            padding: 16,
+            borderWidth: 1,
+            borderColor: colors.border.light,
           }}
         >
-          {title}
-        </Text>
+          {children}
+        </View>
       )}
-      <View
-        style={{
-          backgroundColor: colors.bg.card,
-          borderRadius: 16,
-          padding: 16,
-          borderWidth: 1,
-          borderColor: colors.border.light,
-        }}
-      >
-        {children}
-      </View>
     </View>
   );
 }

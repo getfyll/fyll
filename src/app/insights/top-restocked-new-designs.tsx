@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { View, Text, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
-import { Sparkles, ChevronRight } from 'lucide-react-native';
+import { ChevronRight } from 'lucide-react-native';
 import useFyllStore from '@/lib/state/fyll-store';
 import { calculateNewDesignAnalytics } from '@/lib/inventory-analytics';
 import { DetailHeader } from '@/components/stats/DetailHeader';

@@ -4,12 +4,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { X, Calendar } from 'lucide-react-native';
 import useFyllStore from '@/lib/state/fyll-store';
+import useAuthStore from '@/lib/state/auth-store';
 import { cn } from '@/lib/cn';
 
 export default function NewExpenseScreen() {
   const router = useRouter();
   const expenseCategories = useFyllStore((s) => s.expenseCategories);
   const addExpense = useFyllStore((s) => s.addExpense);
+  const businessId = useAuthStore((s) => s.businessId);
 
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
@@ -26,7 +28,7 @@ export default function NewExpenseScreen() {
       amount: parseFloat(amount) || 0,
       date: new Date(date).toISOString(),
       createdAt: new Date().toISOString(),
-    });
+    }, businessId);
 
     router.back();
   };
@@ -64,7 +66,7 @@ export default function NewExpenseScreen() {
           <View className="mt-6 items-center">
             <Text className="text-gray-500 text-sm font-medium mb-2">Amount</Text>
             <View className="flex-row items-center">
-              <Text className="text-gray-900 text-4xl font-bold mr-1">$</Text>
+              <Text className="text-gray-900 text-4xl font-bold mr-1">₦</Text>
               <TextInput
                 placeholder="0"
                 placeholderTextColor="#D1D5DB"

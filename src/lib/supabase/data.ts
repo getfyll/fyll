@@ -9,6 +9,33 @@ type SupabaseRow<T> = {
   updated_at?: string | null;
 };
 
+const PAGE_SIZE = 1000;
+
+const isDataUri = (value: unknown): value is string => (
+  typeof value === 'string' && value.trim().startsWith('data:')
+);
+
+const sanitizeProductPayload = <T extends Record<string, unknown>>(item: T): T => {
+  const product = { ...item } as Record<string, unknown>;
+
+  if (isDataUri(product.imageUrl)) {
+    delete product.imageUrl;
+  }
+
+  if (Array.isArray(product.variants)) {
+    product.variants = product.variants.map((variant) => {
+      if (!variant || typeof variant !== 'object') return variant;
+      const nextVariant = { ...(variant as Record<string, unknown>) };
+      if (isDataUri(nextVariant.imageUrl)) {
+        delete nextVariant.imageUrl;
+      }
+      return nextVariant;
+    });
+  }
+
+  return product as T;
+};
+
 const upsertCollection = async <T extends WithId>(
   table: string,
   businessId: string,
@@ -19,7 +46,9 @@ const upsertCollection = async <T extends WithId>(
   const rows = items.map((item) => ({
     id: item.id,
     business_id: businessId,
-    data: item,
+    data: table === 'products'
+      ? sanitizeProductPayload(item as unknown as Record<string, unknown>)
+      : item,
     updated_at: timestamp,
   }));
 
@@ -37,14 +66,72 @@ const deleteByIds = async (table: string, businessId: string, ids: string[]) => 
   if (error) throw error;
 };
 
-const fetchCollection = async <T>(table: string, businessId: string) => {
-  const { data, error } = await supabase
-    .from(table)
-    .select('id, data, business_id')
-    .eq('business_id', businessId);
+const fetchCollection = async <T>(
+  table: string,
+  businessId: string,
+  options?: { orderBy?: string; limit?: number; updatedAfter?: string }
+) => {
+  const buildBaseQuery = () => {
+    let query = supabase
+      .from(table)
+      .select('id, data, business_id')
+      .eq('business_id', businessId);
 
-  if (error) throw error;
-  return (data ?? []) as SupabaseRow<T>[];
+    if (options?.updatedAfter) {
+      query = query.gt('updated_at', options.updatedAfter);
+    }
+
+    if (options?.orderBy) {
+      query = query.order(options.orderBy, { ascending: false });
+      // Add deterministic tie-breaker for stable pagination.
+      if (options.orderBy !== 'id') {
+        query = query.order('id', { ascending: false });
+      }
+    }
+
+    return query;
+  };
+
+  const requestedLimit = (
+    typeof options?.limit === 'number' && Number.isFinite(options.limit) && options.limit > 0
+      ? Math.floor(options.limit)
+      : null
+  );
+
+  if (requestedLimit && requestedLimit <= PAGE_SIZE) {
+    const { data, error } = await buildBaseQuery().limit(requestedLimit);
+    if (error) throw error;
+    return (data ?? []) as SupabaseRow<T>[];
+  }
+
+  const rows: SupabaseRow<T>[] = [];
+  let offset = 0;
+
+  while (true) {
+    const remaining = requestedLimit ? (requestedLimit - rows.length) : PAGE_SIZE;
+    if (requestedLimit && remaining <= 0) {
+      break;
+    }
+
+    const batchSize = requestedLimit ? Math.min(PAGE_SIZE, remaining) : PAGE_SIZE;
+    const { data, error } = await buildBaseQuery().range(offset, offset + batchSize - 1);
+    if (error) throw error;
+
+    const batch = (data ?? []) as SupabaseRow<T>[];
+    if (batch.length === 0) {
+      break;
+    }
+
+    rows.push(...batch);
+
+    if (batch.length < batchSize) {
+      break;
+    }
+
+    offset += batchSize;
+  }
+
+  return rows;
 };
 
 export const supabaseData = {

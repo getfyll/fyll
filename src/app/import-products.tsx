@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, Pressable, ScrollView, ActivityIndicator, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { ChevronLeft, Upload } from 'lucide-react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
@@ -10,6 +10,8 @@ import { useThemeColors } from '@/lib/theme';
 import useAuthStore from '@/lib/state/auth-store';
 import useFyllStore, { Product, ProductVariant, generateProductId, generateVariantBarcode } from '@/lib/state/fyll-store';
 import { parseCsv } from '@/lib/csv';
+import { getSettingsWebPanelStyles, isFromSettingsRoute } from '@/lib/settings-web-panel';
+import { useSettingsBack } from '@/lib/useSettingsBack';
 
 type ImportRow = {
   name: string;
@@ -55,8 +57,10 @@ const buildSku = (name: string, color: string, index: number) => {
 };
 
 export default function ImportProductsScreen() {
-  const router = useRouter();
+  const { from } = useLocalSearchParams<{ from?: string | string[] }>();
+  const goBack = useSettingsBack();
   const colors = useThemeColors();
+  const panelStyles = getSettingsWebPanelStyles(isFromSettingsRoute(from), colors.bg.primary, colors.border.light);
   const businessId = useAuthStore((s) => s.businessId);
   const existingProducts = useFyllStore((s) => s.products);
   const productVariables = useFyllStore((s) => s.productVariables);
@@ -216,12 +220,14 @@ export default function ImportProductsScreen() {
   };
 
   return (
+    <View style={panelStyles.outer}>
+      <View style={panelStyles.inner}>
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg.primary }}>
       <ScrollView contentContainerStyle={{ paddingBottom: 32 }}>
         <View className="px-5 pt-5">
           <View className="flex-row items-center mb-4">
             <Pressable
-              onPress={() => router.back()}
+              onPress={goBack}
               className="w-10 h-10 rounded-xl items-center justify-center mr-3 active:opacity-50"
               style={{ backgroundColor: colors.bg.secondary }}
             >
@@ -310,5 +316,7 @@ export default function ImportProductsScreen() {
         </View>
       </ScrollView>
     </SafeAreaView>
+      </View>
+    </View>
   );
 }

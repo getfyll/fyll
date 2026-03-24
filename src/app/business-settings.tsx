@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, Pressable, TextInput, Image, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { ChevronLeft, Building2, Camera, X, Check, Phone, Globe, MapPin } from 'lucide-react-native';
 import { useThemeColors } from '@/lib/theme';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
@@ -9,10 +9,18 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { useBusinessSettings } from '@/hooks/useBusinessSettings';
 import { compressImage } from '@/lib/image-compression';
+import { getSettingsWebPanelStyles, isFromSettingsRoute } from '@/lib/settings-web-panel';
+import { useSettingsBack } from '@/lib/useSettingsBack';
 
 export default function BusinessSettingsScreen() {
-  const router = useRouter();
+  const { from } = useLocalSearchParams<{ from?: string | string[] }>();
+  const goBack = useSettingsBack();
   const colors = useThemeColors();
+  const panelStyles = getSettingsWebPanelStyles(
+    isFromSettingsRoute(from),
+    colors.bg.primary,
+    colors.border.light
+  );
   const { businessName, businessLogo, businessPhone, businessWebsite, returnAddress, isLoading, saveSettings } = useBusinessSettings();
 
   const [name, setName] = useState('');
@@ -79,7 +87,7 @@ export default function BusinessSettingsScreen() {
 
       if (result.success) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        router.back();
+        goBack();
       } else {
         setError(result.error || 'Failed to save settings');
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -93,17 +101,27 @@ export default function BusinessSettingsScreen() {
   };
 
   const hasChanges = logo !== businessLogo || phone !== businessPhone || website !== businessWebsite || address !== returnAddress;
+  const primaryPillButtonStyle = {
+    backgroundColor: colors.text.primary,
+    borderRadius: 999,
+  } as const;
+  const primaryPillTextStyle = {
+    color: colors.bg.primary,
+  } as const;
 
   if (isLoading) {
     return (
-      <View className="flex-1 items-center justify-center" style={{ backgroundColor: colors.bg.primary }}>
-        <ActivityIndicator size="large" color={colors.text.primary} />
+      <View style={panelStyles.outer}>
+        <View className="flex-1 items-center justify-center" style={panelStyles.inner}>
+          <ActivityIndicator size="large" color={colors.text.primary} />
+        </View>
       </View>
     );
   }
 
   return (
-    <View className="flex-1" style={{ backgroundColor: colors.bg.primary }}>
+    <View style={panelStyles.outer}>
+      <View style={panelStyles.inner}>
       <SafeAreaView className="flex-1" edges={['top']}>
         {/* Header */}
         <View className="px-5 pt-4 pb-3 flex-row items-center justify-between" style={{ borderBottomWidth: 1, borderBottomColor: colors.border.light }}>
@@ -111,7 +129,7 @@ export default function BusinessSettingsScreen() {
             <Pressable
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.back();
+                goBack();
               }}
               className="w-10 h-10 rounded-xl items-center justify-center mr-3 active:opacity-50"
               style={{ backgroundColor: colors.bg.secondary }}
@@ -125,15 +143,15 @@ export default function BusinessSettingsScreen() {
             <Pressable
               onPress={handleSave}
               disabled={isSaving}
-              className="px-4 h-10 rounded-xl items-center justify-center active:opacity-80"
-              style={{ backgroundColor: '#111111' }}
+              className="px-4 h-10 rounded-full items-center justify-center active:opacity-80"
+              style={[primaryPillButtonStyle, { opacity: isSaving ? 0.7 : 1 }]}
             >
               {isSaving ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
+                <ActivityIndicator size="small" color={colors.bg.primary} />
               ) : (
                 <View className="flex-row items-center">
-                  <Check size={16} color="#FFFFFF" strokeWidth={2} />
-                  <Text className="text-white font-semibold text-sm ml-1">Save</Text>
+                  <Check size={16} color={colors.bg.primary} strokeWidth={2} />
+                  <Text style={primaryPillTextStyle} className="font-semibold text-sm ml-1">Save</Text>
                 </View>
               )}
             </Pressable>
@@ -328,18 +346,21 @@ export default function BusinessSettingsScreen() {
           <Pressable
             onPress={handleSave}
             disabled={isSaving || !hasChanges}
-            className="rounded-xl items-center active:opacity-80"
+            className="rounded-full items-center active:opacity-80"
             style={{
-              backgroundColor: hasChanges ? '#111111' : colors.bg.secondary,
+              backgroundColor: hasChanges ? colors.text.primary : colors.bg.secondary,
+              borderWidth: hasChanges ? 0 : 1,
+              borderColor: hasChanges ? 'transparent' : colors.border.light,
               height: 54,
-              justifyContent: 'center'
+              justifyContent: 'center',
+              opacity: isSaving ? 0.7 : 1,
             }}
           >
             {isSaving ? (
-              <ActivityIndicator size="small" color={hasChanges ? '#FFFFFF' : colors.text.tertiary} />
+              <ActivityIndicator size="small" color={hasChanges ? colors.bg.primary : colors.text.tertiary} />
             ) : (
               <Text
-                style={{ color: hasChanges ? '#FFFFFF' : colors.text.tertiary }}
+                style={{ color: hasChanges ? colors.bg.primary : colors.text.tertiary }}
                 className="font-semibold text-base"
               >
                 Save Changes
@@ -350,6 +371,7 @@ export default function BusinessSettingsScreen() {
           <View className="h-24" />
         </KeyboardAwareScrollView>
       </SafeAreaView>
+      </View>
     </View>
   );
 }

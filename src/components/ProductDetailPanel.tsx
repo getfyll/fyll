@@ -1,11 +1,11 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, Pressable, Image, Modal, Platform } from 'react-native';
+import { View, Text, Pressable, Modal, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Package, Edit2, Printer, PackagePlus, Plus, Minus, Tag, Clock, Trash2 } from 'lucide-react-native';
-import useFyllStore, { Product, formatCurrency } from '@/lib/state/fyll-store';
+import { Package, Edit2, Printer, PackagePlus, Plus, Minus, Clock, Trash2 } from 'lucide-react-native';
+import useFyllStore, { formatCurrency } from '@/lib/state/fyll-store';
 import useAuthStore from '@/lib/state/auth-store';
 import { useThemeColors } from '@/lib/theme';
-import { DetailSection, DetailImagePreview, DetailActionButton, DetailKeyValue } from './SplitViewLayout';
+import { DetailSection, DetailImagePreview, DetailActionButton } from './SplitViewLayout';
 import * as Haptics from 'expo-haptics';
 import { normalizeProductType } from '@/lib/product-utils';
 

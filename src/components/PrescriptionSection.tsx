@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { View, Text, Pressable, TextInput, Image, Modal, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
-import { FileText, Upload, Edit3, X, Eye, Trash2, FileIcon } from 'lucide-react-native';
+import { FileText, Upload, X, Eye, Trash2, FileIcon } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { useThemeColors } from '@/lib/theme';
 import { PrescriptionInfo } from '@/lib/state/fyll-store';
+import { cn } from '@/lib/cn';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { compressImage } from '@/lib/image-compression';
@@ -13,16 +14,19 @@ interface PrescriptionSectionProps {
   prescription?: PrescriptionInfo;
   onUpdate: (prescription: PrescriptionInfo | undefined) => void;
   editable?: boolean;
+  staffName?: string;
+  containerClassName?: string;
 }
 
-export function PrescriptionSection({ prescription, onUpdate, editable = true }: PrescriptionSectionProps) {
+export function PrescriptionSection({ prescription, onUpdate, editable = true, staffName, containerClassName }: PrescriptionSectionProps) {
   const colors = useThemeColors();
   const router = useRouter();
+  const isDark = colors.bg.primary === '#111111';
   const [showEditModal, setShowEditModal] = useState(false);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [editText, setEditText] = useState('');
   const [editFileUrl, setEditFileUrl] = useState('');
-  const [editMode, setEditMode] = useState<'file' | 'text' | null>(null);
+  const [, setEditMode] = useState<'file' | 'text' | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   const MAX_PDF_SIZE_MB = 1;
@@ -127,7 +131,7 @@ export function PrescriptionSection({ prescription, onUpdate, editable = true }:
         fileUrl: editFileUrl || undefined,
         text: editText.trim() || undefined,
         uploadedAt: new Date().toISOString(),
-        uploadedBy: 'Staff', // Could be replaced with actual user info
+        uploadedBy: staffName || 'Staff',
       });
     }
     setShowEditModal(false);
@@ -138,13 +142,6 @@ export function PrescriptionSection({ prescription, onUpdate, editable = true }:
     setEditFileUrl('');
     setUploadError(null);
     if (!editText.trim()) {
-      setEditMode(null);
-    }
-  };
-
-  const handleClearText = () => {
-    setEditText('');
-    if (!editFileUrl) {
       setEditMode(null);
     }
   };
@@ -166,22 +163,38 @@ export function PrescriptionSection({ prescription, onUpdate, editable = true }:
     });
   };
 
+  const actionPillStyle = {
+    minHeight: 32,
+    minWidth: 90,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    backgroundColor: colors.text.primary,
+  };
+
+  const actionPillTextStyle = {
+    color: colors.bg.primary,
+    fontSize: 13,
+    fontWeight: '600' as const,
+  };
+
   return (
     <>
       <View
-        className="mx-5 mt-4 rounded-2xl p-4"
+        className={cn(containerClassName ?? 'mx-5 mt-4', 'rounded-2xl p-4')}
         style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light }}
       >
         <View className="flex-row items-center justify-between mb-3">
-          <Text style={{ color: colors.text.primary }} className="font-bold text-base">Prescription</Text>
+          <Text style={{ color: colors.text.primary }} className="font-bold text-base">Customer notes</Text>
           {editable && (
             <Pressable
               onPress={handleOpenEdit}
-              className="px-3 py-1.5 rounded-lg active:opacity-70"
-              style={{ backgroundColor: colors.bg.secondary }}
+              className="active:opacity-70"
+              style={actionPillStyle}
             >
-              <Text style={{ color: colors.text.primary }} className="text-sm font-medium">
-                {hasPrescription ? 'Edit' : 'Add'}
+              <Text style={actionPillTextStyle}>
+                {hasPrescription ? 'Edit' : '+ Add'}
               </Text>
             </Pressable>
           )}
@@ -232,7 +245,7 @@ export function PrescriptionSection({ prescription, onUpdate, editable = true }:
                 className="rounded-xl px-3 py-3 mb-3"
                 style={{ backgroundColor: colors.bg.secondary }}
               >
-                <Text style={{ color: colors.text.muted }} className="text-xs mb-1">Prescription Details</Text>
+                <Text style={{ color: colors.text.muted }} className="text-xs mb-1">Customer Note</Text>
                 <Text style={{ color: colors.text.primary }} className="text-sm leading-5">
                   {prescription.text}
                 </Text>
@@ -250,7 +263,7 @@ export function PrescriptionSection({ prescription, onUpdate, editable = true }:
         ) : (
           <View className="py-6 items-center">
             <FileText size={24} color={colors.text.muted} strokeWidth={1.5} />
-            <Text style={{ color: colors.text.muted }} className="text-sm mt-2">No prescription added</Text>
+            <Text style={{ color: colors.text.muted }} className="text-sm mt-2">No customer notes added</Text>
           </View>
         )}
       </View>
@@ -282,7 +295,7 @@ export function PrescriptionSection({ prescription, onUpdate, editable = true }:
                 style={{ borderBottomWidth: 1, borderBottomColor: colors.border.light }}
               >
                 <Text style={{ color: colors.text.primary }} className="font-bold text-lg">
-                  {hasPrescription ? 'Edit Prescription' : 'Add Prescription'}
+                  {hasPrescription ? 'Edit Customer Note' : 'Add Customer Note'}
                 </Text>
                 <Pressable
                   onPress={() => setShowEditModal(false)}
@@ -301,7 +314,7 @@ export function PrescriptionSection({ prescription, onUpdate, editable = true }:
                 {/* Upload File Section */}
                 <View className="mb-5">
                   <Text style={{ color: colors.text.primary }} className="text-sm font-medium mb-2">
-                    Upload Prescription (image or PDF)
+                    Upload Customer Note (image or PDF)
                   </Text>
 
                   {editFileUrl ? (
@@ -377,7 +390,7 @@ export function PrescriptionSection({ prescription, onUpdate, editable = true }:
                 {/* Text Entry Section */}
                 <View className="mb-5">
                   <Text style={{ color: colors.text.primary }} className="text-sm font-medium mb-2">
-                    Enter Prescription Details
+                    Enter Customer Note Details
                   </Text>
                   <View
                     className="rounded-xl px-4 py-3"
@@ -389,7 +402,7 @@ export function PrescriptionSection({ prescription, onUpdate, editable = true }:
                     }}
                   >
                     <TextInput
-                      placeholder="Type prescription details here..."
+                      placeholder="Type customer note here..."
                       placeholderTextColor={colors.input.placeholder}
                       value={editText}
                       onChangeText={(text) => {
@@ -425,10 +438,19 @@ export function PrescriptionSection({ prescription, onUpdate, editable = true }:
                 <View className="gap-3 mb-4">
                   <Pressable
                     onPress={handleSave}
-                    className="rounded-xl items-center active:opacity-80"
-                    style={{ backgroundColor: '#111111', height: 52, justifyContent: 'center' }}
+                    className="rounded-full items-center active:opacity-80 w-full"
+                    style={{
+                      backgroundColor: isDark ? '#FFFFFF' : '#111111',
+                      height: 52,
+                      justifyContent: 'center',
+                    }}
                   >
-                    <Text className="text-white font-semibold text-base">Save Prescription</Text>
+                    <Text
+                      className="font-semibold text-base"
+                      style={{ color: isDark ? '#111111' : '#FFFFFF' }}
+                    >
+                      Save
+                    </Text>
                   </Pressable>
 
                   {hasPrescription && (
@@ -438,7 +460,7 @@ export function PrescriptionSection({ prescription, onUpdate, editable = true }:
                       style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', height: 48 }}
                     >
                       <Trash2 size={16} color="#EF4444" strokeWidth={2} />
-                      <Text className="text-red-500 font-medium text-sm ml-2">Remove Prescription</Text>
+                      <Text className="text-red-500 font-medium text-sm ml-2">Remove Customer Note</Text>
                     </Pressable>
                   )}
                 </View>

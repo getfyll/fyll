@@ -1,15 +1,23 @@
 import React, { useState } from 'react';
 import { View, Text, Pressable, TextInput, Alert, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { ChevronLeft, User as UserIcon, Mail, Lock, Save } from 'lucide-react-native';
 import { useThemeColors } from '@/lib/theme';
 import useAuthStore from '@/lib/state/auth-store';
 import * as Haptics from 'expo-haptics';
+import { getSettingsWebPanelStyles, isFromSettingsRoute } from '@/lib/settings-web-panel';
+import { useSettingsBack } from '@/lib/useSettingsBack';
 
 export default function AccountSettingsScreen() {
-  const router = useRouter();
+  const { from } = useLocalSearchParams<{ from?: string | string[] }>();
+  const goBack = useSettingsBack();
   const colors = useThemeColors();
+  const panelStyles = getSettingsWebPanelStyles(
+    isFromSettingsRoute(from),
+    colors.bg.primary,
+    colors.border.light
+  );
   const currentUser = useAuthStore((s) => s.currentUser);
   const updateProfile = useAuthStore((s) => s.updateProfile);
   const updatePassword = useAuthStore((s) => s.updatePassword);
@@ -21,6 +29,15 @@ export default function AccountSettingsScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const primaryPillButtonStyle = {
+    backgroundColor: colors.text.primary,
+    height: 56,
+    borderRadius: 999,
+    opacity: isLoading ? 0.7 : 1,
+  } as const;
+  const primaryPillTextStyle = {
+    color: colors.bg.primary,
+  } as const;
 
   const handleUpdateProfile = async () => {
     if (!name.trim() || !email.trim()) {
@@ -42,7 +59,7 @@ export default function AccountSettingsScreen() {
       await updateProfile(name.trim(), email.trim());
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert('Success', 'Profile updated successfully');
-    } catch (err) {
+    } catch {
       setError('Failed to update profile');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
@@ -84,7 +101,7 @@ export default function AccountSettingsScreen() {
         setError(result.error || 'Failed to update password');
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
-    } catch (err) {
+    } catch {
       setError('Failed to update password');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
@@ -93,12 +110,13 @@ export default function AccountSettingsScreen() {
   };
 
   return (
-    <View className="flex-1" style={{ backgroundColor: colors.bg.primary }}>
+    <View style={panelStyles.outer}>
+      <View style={panelStyles.inner}>
       <SafeAreaView className="flex-1" edges={['top']}>
         {/* Header */}
         <View className="px-5 pt-4 pb-3 flex-row items-center" style={{ borderBottomWidth: 1, borderBottomColor: colors.border.light }}>
           <Pressable
-            onPress={() => router.back()}
+            onPress={goBack}
             className="w-10 h-10 rounded-xl items-center justify-center mr-3 active:opacity-50"
             style={{ backgroundColor: colors.bg.secondary }}
           >
@@ -199,11 +217,11 @@ export default function AccountSettingsScreen() {
           <Pressable
             onPress={handleUpdateProfile}
             disabled={isLoading}
-            className="rounded-xl items-center justify-center active:opacity-80 flex-row mb-8"
-            style={{ backgroundColor: '#111111', height: 56, opacity: isLoading ? 0.7 : 1 }}
+            className="rounded-full items-center justify-center active:opacity-80 flex-row mb-8"
+            style={primaryPillButtonStyle}
           >
-            <Save size={20} color="#FFFFFF" strokeWidth={2} />
-            <Text className="text-white font-semibold text-base ml-2">Save Profile</Text>
+            <Save size={20} color={colors.bg.primary} strokeWidth={2} />
+            <Text style={primaryPillTextStyle} className="font-semibold text-base ml-2">Save Profile</Text>
           </Pressable>
 
           {/* Change Password */}
@@ -295,16 +313,17 @@ export default function AccountSettingsScreen() {
           <Pressable
             onPress={handleUpdatePassword}
             disabled={isLoading}
-            className="rounded-xl items-center justify-center active:opacity-80 flex-row"
-            style={{ backgroundColor: '#111111', height: 56, opacity: isLoading ? 0.7 : 1 }}
+            className="rounded-full items-center justify-center active:opacity-80 flex-row"
+            style={primaryPillButtonStyle}
           >
-            <Lock size={20} color="#FFFFFF" strokeWidth={2} />
-            <Text className="text-white font-semibold text-base ml-2">Update Password</Text>
+            <Lock size={20} color={colors.bg.primary} strokeWidth={2} />
+            <Text style={primaryPillTextStyle} className="font-semibold text-base ml-2">Update Password</Text>
           </Pressable>
 
           <View className="h-24" />
         </ScrollView>
       </SafeAreaView>
+      </View>
     </View>
   );
 }

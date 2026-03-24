@@ -4,7 +4,7 @@ import type { Order, Product, ProductVariant } from './state/fyll-store';
 import { normalizeProductType } from './product-utils';
 
 export type TimeRange = '7d' | '30d' | 'year';
-export type TabKey = 'sales' | 'orders' | 'customers' | 'inventory';
+export type TabKey = 'sales' | 'orders' | 'customers' | 'inventory' | 'services';
 
 export interface ChartDataPoint {
   label: string;
@@ -37,6 +37,12 @@ export interface ServiceMetrics {
   serviceItems: number;
 }
 
+export interface AddOnMetrics {
+  revenue: number;
+  ordersWithAddOns: number;
+  addOnItems: number;
+}
+
 export interface ServiceBreakdownItem {
   name: string;
   revenue: number;
@@ -50,6 +56,12 @@ interface ServiceLineItem {
   quantity: number;
 }
 
+export interface ServiceVariableBreakdown {
+  serviceName: string;
+  variableName: string;
+  values: { label: string; count: number }[];
+}
+
 const getVariantDisplayName = (productName: string, variant?: ProductVariant): string => {
   if (!variant) return productName;
   const variantLabel = Object.values(variant.variableValues || {})
@@ -60,16 +72,6 @@ const getVariantDisplayName = (productName: string, variant?: ProductVariant): s
 
 const collectServiceLineItems = (order: Order, products: Product[]): ServiceLineItem[] => {
   const items: ServiceLineItem[] = [];
-
-  (order.services ?? []).forEach((service) => {
-    const price = typeof service.price === 'number' && Number.isFinite(service.price) ? service.price : 0;
-    if (price <= 0) return;
-    items.push({
-      name: service.name,
-      revenue: price,
-      quantity: 1,
-    });
-  });
 
   const productMap = new Map(products.map((product) => [product.id, product]));
 
@@ -89,6 +91,20 @@ const collectServiceLineItems = (order: Order, products: Product[]): ServiceLine
     });
   }
 
+  return items;
+};
+
+const collectAddOnLineItems = (order: Order): ServiceLineItem[] => {
+  const items: ServiceLineItem[] = [];
+  (order.services ?? []).forEach((service) => {
+    const price = typeof service.price === 'number' && Number.isFinite(service.price) ? service.price : 0;
+    if (price <= 0) return;
+    items.push({
+      name: service.name,
+      revenue: price,
+      quantity: 1,
+    });
+  });
   return items;
 };
 
@@ -135,6 +151,12 @@ export interface AnalyticsResult {
   averageOrderValue: number;
   topAddOns: TopAddOn[];
   revenueBySource: { label: string; value: number; percentage: number }[];
+  addOnMetrics: AddOnMetrics;
+  previousAddOnMetrics: AddOnMetrics;
+  addOnRevenueChange: number;
+  todayAddOnMetrics: AddOnMetrics;
+  addOnBreakdown: ServiceBreakdownItem[];
+  addOnByPeriod: ChartDataPoint[];
 
   // ====== ORDERS TAB SPECIFIC ======
   statusBreakdown: StatusBreakdown[];
@@ -157,6 +179,7 @@ export interface AnalyticsResult {
   todayServiceMetrics: ServiceMetrics;
   serviceBreakdown: ServiceBreakdownItem[];
   serviceByPeriod: ChartDataPoint[];
+  serviceVariableBreakdown: ServiceVariableBreakdown[];
 }
 
 /**
@@ -215,6 +238,16 @@ export function hasRefund(order: Order): boolean {
 }
 
 /**
+ * Get the refund date from an order (when the refund was actually issued)
+ */
+export function getRefundDate(order: Order): Date | null {
+  if (order.refund?.date) {
+    return new Date(order.refund.date);
+  }
+  return null;
+}
+
+/**
  * Count orders with any refund and sum total refunded amount
  */
 export function getRefundStats(orders: Order[]): { count: number; total: number } {
@@ -230,6 +263,21 @@ export function getRefundStats(orders: Order[]): { count: number; total: number 
   }
 
   return { count, total };
+}
+
+/**
+ * Filter orders by refund date range (not order date)
+ */
+export function filterOrdersByRefundDateRange(
+  orders: Order[],
+  start: Date,
+  end: Date
+): Order[] {
+  return orders.filter((order) => {
+    const refundDate = getRefundDate(order);
+    if (!refundDate) return false;
+    return refundDate >= start && refundDate <= end;
+  });
 }
 
 /**
@@ -438,7 +486,7 @@ export function getHourlyTrend(orders: Order[]): number[] {
 export function countUniqueCustomers(orders: Order[]): number {
   const customers = new Set<string>();
   orders.forEach((order) => {
-    const key = order.customerEmail || order.customerName.toLowerCase();
+    const key = order.customerEmail || order.customerName?.toLowerCase() || 'unknown';
     customers.add(key);
   });
   return customers.size;
@@ -456,7 +504,7 @@ export function countNewCustomers(
 
   // Build map of first order date for each customer
   allOrders.forEach((order) => {
-    const key = order.customerEmail || order.customerName.toLowerCase();
+    const key = order.customerEmail || order.customerName?.toLowerCase() || 'unknown';
     const orderDate = getOrderDate(order);
     const existing = customerFirstOrders.get(key);
     if (!existing || orderDate < existing) {
@@ -598,8 +646,12 @@ export function getTodayStats(orders: Order[], products: Product[]): {
 
   const paidOrders = todayOrders.filter((o) => o.status !== 'Refunded');
 
-  // Use getRefundStats to properly count refunds (including partial)
-  const refundStats = getRefundStats(todayOrders);
+  // Use refund DATE (not order date) to count today's refunds
+  const todayRefundOrders = orders.filter((order) => {
+    const refundDate = getRefundDate(order);
+    return refundDate ? refundDate >= today : false;
+  });
+  const refundStats = getRefundStats(todayRefundOrders);
   const serviceMetrics = getServiceMetrics(paidOrders, products);
 
   return {
@@ -744,6 +796,116 @@ export function getServiceRevenueByPeriod(
   return groupServiceByMonth(orders, products);
 }
 
+const getAddOnRevenueForOrder = (order: Order): number => {
+  return (order.services ?? []).reduce((sum, service) => {
+    const price = typeof service.price === 'number' && Number.isFinite(service.price) ? service.price : 0;
+    return sum + Math.max(0, price);
+  }, 0);
+};
+
+export function groupAddOnsByDay(
+  orders: Order[],
+  start: Date,
+  end: Date
+): ChartDataPoint[] {
+  const dayMap = new Map<string, number>();
+  const dayLabels: string[] = [];
+
+  const current = new Date(start);
+  while (current <= end) {
+    const dateKey = current.toISOString().split('T')[0];
+    const label = current.toLocaleDateString('en-US', { weekday: 'short' });
+    dayMap.set(dateKey, 0);
+    dayLabels.push(label);
+    current.setDate(current.getDate() + 1);
+  }
+
+  orders.forEach((order) => {
+    const dateKey = getOrderDate(order).toISOString().split('T')[0];
+    if (!dayMap.has(dateKey)) return;
+    const existing = dayMap.get(dateKey) ?? 0;
+    dayMap.set(dateKey, existing + getAddOnRevenueForOrder(order));
+  });
+
+  const result: ChartDataPoint[] = [];
+  let index = 0;
+  dayMap.forEach((value) => {
+    result.push({ label: dayLabels[index] || '', value });
+    index += 1;
+  });
+  return result;
+}
+
+export function groupAddOnsByWeek(
+  orders: Order[],
+  start: Date,
+  end: Date
+): ChartDataPoint[] {
+  const weekMap = new Map<string, number>();
+  const weekLabels: string[] = [];
+
+  const current = new Date(start);
+  while (current <= end) {
+    const weekKey = current.toISOString().split('T')[0];
+    const label = current.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    weekMap.set(weekKey, 0);
+    weekLabels.push(label);
+    current.setDate(current.getDate() + 7);
+  }
+
+  orders.forEach((order) => {
+    const orderDate = getOrderDate(order);
+    const diff = Math.floor((orderDate.getTime() - start.getTime()) / (7 * 24 * 60 * 60 * 1000));
+    const weekStart = new Date(start);
+    weekStart.setDate(start.getDate() + diff * 7);
+    const weekKey = weekStart.toISOString().split('T')[0];
+    if (!weekMap.has(weekKey)) return;
+    const existing = weekMap.get(weekKey) ?? 0;
+    weekMap.set(weekKey, existing + getAddOnRevenueForOrder(order));
+  });
+
+  const result: ChartDataPoint[] = [];
+  let index = 0;
+  weekMap.forEach((value) => {
+    result.push({ label: weekLabels[index] || '', value });
+    index += 1;
+  });
+  return result;
+}
+
+export function groupAddOnsByMonth(orders: Order[]): ChartDataPoint[] {
+  const monthMap = new Map<string, number>();
+
+  orders.forEach((order) => {
+    const date = getOrderDate(order);
+    const key = `${date.getFullYear()}-${date.getMonth()}`;
+    monthMap.set(key, (monthMap.get(key) || 0) + getAddOnRevenueForOrder(order));
+  });
+
+  const result: ChartDataPoint[] = [];
+  monthMap.forEach((value, key) => {
+    const [year, month] = key.split('-').map(Number);
+    const label = new Date(year, month, 1).toLocaleDateString('en-US', { month: 'short' });
+    result.push({ label, value });
+  });
+  return result;
+}
+
+export function getAddOnRevenueByPeriod(
+  range: TimeRange,
+  orders: Order[],
+  start: Date,
+  end: Date
+): ChartDataPoint[] {
+  if (range === '7d') {
+    return groupAddOnsByDay(orders, start, end);
+  }
+  if (range === '30d') {
+    return groupAddOnsByWeek(orders, start, end);
+  }
+  return groupAddOnsByMonth(orders);
+}
+
 export function getServiceMetrics(orders: Order[], products: Product[]): ServiceMetrics {
   let revenue = 0;
   let ordersWithServices = 0;
@@ -758,6 +920,22 @@ export function getServiceMetrics(orders: Order[], products: Product[]): Service
   }
 
   return { revenue, ordersWithServices, serviceItems };
+}
+
+export function getAddOnMetrics(orders: Order[]): AddOnMetrics {
+  let revenue = 0;
+  let ordersWithAddOns = 0;
+  let addOnItems = 0;
+
+  for (const order of orders) {
+    const lineItems = collectAddOnLineItems(order);
+    if (lineItems.length === 0) continue;
+    ordersWithAddOns += 1;
+    revenue += lineItems.reduce((sum, item) => sum + item.revenue, 0);
+    addOnItems += lineItems.reduce((sum, item) => sum + item.quantity, 0);
+  }
+
+  return { revenue, ordersWithAddOns, addOnItems };
 }
 
 export function getServiceBreakdown(orders: Order[], products: Product[]): ServiceBreakdownItem[] {
@@ -783,6 +961,73 @@ export function getServiceBreakdown(orders: Order[], products: Product[]): Servi
       quantity: data.quantity,
     }))
     .sort((a, b) => b.revenue - a.revenue);
+}
+
+export function getAddOnBreakdown(orders: Order[]): ServiceBreakdownItem[] {
+  const breakdown = new Map<string, { revenue: number; orders: Set<string>; quantity: number }>();
+
+  for (const order of orders) {
+    const lineItems = collectAddOnLineItems(order);
+    if (lineItems.length === 0) continue;
+    for (const item of lineItems) {
+      const existing = breakdown.get(item.name) || { revenue: 0, orders: new Set<string>(), quantity: 0 };
+      existing.revenue += item.revenue;
+      existing.orders.add(order.id);
+      existing.quantity += item.quantity;
+      breakdown.set(item.name, existing);
+    }
+  }
+
+  return Array.from(breakdown.entries())
+    .map(([name, data]) => ({
+      name,
+      revenue: data.revenue,
+      orders: data.orders.size,
+      quantity: data.quantity,
+    }))
+    .sort((a, b) => b.revenue - a.revenue);
+}
+
+export function getServiceVariableBreakdown(
+  orders: Order[],
+  products: Product[]
+): ServiceVariableBreakdown[] {
+  const productMap = new Map(products.map((product) => [product.id, product]));
+  const keyMap = new Map<string, { serviceName: string; variableName: string; counts: Map<string, number> }>();
+
+  for (const order of orders) {
+    for (const item of order.items ?? []) {
+      const product = productMap.get(item.productId);
+      if (!product) continue;
+      if (normalizeProductType(product.productType) !== 'service') continue;
+      if (!item.serviceVariables || item.serviceVariables.length === 0) continue;
+
+      const serviceName = product.name;
+      const quantity = item.quantity ?? 0;
+      if (quantity <= 0) continue;
+
+      item.serviceVariables.forEach((variable) => {
+        const value = (variable.value ?? '').toString().trim();
+        if (!value) return;
+        const key = `${serviceName}::${variable.name}`;
+        const record = keyMap.get(key) || {
+          serviceName,
+          variableName: variable.name,
+          counts: new Map<string, number>(),
+        };
+        record.counts.set(value, (record.counts.get(value) || 0) + quantity);
+        keyMap.set(key, record);
+      });
+    }
+  }
+
+  return Array.from(keyMap.values()).map((record) => ({
+    serviceName: record.serviceName,
+    variableName: record.variableName,
+    values: Array.from(record.counts.entries())
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count),
+  }));
 }
 
 /**
@@ -824,7 +1069,10 @@ const STATUS_COLORS: Record<string, string> = {
 /**
  * Get order status breakdown
  */
-export function getStatusBreakdown(orders: Order[]): StatusBreakdown[] {
+export function getStatusBreakdown(
+  orders: Order[],
+  orderStatuses?: { name: string; color?: string }[]
+): StatusBreakdown[] {
   const statusMap = new Map<string, number>();
 
   orders.forEach((order) => {
@@ -840,7 +1088,9 @@ export function getStatusBreakdown(orders: Order[]): StatusBreakdown[] {
       status,
       count,
       percentage: Math.round((count / total) * 100),
-      color: STATUS_COLORS[status] || '#888888',
+      color: orderStatuses?.find((s) => s.name === status)?.color
+        || STATUS_COLORS[status]
+        || '#888888',
     }));
 }
 
@@ -932,7 +1182,7 @@ export function getReturningVsNew(
 
   // Build map of first order date for each customer
   allOrders.forEach((order) => {
-    const key = order.customerEmail || order.customerName.toLowerCase();
+    const key = order.customerEmail || order.customerName?.toLowerCase() || 'unknown';
     const orderDate = getOrderDate(order);
     const existing = customerFirstOrders.get(key);
     if (!existing || orderDate < existing) {
@@ -942,7 +1192,7 @@ export function getReturningVsNew(
 
   // Count orders per customer within current range
   ordersInRange.forEach((order) => {
-    const key = order.customerEmail || order.customerName.toLowerCase();
+    const key = order.customerEmail || order.customerName?.toLowerCase() || 'unknown';
     ordersInRangeByCustomer.set(key, (ordersInRangeByCustomer.get(key) || 0) + 1);
   });
 
@@ -977,7 +1227,7 @@ export function getTopCustomers(orders: Order[]): TopCustomer[] {
   const customerMap = new Map<string, { name: string; email: string; totalSpent: number; orderCount: number }>();
 
   orders.forEach((order) => {
-    const key = order.customerEmail || order.customerName.toLowerCase();
+    const key = order.customerEmail || order.customerName?.toLowerCase() || 'unknown';
     const existing = customerMap.get(key) || {
       name: order.customerName,
       email: order.customerEmail,
@@ -1011,7 +1261,7 @@ export function getCustomersByLocation(
 
   orders.forEach((order) => {
     const location = order.deliveryState || 'Unknown';
-    const customerKey = order.customerEmail || order.customerName.toLowerCase();
+    const customerKey = order.customerEmail || order.customerName?.toLowerCase() || 'unknown';
 
     if (!customerLocations.has(location)) {
       customerLocations.set(location, new Set());
@@ -1041,7 +1291,7 @@ export function getCustomersByPlatform(
 
   orders.forEach((order) => {
     const platform = order.source || 'Unknown';
-    const customerKey = order.customerEmail || order.customerName.toLowerCase();
+    const customerKey = order.customerEmail || order.customerName?.toLowerCase() || 'unknown';
 
     if (!customerPlatforms.has(platform)) {
       customerPlatforms.set(platform, new Set());

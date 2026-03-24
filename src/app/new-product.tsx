@@ -1,38 +1,23 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { View, Text, ScrollView, Pressable, TextInput, Platform, Switch, Modal, KeyboardAvoidingView, Keyboard, Image } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ArrowLeft, X, Plus, Trash2, Package, Hash, Check, ChevronDown, Search, Camera, ImageIcon, Briefcase } from 'lucide-react-native';
-import useFyllStore, { ProductVariant, generateProductId, generateVariantBarcode, formatCurrency, ProductType } from '@/lib/state/fyll-store';
+import { ArrowLeft, X, Plus, Trash2, Package, Hash, Check, ChevronDown, Search, Camera, ImageIcon } from 'lucide-react-native';
+import useFyllStore, {
+  ProductVariant,
+  generateProductId,
+  generateVariantBarcode,
+  formatCurrency,
+} from '@/lib/state/fyll-store';
 import useAuthStore from '@/lib/state/auth-store';
 import { cn } from '@/lib/cn';
 import * as Haptics from 'expo-haptics';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { Button, StickyButtonContainer } from '@/components/Button';
+import { useThemeColors } from '@/lib/theme';
 
-// Force Light Theme Colors
-const colors = {
-  bg: {
-    primary: '#FFFFFF',
-    secondary: '#F9F9F9',
-    card: '#FFFFFF',
-  },
-  text: {
-    primary: '#111111',
-    secondary: '#333333',
-    tertiary: '#666666',
-    muted: '#999999',
-  },
-  border: {
-    light: '#E5E5E5',
-    medium: '#CCCCCC',
-  },
-  input: {
-    bg: '#FFFFFF',
-    border: '#444444',
-  },
-};
+// Theme-aware colors
 
 interface VariantFormData {
   id: string;
@@ -45,6 +30,15 @@ interface VariantFormData {
 export default function NewProductScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const colors = useThemeColors();
+  const isWeb = Platform.OS === 'web';
+  const isDark = colors.bg.primary === '#111111';
+  const useDesktopCanvas = isWeb && !isDark;
+  const canvasBg = useDesktopCanvas ? '#F3F3F5' : colors.bg.primary;
+  const panelBg = useDesktopCanvas ? '#FFFFFF' : colors.bg.primary;
+  const textPrimaryClass = isDark ? 'text-white' : 'text-gray-900';
+  const textMutedClass = isDark ? 'text-gray-400' : 'text-gray-500';
+  const cardClass = isDark ? 'bg-[#1A1A1A] border-[#333333]' : 'bg-white border-gray-200';
   const productVariables = useFyllStore((s) => s.productVariables);
   const globalCategories = useFyllStore((s) => s.categories);
   const addCategory = useFyllStore((s) => s.addCategory);
@@ -53,16 +47,12 @@ export default function NewProductScreen() {
   const currentUser = useAuthStore((s) => s.currentUser);
   const businessId = useAuthStore((s) => s.businessId);
 
-  const [productType, setProductType] = useState<ProductType>('product');
-  const isService = productType === 'service';
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [categories, setCategories] = useState<string[]>([]);
   const [categoryInput, setCategoryInput] = useState('');
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
   const [lowStockThreshold, setLowStockThreshold] = useState('5');
-  const [addingValueToVariable, setAddingValueToVariable] = useState<string | null>(null);
-  const [newValueInput, setNewValueInput] = useState('');
   const [variants, setVariants] = useState<VariantFormData[]>([]);
   const [hasVariants, setHasVariants] = useState(true);
   const [productImageUrl, setProductImageUrl] = useState<string | null>(null);
@@ -91,22 +81,15 @@ export default function NewProductScreen() {
   const [useGlobalPrice, setUseGlobalPrice] = useState(true);
   const [globalPrice, setGlobalPrice] = useState('');
 
-  useEffect(() => {
-    if (!isService) return;
-    setHasVariants(false);
-    setUseGlobalPrice(true);
-    setVariants([
-      {
-        id: Math.random().toString(36).substring(2, 10),
-        variableValues: {},
-        stock: '0',
-        sellingPrice: '',
-      },
-    ]);
-  }, [isService]);
+  const formContentStyle = useMemo(() => ({
+    paddingHorizontal: 20,
+    paddingBottom: 24,
+    width: '100%' as const,
+    ...(isWeb ? { maxWidth: 1120, alignSelf: 'center' as const } : {}),
+  }), [isWeb]);
+ 
 
   const handleGlobalPriceToggle = (value: boolean) => {
-    if (isService) return;
     setUseGlobalPrice(value);
   };
 
@@ -120,7 +103,6 @@ export default function NewProductScreen() {
   }, [globalCategories, categoryInput, categories]);
 
   const handleToggleVariants = (value: boolean) => {
-    if (isService) return;
     setHasVariants(value);
     if (value) {
       setVariants((prev) => {
@@ -175,30 +157,6 @@ export default function NewProductScreen() {
     }
     setVariants(prev => prev.filter((_, i) => i !== index));
   }, []);
-
-  const handleAddValueToVariable = (variableId: string) => {
-    if (!newValueInput.trim()) return;
-
-    const variable = productVariables.find((v) => v.id === variableId);
-    if (!variable) return;
-
-    // Check for duplicates
-    if (variable.values.includes(newValueInput.trim())) {
-      setNewValueInput('');
-      setAddingValueToVariable(null);
-      return;
-    }
-
-    if (Platform.OS !== 'web') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
-    updateProductVariable(variableId, {
-      values: [...variable.values, newValueInput.trim()],
-    });
-
-    setNewValueInput('');
-    setAddingValueToVariable(null);
-  };
 
   // Category handling
   const handleSelectCategory = useCallback((cat: string) => {
@@ -257,7 +215,7 @@ export default function NewProductScreen() {
           return newVariants;
         });
       }
-    } catch (err) {
+    } catch {
       setVariantImageError('Failed to pick image. Please try again.');
     } finally {
       setVariantImageLoading(null);
@@ -290,7 +248,8 @@ export default function NewProductScreen() {
   }, []);
 
   const handleSubmit = async () => {
-    if (!name.trim() || variants.length === 0 || isSubmitting) return;
+    if (!name.trim() || isSubmitting) return;
+    if (variants.length === 0) return;
 
     // Check all variants have images
     const missingImages = variants.some(v => !v.imageUrl);
@@ -340,7 +299,7 @@ export default function NewProductScreen() {
           variants: productVariants,
           lowStockThreshold: parseInt(lowStockThreshold, 10) || 5,
           createdAt: new Date().toISOString(),
-          productType,
+          productType: 'product',
           imageUrl: productImageUrl || undefined,
           createdBy: currentUser?.name,
           // New Design fields
@@ -348,7 +307,7 @@ export default function NewProductScreen() {
           designYear: isNewDesign ? parseInt(designYear, 10) || new Date().getFullYear() : undefined,
           designLaunchedAt: isNewDesign ? new Date().toISOString() : undefined,
         }, businessId),
-        timeoutPromise
+        timeoutPromise,
       ]);
 
       console.log('✅ Product submitted successfully');
@@ -375,105 +334,79 @@ export default function NewProductScreen() {
 
   // Check if all variants have images
   const allVariantsHaveImages = variants.length > 0 && variants.every(v => !!v.imageUrl);
-  const hasServicePrice = isService ? globalPrice.trim().length > 0 : true;
-  const isValid = name.trim() && variants.length > 0 && allVariantsHaveImages && hasServicePrice;
+  const isValid = name.trim().length > 0 && variants.length > 0 && allVariantsHaveImages;
 
   return (
-    <View className="flex-1 bg-gray-50">
-      <SafeAreaView className="flex-1" edges={['top']}>
+    <View className="flex-1" style={{ backgroundColor: canvasBg }}>
+      <View
+        style={[
+          { flex: 1, backgroundColor: panelBg },
+          useDesktopCanvas
+            ? {
+                width: '100%',
+                maxWidth: 1160,
+                alignSelf: 'center',
+                borderWidth: 1,
+                borderColor: '#E6E6E6',
+                borderRadius: 18,
+                overflow: 'hidden',
+                marginVertical: 12,
+              }
+            : null,
+        ]}
+      >
+      <SafeAreaView className="flex-1" edges={['top']} style={{ backgroundColor: panelBg }}>
         {/* Header - Full Screen Style with Back Button (no Create button) */}
-        <View className="flex-row items-center justify-between px-5 py-4 bg-white border-b border-gray-200">
+        <View className="flex-row items-center justify-between px-5 py-4" style={{ backgroundColor: colors.bg.card, borderBottomWidth: 1, borderBottomColor: colors.border.light }}>
           <Pressable
             onPress={() => router.back()}
-            className="w-10 h-10 rounded-xl items-center justify-center active:opacity-50 bg-gray-100"
+            className="w-10 h-10 rounded-xl items-center justify-center active:opacity-50"
+            style={{ backgroundColor: colors.bg.secondary }}
           >
-            <ArrowLeft size={20} color="#111111" strokeWidth={2} />
+            <ArrowLeft size={20} color={colors.text.primary} strokeWidth={2} />
           </Pressable>
           <View className="items-center">
-            <Text className="text-gray-900 text-lg font-semibold">
-              New {isService ? 'Service' : 'Product'}
+            <Text className={cn('text-lg font-semibold', textPrimaryClass)}>
+              New Product
             </Text>
-            <Text className="text-xs text-gray-500">
-              {isService ? 'Capture service offerings without inventory' : 'Track inventory, variants, and pricing'}
+            <Text className={cn('text-xs', textMutedClass)}>
+              Track inventory, variants, and pricing
             </Text>
           </View>
           <View className="w-10 h-10" />
         </View>
-        <View className="px-5 pb-4 pt-2 bg-white border-b border-gray-200">
-          <View
-            className="rounded-full border border-gray-200 bg-white flex-row overflow-hidden"
-            style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 3 }}
-          >
-            {[
-              {
-                key: 'product',
-                title: 'Inventory',
-                subtitle: 'Products',
-                icon: Package,
-              },
-              {
-                key: 'service',
-                title: 'Services',
-                subtitle: 'Experiences',
-                icon: Briefcase,
-              },
-            ].map((tab) => {
-              const active = productType === tab.key;
-              const IconComponent = tab.icon;
-              return (
-                <Pressable
-                  key={tab.key}
-                  onPress={() => setProductType(tab.key as ProductType)}
-                  className="flex-1 px-4 py-3 items-center justify-center"
-                  style={{
-                    backgroundColor: active ? '#111111' : '#F5F5F5',
-                    borderRadius: 999,
-                  }}
-                >
-                  <IconComponent size={18} color={active ? '#FFFFFF' : '#A3A3A3'} strokeWidth={1.8} />
-                  <Text className={cn('text-sm font-semibold mt-1', active ? 'text-white' : 'text-gray-600')}>
-                    {tab.title}
-                  </Text>
-                  <Text className="text-[11px] uppercase tracking-[0.2em]" style={{ color: active ? '#E5E7EB' : '#9CA3AF' }}>
-                    {tab.subtitle}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-          <View className="mt-3 px-2">
-            <Text className="text-center text-[11px] text-gray-500">
-              {isService
-                ? 'Services skip inventory tracking, variants, and low stock warnings.'
-                : 'Products include rich variant controls, inventory math, and pricing settings.'}
+        <View className="px-5 pb-4 pt-2" style={{ backgroundColor: colors.bg.card, borderBottomWidth: 1, borderBottomColor: colors.border.light }}>
+          <View className="mt-1 px-2">
+            <Text className={cn('text-center text-[11px]', textMutedClass)}>
+              Products include rich variant controls, inventory math, and pricing settings.
             </Text>
           </View>
         </View>
 
         <KeyboardAwareScrollView
-          className="flex-1 px-5 pb-6"
+          className="flex-1"
+          contentContainerStyle={formContentStyle}
           showsVerticalScrollIndicator={false}
           extraScrollHeight={100}
           enableOnAndroid={true}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Product Info */}
           <View className="mt-4">
-            <View className="bg-white rounded-2xl p-4 border border-gray-200">
+            <View className={cn('rounded-2xl p-4 border', cardClass)}>
               <View className="flex-row items-center mb-4">
-                <View className="w-10 h-10 rounded-xl items-center justify-center mr-3 bg-gray-100">
-                  <Package size={20} color="#111111" strokeWidth={2} />
+                <View className="w-10 h-10 rounded-xl items-center justify-center mr-3" style={{ backgroundColor: colors.bg.secondary }}>
+                  <Package size={20} color={colors.text.primary} strokeWidth={2} />
                 </View>
                 <View>
-                  <Text className="text-gray-900 font-bold text-base">{isService ? 'Service Details' : 'Product Details'}</Text>
-                  <Text className="text-gray-500 text-xs">{isService ? 'Define the service you offer' : 'Basic product information'}</Text>
+                  <Text className={cn('font-bold text-base', textPrimaryClass)}>Product Details</Text>
+                  <Text className={cn('text-xs', textMutedClass)}>Basic product information</Text>
                 </View>
               </View>
 
               {/* Product Image */}
               <View className="mb-3">
-                <Text className="text-gray-500 text-xs font-medium mb-1.5 uppercase tracking-wider">
-                  {isService ? 'Service Image' : 'Product Image'}
+                <Text className={cn('text-xs font-medium mb-1.5 uppercase tracking-wider', textMutedClass)}>
+                  Product Image
                 </Text>
                 {/* Error Toast */}
                 {imagePicker.error && (
@@ -540,15 +473,15 @@ export default function NewProductScreen() {
               {/* Product Name */}
               <View className="mb-3">
                 <Text className="text-gray-500 text-xs font-medium mb-1.5 uppercase tracking-wider">
-                  {isService ? 'Service Name *' : 'Product Name *'}
+                  Product Name *
                 </Text>
-                <View className="rounded-xl px-4 py-3 border border-gray-300 bg-white">
+                <View className={cn('rounded-xl px-4 py-3 border', cardClass)}>
                   <TextInput
                     placeholder="e.g. Classic Aviator Sunglasses"
                     placeholderTextColor="#9CA3AF"
                     value={name}
                     onChangeText={setName}
-                    className="text-gray-900 text-sm"
+                    className={cn('text-sm', textPrimaryClass)}
                     selectionColor="#111111"
                   />
                 </View>
@@ -629,7 +562,7 @@ export default function NewProductScreen() {
               {/* Description */}
               <View className="mb-3">
                 <Text className="text-gray-500 text-xs font-medium mb-1.5 uppercase tracking-wider">Description</Text>
-                <View className="rounded-xl px-4 py-3 border border-gray-300 bg-white">
+                <View className={cn('rounded-xl px-4 py-3 border', cardClass)}>
                   <TextInput
                     placeholder="Product description..."
                     placeholderTextColor="#9CA3AF"
@@ -637,7 +570,7 @@ export default function NewProductScreen() {
                     onChangeText={setDescription}
                     multiline
                     numberOfLines={3}
-                    className="text-gray-900 text-sm"
+                    className={cn('text-sm', textPrimaryClass)}
                     style={{ minHeight: 70 }}
                     selectionColor="#111111"
                   />
@@ -645,28 +578,26 @@ export default function NewProductScreen() {
               </View>
 
               {/* Low Stock Threshold */}
-              {!isService && (
-                <View className="mb-3">
-                  <Text className="text-gray-500 text-xs font-medium mb-1.5 uppercase tracking-wider">Low Stock Alert Threshold</Text>
-                  <View className="rounded-xl px-4 flex-row items-center" style={{ height: 52, backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.input.border }}>
-                    <TextInput
-                      placeholder="5"
-                      placeholderTextColor={colors.text.muted}
-                      value={lowStockThreshold}
-                      onChangeText={setLowStockThreshold}
-                      keyboardType="number-pad"
-                      style={{ color: colors.text.primary, fontSize: 14, flex: 1 }}
-                      selectionColor={colors.text.primary}
-                    />
-                  </View>
+              <View className="mb-3">
+                <Text className="text-gray-500 text-xs font-medium mb-1.5 uppercase tracking-wider">Low Stock Alert Threshold</Text>
+                <View className="rounded-xl px-4 flex-row items-center" style={{ height: 52, backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.input.border }}>
+                  <TextInput
+                    placeholder="5"
+                    placeholderTextColor={colors.text.muted}
+                    value={lowStockThreshold}
+                    onChangeText={setLowStockThreshold}
+                    keyboardType="number-pad"
+                    style={{ color: colors.text.primary, fontSize: 14, flex: 1 }}
+                    selectionColor={colors.text.primary}
+                  />
                 </View>
-              )}
+              </View>
 
               {/* New Design Toggle */}
               <View className="mb-3">
                 <View className="flex-row items-center justify-between">
                   <View className="flex-1 mr-3">
-                    <Text className="text-gray-900 font-bold text-base">Mark as New Design</Text>
+                    <Text className={cn('font-bold text-base', textPrimaryClass)}>Mark as New Design</Text>
                     <Text className="text-gray-500 text-xs">Track this for yearly reviews</Text>
                   </View>
                   <Switch
@@ -697,70 +628,48 @@ export default function NewProductScreen() {
             </View>
           </View>
 
-            {!isService ? (
-              <View className="mt-4">
-                <View className="bg-white rounded-2xl p-4 border border-gray-200">
-                  <View className="flex-row items-center justify-between mb-3">
-                    <View className="flex-1">
-                      <Text className="text-gray-900 font-bold text-base">Global Pricing</Text>
-                      <Text className="text-gray-500 text-xs">Set one price for all variants</Text>
-                    </View>
-                    <Switch
-                      value={useGlobalPrice}
-                      onValueChange={handleGlobalPriceToggle}
-                      trackColor={{ false: '#767577', true: '#111111' }}
-                      thumbColor="#FFFFFF"
-                    />
+            <View className="mt-4">
+              <View className={cn('rounded-2xl p-4 border', cardClass)}>
+                <View className="flex-row items-center justify-between mb-3">
+                  <View className="flex-1">
+                    <Text className={cn('font-bold text-base', textPrimaryClass)}>Global Pricing</Text>
+                    <Text className="text-gray-500 text-xs">Set one price for all variants</Text>
                   </View>
-                  {useGlobalPrice && (
-                    <View>
-                      <Text className="text-gray-500 text-xs font-medium mb-1.5 uppercase tracking-wider">Sale Price (All Variants)</Text>
-                      <View className="flex-row items-center rounded-xl px-4 bg-white border border-gray-400" style={{ height: 52, justifyContent: 'center' }}>
-                        <Text className="text-gray-500 text-sm mr-2">₦</Text>
-                        <TextInput
-                          placeholder="Enter price for all variants"
-                          placeholderTextColor="#9CA3AF"
-                          value={globalPrice}
-                          onChangeText={setGlobalPrice}
-                          keyboardType="decimal-pad"
-                          className="flex-1 text-gray-900 text-sm"
-                          selectionColor="#111111"
-                        />
-                      </View>
+                  <Switch
+                    value={useGlobalPrice}
+                    onValueChange={handleGlobalPriceToggle}
+                    trackColor={{ false: '#767577', true: '#111111' }}
+                    thumbColor="#FFFFFF"
+                  />
+                </View>
+                {useGlobalPrice && (
+                  <View>
+                    <Text className="text-gray-500 text-xs font-medium mb-1.5 uppercase tracking-wider">Sale Price (All Variants)</Text>
+                    <View className={cn('flex-row items-center rounded-xl px-4 border', cardClass)} style={{ height: 52, justifyContent: 'center' }}>
+                      <Text className="text-gray-500 text-sm mr-2">₦</Text>
+                      <TextInput
+                        placeholder="Enter price for all variants"
+                        placeholderTextColor="#9CA3AF"
+                        value={globalPrice}
+                        onChangeText={setGlobalPrice}
+                        keyboardType="decimal-pad"
+                        className={cn('flex-1 text-sm', textPrimaryClass)}
+                        selectionColor="#111111"
+                      />
                     </View>
-                  )}
-                  {!useGlobalPrice && (
-                    <Text className="text-gray-500 text-xs italic">Set individual prices per variant below</Text>
-                  )}
-                </View>
-              </View>
-            ) : (
-              <View className="mt-4">
-                <View className="bg-white rounded-2xl p-4 border border-gray-200">
-                  <Text className="text-gray-900 font-bold text-base">Service Pricing</Text>
-                  <Text className="text-gray-500 text-xs mb-3">Define the default charge for this service</Text>
-                  <View className="flex-row items-center rounded-xl px-4 bg-white border border-gray-400" style={{ height: 52, justifyContent: 'center' }}>
-                    <Text className="text-gray-500 text-sm mr-2">₦</Text>
-                    <TextInput
-                      placeholder="Enter your service price"
-                      placeholderTextColor="#9CA3AF"
-                      value={globalPrice}
-                      onChangeText={setGlobalPrice}
-                      keyboardType="decimal-pad"
-                      className="flex-1 text-gray-900 text-sm"
-                      selectionColor="#111111"
-                    />
                   </View>
-                </View>
+                )}
+                {!useGlobalPrice && (
+                  <Text className="text-gray-500 text-xs italic">Set individual prices per variant below</Text>
+                )}
               </View>
-            )}
+            </View>
 
             {/* Variants Section */}
-            {!isService && (
-              <View className="mt-4">
+            <View className="mt-4">
                 <View className="flex-row items-center justify-between mb-3">
                   <View>
-                    <Text className="text-gray-900 font-bold text-base">Product Variants</Text>
+                    <Text className={cn('font-bold text-base', textPrimaryClass)}>Product Variants</Text>
                     <Text className="text-gray-500 text-xs">
                       {hasVariants ? 'Add variants with pricing' : 'Single product (no variants)'}
                     </Text>
@@ -799,7 +708,7 @@ export default function NewProductScreen() {
                     onPress={handleAddVariant}
                     className="active:opacity-70"
                   >
-                    <View className="bg-white rounded-2xl p-4 border border-gray-200 items-center py-8">
+                    <View className={cn('rounded-2xl p-4 border items-center py-8', cardClass)}>
                       <View className="w-14 h-14 rounded-2xl items-center justify-center mb-3 bg-gray-100">
                         <Package size={28} color="#9CA3AF" strokeWidth={1.5} />
                       </View>
@@ -813,13 +722,13 @@ export default function NewProductScreen() {
                     key={variant.id}
                     className="mb-3"
                   >
-                    <View className="bg-white rounded-2xl p-4 border border-gray-200">
+                    <View className={cn('rounded-2xl p-4 border', cardClass)}>
                       <View className="flex-row items-center justify-between mb-4">
                         <View className="flex-row items-center">
                           <View className="w-8 h-8 rounded-lg items-center justify-center mr-2 bg-gray-100">
                             <Text className="text-gray-700 font-bold text-sm">{index + 1}</Text>
                           </View>
-                          <Text className="text-gray-900 font-semibold">
+                          <Text className={cn('font-semibold', textPrimaryClass)}>
                             {hasVariants ? `Variant ${index + 1}` : 'Single Product'}
                           </Text>
                         </View>
@@ -933,7 +842,7 @@ export default function NewProductScreen() {
                       <View className="flex-row gap-3 mt-1">
                         <View className={useGlobalPrice ? 'flex-1' : 'flex-[0.5]'}>
                           <Text className="text-gray-500 text-xs font-medium mb-1.5 uppercase tracking-wider">Stock</Text>
-                          <View className="flex-row items-center rounded-xl px-3 border border-gray-400 bg-white" style={{ height: 52, justifyContent: 'center' }}>
+                          <View className={cn('flex-row items-center rounded-xl px-3 border', cardClass)} style={{ height: 52, justifyContent: 'center' }}>
                             <Hash size={14} color="#9CA3AF" strokeWidth={2} />
                             <TextInput
                               placeholder="0"
@@ -941,7 +850,7 @@ export default function NewProductScreen() {
                               value={variant.stock}
                               onChangeText={(text) => handleUpdateVariant(index, { stock: text })}
                               keyboardType="number-pad"
-                              className="flex-1 text-gray-900 text-sm ml-2"
+                              className={cn('flex-1 text-sm ml-2', textPrimaryClass)}
                               selectionColor="#111111"
                             />
                           </View>
@@ -949,7 +858,7 @@ export default function NewProductScreen() {
                         {!useGlobalPrice && (
                           <View className="flex-[0.5]">
                             <Text className="text-gray-500 text-xs font-medium mb-1.5 uppercase tracking-wider">Sale Price</Text>
-                            <View className="flex-row items-center rounded-xl px-3 border border-gray-400 bg-white" style={{ height: 52, justifyContent: 'center' }}>
+                            <View className={cn('flex-row items-center rounded-xl px-3 border', cardClass)} style={{ height: 52, justifyContent: 'center' }}>
                               <Text className="text-gray-500 text-sm">₦</Text>
                               <TextInput
                                 placeholder="0"
@@ -957,7 +866,7 @@ export default function NewProductScreen() {
                                 value={variant.sellingPrice}
                                 onChangeText={(text) => handleUpdateVariant(index, { sellingPrice: text })}
                                 keyboardType="decimal-pad"
-                                className="flex-1 text-gray-900 text-sm ml-1"
+                                className={cn('flex-1 text-sm ml-1', textPrimaryClass)}
                                 selectionColor="#111111"
                               />
                             </View>
@@ -967,7 +876,7 @@ export default function NewProductScreen() {
                       {useGlobalPrice && globalPrice && (
                         <View className="mt-2 p-2 rounded-lg bg-gray-50">
                           <Text className="text-gray-500 text-xs">
-                            Price: <Text className="font-bold text-gray-900">{formatCurrency(parseFloat(globalPrice) || 0)}</Text> (from Global Pricing)
+                            Price: <Text className={cn('font-bold', textPrimaryClass)}>{formatCurrency(parseFloat(globalPrice) || 0)}</Text> (from Global Pricing)
                           </Text>
                         </View>
                       )}
@@ -975,26 +884,25 @@ export default function NewProductScreen() {
                   </View>
                 ))}
               </View>
-            )}
 
             {/* Summary */}
-            {!isService && variants.length > 0 && (
+            {variants.length > 0 && (
               <View className="mb-8 mt-2">
-                <View className="bg-white rounded-2xl p-4 border border-gray-200">
+                <View className={cn('rounded-2xl p-4 border', cardClass)}>
                   <Text className="text-gray-500 text-xs font-medium mb-3 uppercase tracking-wider">Summary</Text>
                   <View className="flex-row items-center justify-between mb-2">
                     <Text className="text-gray-600 text-sm">Total Variants</Text>
-                    <Text className="text-gray-900 font-semibold">{variants.length}</Text>
+                    <Text className={cn('font-semibold', textPrimaryClass)}>{variants.length}</Text>
                   </View>
                   <View className="flex-row items-center justify-between mb-2">
                     <Text className="text-gray-600 text-sm">Total Starting Stock</Text>
-                    <Text className="text-gray-900 font-semibold">
+                    <Text className={cn('font-semibold', textPrimaryClass)}>
                       {variants.reduce((sum, v) => sum + (parseInt(v.stock, 10) || 0), 0)} units
                     </Text>
                   </View>
                   <View className="flex-row items-center justify-between">
                     <Text className="text-gray-600 text-sm">Estimated Value</Text>
-                    <Text className="text-gray-900 font-bold">
+                    <Text className={cn('font-bold', textPrimaryClass)}>
                       {formatCurrency(variants.reduce((sum, v) => {
                         const stock = parseInt(v.stock, 10) || 0;
                         const price = parseFloat(v.sellingPrice) || 0;
@@ -1159,7 +1067,7 @@ export default function NewProductScreen() {
             >
               <View className="p-5">
                 <View className="w-10 h-1 rounded-full bg-gray-300 self-center mb-4" />
-                <Text className="text-gray-900 text-lg font-bold mb-4">Add Product Image</Text>
+                <Text className={cn('text-lg font-bold mb-4', textPrimaryClass)}>Add Product Image</Text>
 
                 <Pressable
                   onPress={handlePickImage}
@@ -1170,7 +1078,7 @@ export default function NewProductScreen() {
                     <ImageIcon size={20} color="#FFFFFF" strokeWidth={2} />
                   </View>
                   <View>
-                    <Text className="text-gray-900 font-semibold">Choose Image</Text>
+                    <Text className={cn('font-semibold', textPrimaryClass)}>Choose Image</Text>
                     <Text className="text-gray-500 text-xs">Select from your device</Text>
                   </View>
                 </Pressable>
@@ -1188,6 +1096,7 @@ export default function NewProductScreen() {
           </Pressable>
         </Modal>
       </SafeAreaView>
+      </View>
 
       {/* Sticky Bottom CTA */}
       <StickyButtonContainer bottomInset={insets.bottom}>
@@ -1211,10 +1120,12 @@ export default function NewProductScreen() {
             className="flex-row items-center px-5 py-4 rounded-xl"
             style={{ backgroundColor: '#111111' }}
           >
-            <View className="w-8 h-8 rounded-full items-center justify-center mr-3 bg-white">
+            <View className="w-8 h-8 rounded-full items-center justify-center mr-3" style={{ backgroundColor: colors.bg.card }}>
               <Check size={18} color="#111111" strokeWidth={2.5} />
             </View>
-            <Text className="text-white font-semibold text-sm">Product created successfully!</Text>
+            <Text className="text-white font-semibold text-sm">
+              Product created successfully!
+            </Text>
           </View>
         </View>
       )}

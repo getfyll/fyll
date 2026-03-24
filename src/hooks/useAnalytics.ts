@@ -33,9 +33,14 @@ import {
   getServiceMetrics,
   getServiceBreakdown,
   getServiceRevenueByPeriod,
+  getAddOnMetrics,
+  getAddOnBreakdown,
+  getAddOnRevenueByPeriod,
+  getServiceVariableBreakdown,
   TabKey,
   // New refund helpers
   getRefundStats,
+  filterOrdersByRefundDateRange,
 } from '@/lib/analytics-utils';
 
 /**
@@ -58,10 +63,12 @@ export function useAnalytics(range: TimeRange, _tab: TabKey): AnalyticsResult {
     // All orders in range (including refunded) for status breakdown
     const allOrdersInRange = filterOrdersByDateRange(orders, rangeStart, rangeEnd, false);
 
-    // Get refund stats using new helper (includes partial refunds)
-    const currentRefundStats = getRefundStats(allOrdersInRange);
+    // Get refund stats using REFUND DATE (includes partial refunds)
+    const currentRefundStats = getRefundStats(
+      filterOrdersByRefundDateRange(orders, rangeStart, rangeEnd)
+    );
     const previousRefundStats = getRefundStats(
-      filterOrdersByDateRange(orders, prevStart, prevEnd, false)
+      filterOrdersByRefundDateRange(orders, prevStart, prevEnd)
     );
 
     // Core metrics
@@ -78,6 +85,13 @@ export function useAnalytics(range: TimeRange, _tab: TabKey): AnalyticsResult {
     const serviceRevenueChange = percentChange(serviceMetrics.revenue, previousServiceMetrics.revenue);
     const serviceByPeriod = getServiceRevenueByPeriod(range, currentOrders, rangeStart, rangeEnd, products);
     const serviceBreakdown = getServiceBreakdown(currentOrders, products);
+    const serviceVariableBreakdown = getServiceVariableBreakdown(currentOrders, products);
+
+    const addOnMetrics = getAddOnMetrics(currentOrders);
+    const previousAddOnMetrics = getAddOnMetrics(previousOrders);
+    const addOnRevenueChange = percentChange(addOnMetrics.revenue, previousAddOnMetrics.revenue);
+    const addOnByPeriod = getAddOnRevenueByPeriod(range, currentOrders, rangeStart, rangeEnd);
+    const addOnBreakdown = getAddOnBreakdown(currentOrders);
 
     // Previous period metrics
     const previousPeriodSales = previousOrders.reduce((sum, o) => sum + o.totalAmount, 0);
@@ -141,7 +155,7 @@ export function useAnalytics(range: TimeRange, _tab: TabKey): AnalyticsResult {
     const revenueBySource = getRevenueBySource(currentOrders);
 
     // ====== ORDERS TAB SPECIFIC ======
-    const statusBreakdown = getStatusBreakdown(allOrdersInRange);
+    const statusBreakdown = getStatusBreakdown(allOrdersInRange, orderStatuses);
     const cancellationsCount = refundsCount;
     const processingOrders = allOrdersInRange.filter(
       (o) => o.status === 'Processing' || o.status === 'Lab Processing' || o.status === 'Quality Check'
@@ -180,6 +194,7 @@ export function useAnalytics(range: TimeRange, _tab: TabKey): AnalyticsResult {
       todayServiceMetrics: todayStats.serviceMetrics,
       serviceBreakdown,
       serviceByPeriod,
+      serviceVariableBreakdown,
 
       // Chart data
       salesByPeriod,
@@ -200,6 +215,17 @@ export function useAnalytics(range: TimeRange, _tab: TabKey): AnalyticsResult {
       averageOrderValue,
       topAddOns,
       revenueBySource,
+      addOnMetrics,
+      previousAddOnMetrics,
+      addOnRevenueChange,
+      todayAddOnMetrics: getAddOnMetrics(currentOrders.filter((order) => {
+        const orderDate = new Date(order.orderDate ?? order.createdAt);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        return orderDate >= today;
+      })),
+      addOnBreakdown,
+      addOnByPeriod,
 
       // Orders tab specific
       statusBreakdown,

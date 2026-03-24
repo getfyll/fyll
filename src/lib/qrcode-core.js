@@ -1764,13 +1764,13 @@ var qrcode = function() {
     if (!stringToBytes) {
       throw 'sjis not supported.';
     }
-    !function(c, code) {
+    (function(c, code) {
       // self test for sjis support.
       var test = stringToBytes(c);
       if (test.length != 2 || ( (test[0] << 8) | test[1]) != code) {
         throw 'sjis not supported.';
       }
-    }('\u53cb', 0x9746);
+    })('\u53cb', 0x9746);
 
     var _bytes = stringToBytes(data);
 
@@ -2249,7 +2249,7 @@ var qrcode = function() {
 }();
 
 // multibyte support
-!function() {
+(function() {
 
   qrcode.stringToBytesFuncs['UTF-8'] = function(s) {
     // http://stackoverflow.com/questions/18729405/how-to-convert-utf8-string-to-byte-array
@@ -2286,7 +2286,7 @@ var qrcode = function() {
     return toUTF8Array(s);
   };
 
-}();
+})();
 
 (function (factory) {
   if (typeof define === 'function' && define.amd) {

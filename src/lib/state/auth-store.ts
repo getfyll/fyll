@@ -8,6 +8,7 @@ import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 
 export type TeamRole = 'admin' | 'manager' | 'staff';
+export type InviteStatus = 'pending' | 'joined' | 'cancelled' | 'expired';
 
 export interface TeamMember {
   id: string;
@@ -27,6 +28,11 @@ export interface PendingInvite {
   invitedAt: string;
   expiresAt: string;
   businessId: string;
+  status?: InviteStatus;
+  joinedAt?: string;
+  joinedUserId?: string;
+  emailSentAt?: string;
+  createdByUserId?: string;
 }
 
 export interface AuthUser {
@@ -92,13 +98,12 @@ interface AuthStore {
 
   // Actions
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  signup: (input: { businessName: string; name: string; email: string; password: string }) => Promise<{ success: boolean; error?: string }>;
+  signup: (input: { businessName: string; name: string; email: string; password: string; accessCode: string }) => Promise<{ success: boolean; error?: string }>;
   signInWithGoogle: () => Promise<{ success: boolean; error?: string }>;
   syncWithSupabaseSession: () => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   updateProfile: (name: string, email: string) => Promise<void>;
   updatePassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
-  enableOfflineMode: (input?: { businessName?: string; name?: string; email?: string }) => void;
 
   // Team actions (admin only)
   refreshTeamData: () => Promise<void>;
@@ -116,20 +121,10 @@ interface AuthStore {
 }
 
 const generateId = () => Math.random().toString(36).substring(2, 12);
-const generateInviteCode = () => Math.random().toString(36).substring(2, 10).toUpperCase();
-
-const slugify = (value: string) => value
-  .toLowerCase()
-  .trim()
-  .replace(/[^a-z0-9]+/g, '-')
-  .replace(/(^-|-$)+/g, '');
-
-const createBusinessId = (businessName: string) => {
-  const base = slugify(businessName) || 'business';
-  // Use timestamp + random to ensure uniqueness across multiple signups
-  const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 8);
-  return `${base}-${timestamp}${random}`;
+const generateInviteCode = () => {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const pick = (length: number) => Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  return `FYLL-${pick(4)}-${pick(2)}`;
 };
 
 const getAuthErrorMessage = (error: unknown, fallback: string) => {
@@ -174,6 +169,50 @@ const getAuthErrorMessage = (error: unknown, fallback: string) => {
   }
 };
 
+const normalizeBusinessId = (value: string | null | undefined) => {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+};
+
+const resolveAuthBusinessId = async (input: {
+  profileBusinessId?: string | null;
+  teamBusinessId?: string | null;
+  email?: string | null;
+  userId?: string | null;
+}) => {
+  const profileBusinessId = normalizeBusinessId(input.profileBusinessId);
+  const teamBusinessId = normalizeBusinessId(input.teamBusinessId);
+
+  if (!profileBusinessId) return teamBusinessId;
+  if (!teamBusinessId) return profileBusinessId;
+  if (profileBusinessId === teamBusinessId) return profileBusinessId;
+
+  const normalizedEmail = input.email?.trim().toLowerCase();
+  if (normalizedEmail) {
+    try {
+      const cachedProfile = await storage.getItem(`fyll_user_profile:${normalizedEmail}`);
+      if (cachedProfile) {
+        const parsed = JSON.parse(cachedProfile) as { businessId?: string | null };
+        const cachedBusinessId = normalizeBusinessId(parsed.businessId);
+        if (cachedBusinessId === profileBusinessId || cachedBusinessId === teamBusinessId) {
+          console.warn(
+            `Business ID mismatch for ${input.userId ?? normalizedEmail}. Using cached match ${cachedBusinessId}.`
+          );
+          return cachedBusinessId;
+        }
+      }
+    } catch (error) {
+      console.warn('Could not read cached business ID during auth resolution:', error);
+    }
+  }
+
+  console.warn(
+    `Business ID mismatch for ${input.userId ?? normalizedEmail ?? 'unknown user'}: `
+    + `profile=${profileBusinessId}, team_member=${teamBusinessId}. Preferring profile business_id.`
+  );
+  return profileBusinessId;
+};
+
 const normalizeRole = (value?: string | null): TeamRole => {
   if (value === 'admin' || value === 'manager' || value === 'staff') {
     return value;
@@ -205,10 +244,6 @@ const useAuthStore = create<AuthStore>()(
       pendingInvites: [],
 
       syncWithSupabaseSession: async () => {
-        if (get().isOfflineMode) {
-          return { success: false, error: 'You are in offline mode.' };
-        }
-
         try {
           set({ isAuthLoading: true });
 
@@ -249,21 +284,38 @@ const useAuthStore = create<AuthStore>()(
             await wait(500);
           }
 
-          const businessId = profile?.business_id ?? null;
+          const { data: teamMemberData, error: teamMemberError } = await supabase
+            .from('team_members')
+            .select('email, name, role, business_id')
+            .eq('user_id', authUser.id)
+            .maybeSingle();
+
+          if (teamMemberError) {
+            console.warn('Team member lookup failed during session sync:', teamMemberError);
+          }
+
+          const businessId = await resolveAuthBusinessId({
+            profileBusinessId: profile?.business_id,
+            teamBusinessId: teamMemberData?.business_id,
+            email: teamMemberData?.email ?? profile?.email ?? authUser.email,
+            userId: authUser.id,
+          });
           if (!businessId) {
             await supabase.auth.signOut();
             set({ isAuthLoading: false });
             return { success: false, error: 'Account data not found. Please contact support.' };
           }
 
-          const normalizedEmail = (profile?.email ?? authUser.email ?? '').trim().toLowerCase();
-          const name = profile?.name ?? getNameFromAuthUser(normalizedEmail || authUser.email || 'user@local', authUser.user_metadata as Record<string, unknown> | undefined);
+          const normalizedEmail = (teamMemberData?.email ?? profile?.email ?? authUser.email ?? '').trim().toLowerCase();
+          const name = teamMemberData?.name
+            ?? profile?.name
+            ?? getNameFromAuthUser(normalizedEmail || authUser.email || 'user@local', authUser.user_metadata as Record<string, unknown> | undefined);
 
           const userData: AuthUser = {
             id: authUser.id,
             email: normalizedEmail || authUser.email || 'user@local',
             name,
-            role: normalizeRole(profile?.role),
+            role: normalizeRole(teamMemberData?.role ?? profile?.role),
             businessId,
           };
 
@@ -297,10 +349,6 @@ const useAuthStore = create<AuthStore>()(
       },
 
       signInWithGoogle: async () => {
-        if (get().isOfflineMode) {
-          return { success: false, error: 'Turn off offline mode to use Google sign-in.' };
-        }
-
         try {
           set({ isAuthLoading: true });
 
@@ -368,7 +416,22 @@ const useAuthStore = create<AuthStore>()(
             console.warn('Auth successful, but profile lookup failed:', profileError);
           }
 
-          const businessId = profile?.business_id ?? null;
+          const { data: teamMemberData, error: teamMemberError } = await supabase
+            .from('team_members')
+            .select('email, name, role, business_id')
+            .eq('user_id', authData.user.id)
+            .maybeSingle();
+
+          if (teamMemberError) {
+            console.warn('Auth successful, but team member lookup failed:', teamMemberError);
+          }
+
+          const businessId = await resolveAuthBusinessId({
+            profileBusinessId: profile?.business_id,
+            teamBusinessId: teamMemberData?.business_id,
+            email: teamMemberData?.email ?? profile?.email ?? authData.user.email ?? normalizedEmail,
+            userId: authData.user.id,
+          });
 
           if (!businessId) {
             await supabase.auth.signOut();
@@ -381,9 +444,9 @@ const useAuthStore = create<AuthStore>()(
 
           const userData: AuthUser = {
             id: authData.user.id,
-            email: profile?.email ?? authData.user.email ?? normalizedEmail,
-            name: profile?.name ?? authData.user.email?.split('@')[0] ?? normalizedEmail.split('@')[0],
-            role: normalizeRole(profile?.role),
+            email: teamMemberData?.email ?? profile?.email ?? authData.user.email ?? normalizedEmail,
+            name: teamMemberData?.name ?? profile?.name ?? authData.user.email?.split('@')[0] ?? normalizedEmail.split('@')[0],
+            role: normalizeRole(teamMemberData?.role ?? profile?.role),
             businessId,
           };
 
@@ -440,9 +503,18 @@ const useAuthStore = create<AuthStore>()(
         }
       },
 
-      signup: async ({ businessName, name, email, password }) => {
+      signup: async ({ businessName, name, email, password, accessCode }) => {
         try {
           set({ isAuthLoading: true });
+
+          const normalizedAccessCode = accessCode.trim().toUpperCase();
+          if (!normalizedAccessCode) {
+            set({ isAuthLoading: false });
+            return {
+              success: false,
+              error: 'Access code is required.',
+            };
+          }
 
           const normalizedEmail = email.trim().toLowerCase();
           const { data: existingProfile } = await supabase
@@ -456,6 +528,31 @@ const useAuthStore = create<AuthStore>()(
             return {
               success: false,
               error: 'This email is already registered. Please sign in instead.',
+            };
+          }
+
+          type AccessCodeValidationResult = {
+            is_valid?: boolean;
+            valid?: boolean;
+            message?: string | null;
+          };
+
+          const { data: validationData, error: validationError } = await supabase
+            .rpc('validate_access_code', {
+              access_code_input: normalizedAccessCode,
+            });
+
+          if (validationError) {
+            throw validationError;
+          }
+
+          const validationRow = (Array.isArray(validationData) ? validationData[0] : validationData) as AccessCodeValidationResult | null;
+          const isAccessCodeValid = validationRow?.is_valid ?? validationRow?.valid ?? false;
+          if (!isAccessCodeValid) {
+            set({ isAuthLoading: false });
+            return {
+              success: false,
+              error: validationRow?.message ?? 'Invalid or inactive access code.',
             };
           }
 
@@ -501,6 +598,33 @@ const useAuthStore = create<AuthStore>()(
               success: false,
               error: 'Account created, but profile is not ready yet. Please try logging in.',
             };
+          }
+
+          try {
+            const { error: redeemAccessCodeError } = await supabase.rpc('redeem_access_code', {
+              access_code_input: normalizedAccessCode,
+              email_input: normalizedEmail,
+              business_name_input: businessName.trim(),
+              business_id_input: businessId,
+            });
+            if (redeemAccessCodeError) {
+              throw redeemAccessCodeError;
+            }
+          } catch (redeemError) {
+            console.warn('Access code redemption logging failed (non-fatal):', redeemError);
+          }
+
+          try {
+            const { error: founderReferralRedeemError } = await supabase.rpc('mark_founder_referral_invite_redeemed', {
+              access_code_input: normalizedAccessCode,
+              joined_business_id_input: businessId,
+              joined_user_id_input: createdUserId,
+            });
+            if (founderReferralRedeemError) {
+              throw founderReferralRedeemError;
+            }
+          } catch (founderReferralError) {
+            console.warn('Founder referral invite history update failed (non-fatal):', founderReferralError);
           }
 
           set({
@@ -689,93 +813,87 @@ const useAuthStore = create<AuthStore>()(
         return { success: true };
       },
 
-      enableOfflineMode: (input) => {
-        const businessId = createBusinessId(input?.businessName ?? 'Offline Business');
-        const name = input?.name?.trim() || input?.email?.split('@')[0] || 'Offline User';
-        const email = input?.email?.trim().toLowerCase() || 'offline@local';
-        const offlineUser: AuthUser = {
-          id: `offline-${Date.now()}`,
-          email,
-          name,
-          role: 'admin',
-          businessId,
-          isOffline: true,
-        };
-
-        set({
-          isAuthenticated: true,
-          isOfflineMode: true,
-          currentUser: offlineUser,
-          businessId,
-          teamMembers: [
-            {
-              id: offlineUser.id,
-              email: offlineUser.email,
-              name: offlineUser.name,
-              role: offlineUser.role,
-              createdAt: new Date().toISOString(),
-              lastLogin: new Date().toISOString(),
-            },
-          ],
-          pendingInvites: [],
-        });
-
-        storage.setItem(
-          `fyll_business_settings:${businessId}`,
-          JSON.stringify({
-            businessName: input?.businessName?.trim() || 'Offline Business',
-            businessLogo: null,
-            businessPhone: '',
-            businessWebsite: '',
-            returnAddress: '',
-          })
-        ).catch(() => { });
-      },
-
       refreshTeamData: async () => {
         const businessId = get().businessId;
         if (!businessId) return;
 
+        let members: TeamMember[] = [];
+
+        // Try team_members first
         const { data: teamRows, error: teamError } = await supabase
           .from('team_members')
           .select('*')
           .eq('business_id', businessId);
 
-        if (teamError) {
-          throw teamError;
-        }
-
-        const members = (teamRows ?? []).map((row) => ({
-          id: row.user_id ?? row.id,
-          email: row.email,
-          name: row.name,
-          role: normalizeRole(row.role),
-          createdAt: row.created_at ?? row.createdAt ?? new Date().toISOString(),
-          lastLogin: row.last_login ?? row.lastLogin,
-        })) as TeamMember[];
-
-        const { data: inviteRows, error: inviteError } = await supabase
-          .from('invites')
-          .select('*')
-          .eq('business_id', businessId);
-
-        if (inviteError) {
-          throw inviteError;
-        }
-
-        const now = new Date();
-        const invites = (inviteRows ?? [])
-          .map((row) => ({
-            id: row.id,
+        if (!teamError && teamRows && teamRows.length > 0) {
+          members = teamRows.map((row) => ({
+            id: row.user_id ?? row.id,
             email: row.email,
+            name: row.name,
             role: normalizeRole(row.role),
-            inviteCode: row.invite_code ?? row.inviteCode,
-            invitedBy: row.invited_by ?? row.invitedBy,
-            invitedAt: row.invited_at ?? row.invitedAt ?? new Date().toISOString(),
-            expiresAt: row.expires_at ?? row.expiresAt ?? new Date().toISOString(),
-            businessId: row.business_id,
-          }))
-          .filter((invite) => new Date(invite.expiresAt) > now) as PendingInvite[];
+            createdAt: row.created_at ?? row.createdAt ?? new Date().toISOString(),
+            lastLogin: row.last_login ?? row.lastLogin,
+          })) as TeamMember[];
+        } else {
+          // Fallback: try profiles table (broader RLS for same-business reads)
+          if (teamError) {
+            console.warn('team_members query failed, trying profiles fallback:', teamError.message);
+          }
+          const { data: profileRows, error: profileError } = await supabase
+            .from('profiles')
+            .select('id, email, name, role, created_at')
+            .eq('business_id', businessId);
+
+          if (!profileError && profileRows && profileRows.length > 0) {
+            members = profileRows.map((row) => ({
+              id: row.id,
+              email: row.email ?? '',
+              name: row.name ?? '',
+              role: normalizeRole(row.role),
+              createdAt: row.created_at ?? new Date().toISOString(),
+            })) as TeamMember[];
+          } else if (profileError) {
+            console.warn('profiles fallback also failed:', profileError.message);
+          }
+        }
+
+        let invites: PendingInvite[] = [];
+        try {
+          const { data: inviteRows, error: inviteError } = await supabase
+            .from('invites')
+            .select('*')
+            .eq('business_id', businessId);
+
+          if (!inviteError) {
+            const now = new Date();
+            invites = (inviteRows ?? [])
+              .map((row) => ({
+                id: row.id,
+                email: row.email,
+                role: normalizeRole(row.role),
+                inviteCode: row.invite_code ?? row.inviteCode,
+                invitedBy: row.invited_by ?? row.invitedBy,
+                invitedAt: row.invited_at ?? row.invitedAt ?? new Date().toISOString(),
+                expiresAt: row.expires_at ?? row.expiresAt ?? new Date().toISOString(),
+                businessId: row.business_id,
+                status: (row.status ?? 'pending') as InviteStatus,
+                joinedAt: row.joined_at ?? row.joinedAt,
+                joinedUserId: row.joined_user_id ?? row.joinedUserId,
+                emailSentAt: row.email_sent_at ?? row.emailSentAt,
+                createdByUserId: row.created_by_user_id ?? row.createdByUserId,
+              }))
+              .filter((invite) => {
+                const rawStatus = invite.status ?? 'pending';
+                const normalizedStatus = rawStatus === 'joined' || rawStatus === 'cancelled' || rawStatus === 'expired'
+                  ? rawStatus
+                  : 'pending';
+                const isExpired = new Date(invite.expiresAt) <= now;
+                return normalizedStatus === 'pending' && !isExpired;
+              }) as PendingInvite[];
+          }
+        } catch (inviteErr) {
+          console.warn('Invites query failed (non-fatal):', inviteErr);
+        }
 
         set({ teamMembers: members, pendingInvites: invites });
       },
@@ -843,13 +961,13 @@ const useAuthStore = create<AuthStore>()(
       },
 
       createInvite: async (email, role, invitedBy) => {
-        if (get().isOfflineMode) {
-          throw new Error('You appear to be offline. Connect to the internet and try again.');
-        }
-
         const businessId = get().businessId;
         if (!businessId) {
           throw new Error('No business selected');
+        }
+        const currentUser = get().currentUser;
+        if (!currentUser || currentUser.role !== 'admin') {
+          throw new Error('Only admins can invite team members');
         }
 
         const normalizedEmail = email.toLowerCase();
@@ -869,7 +987,40 @@ const useAuthStore = create<AuthStore>()(
           invitedAt: new Date().toISOString(),
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
           businessId,
+          status: 'pending',
         };
+
+        const { data: rpcInviteRows, error: rpcInviteError } = await supabase.rpc('create_business_invite', {
+          email_input: invite.email,
+          role_input: invite.role,
+          invited_by_input: invite.invitedBy,
+        });
+
+        if (!rpcInviteError) {
+          const rpcRow = (Array.isArray(rpcInviteRows) ? rpcInviteRows[0] : rpcInviteRows) as Record<string, unknown> | null;
+          if (rpcRow) {
+            const savedInvite: PendingInvite = {
+              id: (rpcRow.id as string) ?? invite.id,
+              email: (rpcRow.email as string) ?? invite.email,
+              role: normalizeRole((rpcRow.role as string | null) ?? invite.role),
+              inviteCode: (rpcRow.invite_code as string) ?? (rpcRow.inviteCode as string) ?? invite.inviteCode,
+              invitedBy: (rpcRow.invited_by as string) ?? (rpcRow.invitedBy as string) ?? invite.invitedBy,
+              invitedAt: (rpcRow.invited_at as string) ?? (rpcRow.invitedAt as string) ?? invite.invitedAt,
+              expiresAt: (rpcRow.expires_at as string) ?? (rpcRow.expiresAt as string) ?? invite.expiresAt,
+              businessId: (rpcRow.business_id as string) ?? invite.businessId,
+              status: ((rpcRow.status as InviteStatus | undefined) ?? 'pending'),
+              emailSentAt: (rpcRow.email_sent_at as string) ?? (rpcRow.emailSentAt as string) ?? undefined,
+              createdByUserId: (rpcRow.created_by_user_id as string) ?? (rpcRow.createdByUserId as string) ?? undefined,
+            };
+
+            set({ pendingInvites: [...get().pendingInvites, savedInvite] });
+            return savedInvite;
+          }
+        }
+
+        if (rpcInviteError) {
+          console.warn('create_business_invite RPC failed, falling back to direct insert:', rpcInviteError.message);
+        }
 
         const { data: inviteRow, error: inviteError } = await supabase
           .from('invites')
@@ -881,11 +1032,26 @@ const useAuthStore = create<AuthStore>()(
             invited_at: invite.invitedAt,
             expires_at: invite.expiresAt,
             business_id: invite.businessId,
+            status: 'pending',
+            created_by_user_id: currentUser.id,
           })
           .select()
           .single();
 
         if (inviteError) {
+          const { data: businessRow } = await supabase
+            .from('businesses')
+            .select('invite_limit_total')
+            .eq('id', businessId)
+            .maybeSingle();
+          const { count: inviteCount } = await supabase
+            .from('invites')
+            .select('*', { count: 'exact', head: true })
+            .eq('business_id', businessId);
+          const inviteLimit = typeof businessRow?.invite_limit_total === 'number' ? businessRow.invite_limit_total : 5;
+          if (typeof inviteCount === 'number' && inviteCount >= inviteLimit) {
+            throw new Error(`Invite limit reached (${inviteLimit} total).`);
+          }
           console.warn('Supabase invite creation failed:', inviteError);
           throw new Error('Invite could not be created. Please try again.');
         }
@@ -893,6 +1059,9 @@ const useAuthStore = create<AuthStore>()(
         const savedInvite: PendingInvite = {
           ...invite,
           id: inviteRow?.id ?? invite.id,
+          status: ((inviteRow?.status as InviteStatus | undefined) ?? 'pending'),
+          emailSentAt: inviteRow?.email_sent_at ?? inviteRow?.emailSentAt,
+          createdByUserId: inviteRow?.created_by_user_id ?? inviteRow?.createdByUserId,
         };
 
         set({ pendingInvites: [...get().pendingInvites, savedInvite] });
@@ -905,13 +1074,24 @@ const useAuthStore = create<AuthStore>()(
           .rpc('delete_invite', { invite_id_input: inviteId });
 
         if (inviteError || !data) {
-          const { error: fallbackError } = await supabase
+          const { error: softCancelError } = await supabase
+            .from('invites')
+            .update({
+              status: 'cancelled',
+              cancelled_at: new Date().toISOString(),
+              cancelled_by_user_id: get().currentUser?.id ?? null,
+            })
+            .eq('id', inviteId);
+
+          if (softCancelError) {
+            const { error: fallbackError } = await supabase
             .from('invites')
             .delete()
             .eq('id', inviteId);
 
-          if (fallbackError) {
-            throw inviteError ?? fallbackError ?? new Error('Invite could not be deleted.');
+            if (fallbackError) {
+              throw inviteError ?? softCancelError ?? fallbackError ?? new Error('Invite could not be deleted.');
+            }
           }
         }
         set({
@@ -938,9 +1118,13 @@ const useAuthStore = create<AuthStore>()(
             invitedAt: row.invited_at ?? row.invitedAt ?? new Date().toISOString(),
             expiresAt: row.expires_at ?? row.expiresAt ?? new Date().toISOString(),
             businessId: row.business_id,
+            status: (row.status ?? 'pending') as InviteStatus,
+            joinedAt: row.joined_at ?? row.joinedAt,
+            joinedUserId: row.joined_user_id ?? row.joinedUserId,
           }
           : undefined;
         if (!invite) return undefined;
+        if (invite.status && invite.status !== 'pending') return undefined;
         if (new Date(invite.expiresAt) < new Date()) return undefined;
         return invite;
       },
@@ -1010,13 +1194,25 @@ const useAuthStore = create<AuthStore>()(
             }
           }
 
-          const { error: inviteError } = await supabase
+          const joinedAt = new Date().toISOString();
+          const { error: inviteStatusError } = await supabase
             .from('invites')
-            .delete()
+            .update({
+              status: 'joined',
+              joined_at: joinedAt,
+              joined_user_id: createdUserId,
+            })
             .eq('id', invite.id);
 
-          if (inviteError) {
-            throw inviteError;
+          if (inviteStatusError) {
+            const { error: legacyDeleteInviteError } = await supabase
+              .from('invites')
+              .delete()
+              .eq('id', invite.id);
+
+            if (legacyDeleteInviteError) {
+              throw inviteStatusError;
+            }
           }
 
           set({
@@ -1048,6 +1244,30 @@ const useAuthStore = create<AuthStore>()(
     {
       name: "fyll-auth-storage",
       storage: createJSONStorage(() => storage),
+      version: 2,
+      migrate: (persistedState: unknown) => {
+        const state = (persistedState ?? {}) as Partial<AuthStore> & {
+          currentUser?: AuthUser | null;
+          isOfflineMode?: boolean;
+        };
+
+        if (state.isOfflineMode || state.currentUser?.isOffline) {
+          return {
+            ...state,
+            isAuthenticated: false,
+            isOfflineMode: false,
+            currentUser: null,
+            businessId: null,
+            teamMembers: [],
+            pendingInvites: [],
+          };
+        }
+
+        return {
+          ...state,
+          isOfflineMode: false,
+        };
+      },
     }
   )
 );

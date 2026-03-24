@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, Pressable, ScrollView, ActivityIndicator, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
-import { ChevronLeft, Upload, Users, Check, X, AlertCircle } from 'lucide-react-native';
+import { ChevronLeft, Upload, Check, X, AlertCircle } from 'lucide-react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
@@ -11,6 +11,8 @@ import { useThemeColors } from '@/lib/theme';
 import useAuthStore from '@/lib/state/auth-store';
 import useFyllStore, { Customer } from '@/lib/state/fyll-store';
 import { parseCsv } from '@/lib/csv';
+import { getSettingsWebPanelStyles, isFromSettingsRoute } from '@/lib/settings-web-panel';
+import { useSettingsBack } from '@/lib/useSettingsBack';
 
 type ImportRow = {
   name: string;
@@ -63,8 +65,10 @@ const generateCustomerId = () => {
 };
 
 export default function ImportCustomersScreen() {
-  const router = useRouter();
+  const { from } = useLocalSearchParams<{ from?: string | string[] }>();
+  const goBack = useSettingsBack();
   const colors = useThemeColors();
+  const panelStyles = getSettingsWebPanelStyles(isFromSettingsRoute(from), colors.bg.primary, colors.border.light);
   const businessId = useAuthStore((s) => s.businessId);
   const existingCustomers = useFyllStore((s) => s.customers);
   const addCustomer = useFyllStore((s) => s.addCustomer);
@@ -246,17 +250,23 @@ export default function ImportCustomersScreen() {
 
   const handleDone = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    router.back();
+    goBack();
   };
 
   return (
+    <View style={panelStyles.outer}>
+      <View style={panelStyles.inner}>
     <SafeAreaView className="flex-1" style={{ backgroundColor: colors.bg.primary }} edges={['top']}>
       {/* Header */}
       <View
         className="flex-row items-center px-5 py-4 border-b"
         style={{ borderBottomColor: colors.border.light }}
       >
-        <Pressable onPress={() => router.back()} className="mr-4 active:opacity-50">
+        <Pressable
+          onPress={goBack}
+          className="w-10 h-10 rounded-xl items-center justify-center mr-3 active:opacity-50"
+          style={{ backgroundColor: colors.bg.secondary }}
+        >
           <ChevronLeft size={24} color={colors.text.primary} strokeWidth={2} />
         </Pressable>
         <View className="flex-1">
@@ -481,5 +491,7 @@ export default function ImportCustomersScreen() {
         )}
       </ScrollView>
     </SafeAreaView>
+      </View>
+    </View>
   );
 }

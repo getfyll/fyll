@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, Pressable, Platform, Linking, ActivityIndicator, Dimensions } from 'react-native';
+import { View, Text, Pressable, Linking, ActivityIndicator, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { X, ExternalLink, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react-native';
 import { useThemeColors } from '@/lib/theme';

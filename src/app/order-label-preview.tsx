@@ -6,13 +6,17 @@ import { ArrowLeft, Printer } from 'lucide-react-native';
 import useFyllStore from '@/lib/state/fyll-store';
 import { useBusinessSettings } from '@/hooks/useBusinessSettings';
 import { OrderLabel80x90Preview } from '@/components/labels/OrderLabel80x90';
-import { prepareOrderLabelData, printOrderLabel } from '@/utils/printOrderLabel';
+import {
+  prepareOrderLabelData,
+  printOrderLabel,
+  SHIPPING_LABEL_SIZE_PRESETS,
+} from '@/utils/printOrderLabel';
 import * as Haptics from 'expo-haptics';
 import { useThemeColors } from '@/lib/theme';
 
 export default function OrderLabelPreviewScreen() {
   const router = useRouter();
-  const { orderId } = useLocalSearchParams<{ orderId: string }>();
+  const { orderId, carrierName } = useLocalSearchParams<{ orderId: string; carrierName?: string }>();
   const orders = useFyllStore((s) => s.orders);
   const order = useMemo(() => orders.find((o) => o.id === orderId), [orders, orderId]);
   const {
@@ -24,7 +28,16 @@ export default function OrderLabelPreviewScreen() {
     isLoading,
   } = useBusinessSettings();
   const colors = useThemeColors();
+  const isDark = colors.bg.primary === '#111111';
   const [isPrinting, setIsPrinting] = useState(false);
+  const [selectedLabelSizeId, setSelectedLabelSizeId] = useState<string>('4x6');
+  const selectedLabelSizePreset = useMemo(
+    () => SHIPPING_LABEL_SIZE_PRESETS.find((preset) => preset.id === selectedLabelSizeId) ?? SHIPPING_LABEL_SIZE_PRESETS[0],
+    [selectedLabelSizeId]
+  );
+
+  const carrierNameOverride =
+    typeof carrierName === 'string' && carrierName.trim().length > 0 ? carrierName.trim() : '';
 
   const labelData = useMemo(() => {
     if (!order) return null;
@@ -36,7 +49,10 @@ export default function OrderLabelPreviewScreen() {
         customerPhone: order.customerPhone,
         deliveryAddress: order.deliveryAddress,
         deliveryState: order.deliveryState,
-        logistics: order.logistics,
+        logistics: {
+          ...order.logistics,
+          carrierName: carrierNameOverride || order.logistics?.carrierName,
+        },
       },
       {
         businessName: businessName || 'FYLL',
@@ -46,7 +62,7 @@ export default function OrderLabelPreviewScreen() {
         returnAddress,
       }
     );
-  }, [order, businessName, businessLogo, businessPhone, businessWebsite, returnAddress]);
+  }, [order, businessName, businessLogo, businessPhone, businessWebsite, returnAddress, carrierNameOverride]);
 
   // Inject print styles for web to hide everything except the label preview
   useEffect(() => {
@@ -88,7 +104,7 @@ export default function OrderLabelPreviewScreen() {
     if (!labelData || isPrinting) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setIsPrinting(true);
-    await printOrderLabel(labelData);
+    await printOrderLabel(labelData, selectedLabelSizePreset.size);
     setIsPrinting(false);
   };
 
@@ -129,7 +145,7 @@ export default function OrderLabelPreviewScreen() {
               Shipping Label
             </Text>
             <Text style={{ color: colors.text.tertiary }} className="text-xs uppercase tracking-wider">
-              Confirm before print • 80mm × 90mm
+              Confirm before print • {selectedLabelSizePreset.label}
             </Text>
           </View>
         </View>
@@ -139,10 +155,48 @@ export default function OrderLabelPreviewScreen() {
           contentContainerStyle={{ paddingTop: 24, paddingHorizontal: 20, paddingBottom: 200 }}
           showsVerticalScrollIndicator={false}
         >
+          <View
+            className="rounded-2xl p-4 mb-4"
+            style={{ backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.border.light }}
+          >
+            <Text style={{ color: colors.text.tertiary }} className="text-xs font-semibold tracking-wider mb-2">
+              Label Size
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {SHIPPING_LABEL_SIZE_PRESETS.map((preset) => {
+                const active = preset.id === selectedLabelSizePreset.id;
+                return (
+                  <Pressable
+                    key={preset.id}
+                    onPress={() => setSelectedLabelSizeId(preset.id)}
+                    style={{
+                      borderWidth: 1,
+                      borderColor: active ? '#111111' : colors.border.light,
+                      backgroundColor: active ? '#111111' : colors.bg.primary,
+                      borderRadius: 999,
+                      paddingHorizontal: 12,
+                      height: 34,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Text style={{ color: active ? '#FFFFFF' : colors.text.primary, fontSize: 12, fontWeight: '700' }}>
+                      {preset.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+
           <View className="printable-order-label-container">
             <View className="items-center mb-6">
               {labelData && !isLoading ? (
-                <OrderLabel80x90Preview data={labelData} />
+                <OrderLabel80x90Preview
+                  data={labelData}
+                  widthMm={selectedLabelSizePreset.size.widthMm}
+                  heightMm={selectedLabelSizePreset.size.heightMm}
+                />
               ) : (
                 <View
                   className="rounded-2xl p-6"
@@ -187,11 +241,23 @@ export default function OrderLabelPreviewScreen() {
                 Customer Ref: {order.websiteOrderReference}
               </Text>
             )}
-            {order.logistics?.carrierName && (
+            {(carrierNameOverride || order.logistics?.carrierName) && (
               <Text style={{ color: colors.text.secondary }} className="text-sm mt-1">
-                Carrier: {order.logistics.carrierName}
+                Carrier: {carrierNameOverride || order.logistics?.carrierName}
               </Text>
             )}
+          </View>
+
+          <View
+            className="rounded-2xl p-4 mt-4"
+            style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', borderWidth: 1, borderColor: 'rgba(59, 130, 246, 0.2)' }}
+          >
+            <Text style={{ color: '#1D4ED8', fontSize: 13, lineHeight: 18 }}>
+              Mobile browser limitation: iPhone/iPad web printing supports AirPrint printers only. Most Bluetooth-only thermal printers will not appear in Safari/Chrome print lists.
+            </Text>
+            <Text style={{ color: '#1D4ED8', fontSize: 13, lineHeight: 18, marginTop: 8 }}>
+              For consistent team printing, use a Wi-Fi/Ethernet thermal printer (AirPrint/Mopria) or print from a desktop with the printer driver installed.
+            </Text>
           </View>
         </ScrollView>
 
@@ -212,15 +278,24 @@ export default function OrderLabelPreviewScreen() {
           <Pressable
             onPress={handlePrint}
             className="rounded-full items-center justify-center"
-            style={{ height: 56, backgroundColor: '#111111', opacity: isPrinting ? 0.7 : 1 }}
+            style={{
+              height: 56,
+              backgroundColor: isDark ? '#FFFFFF' : '#111111',
+              opacity: isPrinting ? 0.7 : 1,
+            }}
             disabled={isPrinting || !labelData}
           >
             {isPrinting ? (
-              <ActivityIndicator color="#FFFFFF" />
+              <ActivityIndicator color={isDark ? '#111111' : '#FFFFFF'} />
             ) : (
               <View className="flex-row items-center">
-                <Printer size={18} color="#FFFFFF" strokeWidth={2} />
-                <Text className="text-white font-semibold text-sm ml-2">Print Shipping Label</Text>
+                <Printer size={18} color={isDark ? '#111111' : '#FFFFFF'} strokeWidth={2} />
+                <Text
+                  className="font-semibold text-sm ml-2"
+                  style={{ color: isDark ? '#111111' : '#FFFFFF' }}
+                >
+                  Print Shipping Label
+                </Text>
               </View>
             )}
           </Pressable>

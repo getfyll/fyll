@@ -2,14 +2,14 @@ import React, { useState, useMemo } from 'react';
 import { View, Text, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useRouter } from 'expo-router';
-import { TrendingDown, ChevronRight, AlertTriangle } from 'lucide-react-native';
+import { ChevronRight, AlertTriangle } from 'lucide-react-native';
 import useFyllStore, { formatCurrency } from '@/lib/state/fyll-store';
 import { calculateSlowMovers } from '@/lib/inventory-analytics';
 import { getDateRange, type TimeRange } from '@/lib/analytics-utils';
 import { useStatsColors } from '@/lib/theme';
 import { DetailHeader } from '@/components/stats/DetailHeader';
 
-export default function SlowMoversScreen() {
+export default function SlowMoversScreen({ inline }: { inline?: boolean }) {
   const colors = useStatsColors();
   const router = useRouter();
   const [timeRange, setTimeRange] = useState<TimeRange>('7d');
@@ -38,10 +38,12 @@ export default function SlowMoversScreen() {
     <View className="flex-1" style={{ backgroundColor: colors.bg.screen }}>
       <Stack.Screen options={{ headerShown: false }} />
       <SafeAreaView className="flex-1" edges={['top']}>
-        <DetailHeader
-          title="Slow Movers"
-          subtitle="Products with lowest sales"
-        />
+        {!inline && (
+          <DetailHeader
+            title="Slow Movers"
+            subtitle="Products with lowest sales"
+          />
+        )}
 
         <ScrollView
           className="flex-1"

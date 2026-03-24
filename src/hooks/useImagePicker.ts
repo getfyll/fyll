@@ -3,8 +3,14 @@ import { Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { compressImage } from '@/lib/image-compression';
 
+export interface UseImagePickerOptions {
+  allowsEditing?: boolean;
+  aspect?: [number, number] | null;
+  quality?: number;
+}
+
 export interface UseImagePickerResult {
-  pickImage: () => Promise<string | null>;
+  pickImage: (options?: UseImagePickerOptions) => Promise<string | null>;
   isLoading: boolean;
   error: string | null;
   clearError: () => void;
@@ -25,7 +31,7 @@ export function useImagePicker(): UseImagePickerResult {
     setError(null);
   }, []);
 
-  const pickImage = useCallback(async (): Promise<string | null> => {
+  const pickImage = useCallback(async (options?: UseImagePickerOptions): Promise<string | null> => {
     setIsLoading(true);
     setError(null);
 
@@ -113,11 +119,12 @@ export function useImagePicker(): UseImagePickerResult {
           return null;
         }
 
+        const shouldEdit = options?.allowsEditing ?? true;
         const result = await ImagePicker.launchImageLibraryAsync({
           mediaTypes: ImagePicker.MediaTypeOptions.Images,
-          allowsEditing: true,
-          aspect: [1, 1],
-          quality: 0.8,
+          allowsEditing: shouldEdit,
+          aspect: shouldEdit ? (options?.aspect ?? [1, 1]) : undefined,
+          quality: options?.quality ?? 0.8,
         });
 
         setIsLoading(false);

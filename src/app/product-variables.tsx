@@ -1,39 +1,21 @@
 import React, { useState } from 'react';
 import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { ArrowLeft, Plus, Trash2, Edit3, Check, X, Palette, Tag } from 'lucide-react-native';
+import { useLocalSearchParams } from 'expo-router';
+import { ChevronLeft, Plus, Trash2, Edit3, Check, X, Palette, Tag } from 'lucide-react-native';
 import useFyllStore, { ProductVariable } from '@/lib/state/fyll-store';
 import useAuthStore from '@/lib/state/auth-store';
 import * as Haptics from 'expo-haptics';
-import { cn } from '@/lib/cn';
 import { Button } from '@/components/Button';
-
-// Force Light Theme Colors
-const colors = {
-  bg: {
-    primary: '#FFFFFF',
-    secondary: '#F9F9F9',
-    card: '#FFFFFF',
-  },
-  text: {
-    primary: '#111111',
-    secondary: '#333333',
-    tertiary: '#666666',
-    muted: '#999999',
-  },
-  border: {
-    light: '#E5E5E5',
-    medium: '#CCCCCC',
-  },
-  input: {
-    bg: '#FFFFFF',
-    border: '#444444',
-  },
-};
+import { useThemeColors } from '@/lib/theme';
+import { getSettingsWebPanelStyles, isFromSettingsRoute } from '@/lib/settings-web-panel';
+import { useSettingsBack } from '@/lib/useSettingsBack';
 
 export default function ProductVariablesScreen() {
-  const router = useRouter();
+  const colors = useThemeColors();
+  const { from } = useLocalSearchParams<{ from?: string | string[] }>();
+  const goBack = useSettingsBack();
+  const panelStyles = getSettingsWebPanelStyles(isFromSettingsRoute(from), colors.bg.primary, colors.border.light);
   const productVariables = useFyllStore((s) => s.productVariables);
   const addProductVariable = useFyllStore((s) => s.addProductVariable);
   const updateProductVariable = useFyllStore((s) => s.updateProductVariable);
@@ -188,7 +170,8 @@ export default function ProductVariablesScreen() {
   };
 
   return (
-    <View className="flex-1" style={{ backgroundColor: colors.bg.primary }}>
+    <View style={panelStyles.outer}>
+      <View style={panelStyles.inner}>
       <SafeAreaView className="flex-1" edges={['top']}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -197,11 +180,11 @@ export default function ProductVariablesScreen() {
           {/* Header */}
           <View className="flex-row items-center justify-between px-5 py-4 border-b" style={{ borderBottomColor: colors.border.light, backgroundColor: colors.bg.primary }}>
             <Pressable
-              onPress={() => router.back()}
+              onPress={goBack}
               className="w-10 h-10 rounded-xl items-center justify-center active:opacity-50"
               style={{ backgroundColor: colors.bg.secondary }}
             >
-              <ArrowLeft size={20} color={colors.text.primary} strokeWidth={2} />
+              <ChevronLeft size={20} color={colors.text.primary} strokeWidth={2} />
             </Pressable>
             <Text style={{ color: colors.text.primary }} className="text-lg font-bold">Product Variables</Text>
             <View className="w-10" />
@@ -489,6 +472,7 @@ export default function ProductVariablesScreen() {
           </KeyboardAvoidingView>
         </Modal>
       </SafeAreaView>
+      </View>
 
       <Modal
         visible={!!pendingDeleteVariable}
@@ -504,19 +488,19 @@ export default function ProductVariablesScreen() {
           <Pressable
             onPress={(event) => event.stopPropagation()}
             className="w-[90%] rounded-2xl p-5"
-            style={{ backgroundColor: '#FFFFFF', maxWidth: 420 }}
+            style={{ backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border.light, maxWidth: 420 }}
           >
-            <Text className="text-lg font-bold text-gray-900 mb-2">Delete variable?</Text>
-            <Text className="text-sm text-gray-600 mb-4">
+            <Text style={{ color: colors.text.primary }} className="text-lg font-bold mb-2">Delete variable?</Text>
+            <Text style={{ color: colors.text.tertiary }} className="text-sm mb-4">
               This will remove "{pendingDeleteVariable?.name}" and all of its values.
             </Text>
             <View className="flex-row gap-3">
               <Pressable
                 onPress={() => setPendingDeleteVariable(null)}
                 className="flex-1 rounded-xl items-center justify-center"
-                style={{ height: 48, backgroundColor: '#F3F4F6' }}
+                style={{ height: 48, backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.border.light }}
               >
-                <Text className="text-gray-700 font-semibold">Cancel</Text>
+                <Text style={{ color: colors.text.secondary }} className="font-semibold">Cancel</Text>
               </Pressable>
               <Pressable
                 onPress={confirmDeleteVariable}

@@ -11,7 +11,7 @@ import { formatCurrency } from '@/lib/state/fyll-store';
 import { TimeRange } from '@/lib/analytics-utils';
 import { useStatsColors } from '@/lib/theme';
 
-export default function SalesInsightScreen() {
+export default function SalesInsightScreen({ inline }: { inline?: boolean }) {
   const colors = useStatsColors();
   const [timeRange, setTimeRange] = useState<TimeRange>('7d');
   const analytics = useAnalytics(timeRange, 'sales');
@@ -40,10 +40,12 @@ export default function SalesInsightScreen() {
     <View className="flex-1" style={{ backgroundColor: colors.bg.screen }}>
       <Stack.Screen options={{ headerShown: false }} />
       <SafeAreaView className="flex-1" edges={['top']}>
-        <DetailHeader
-          title="Sales Analytics"
-          subtitle="Revenue breakdown and trends"
-        />
+        {!inline && (
+          <DetailHeader
+            title="Sales Analytics"
+            subtitle="Revenue breakdown and trends"
+          />
+        )}
 
         <ScrollView
           className="flex-1"
